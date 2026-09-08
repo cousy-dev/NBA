@@ -440,6 +440,7 @@ function newSeason(save) {
   save.seasonNo++;
   save.gameNo = 0;
   save.record = { w: 0, l: 0 };
+  save.tradeDeadlinePassed = false;  /* 重置交易截止日标志 */
   save.schedule = makeSchedule(save);
   save.standings = initStandings(save);
   save.playerStats = {};

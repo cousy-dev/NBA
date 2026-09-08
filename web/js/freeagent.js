@@ -236,6 +236,41 @@ function reSignPlayer(save, playerId, years, salary) {
   return true;
 }
 
+/* ===== 赛季中提前续约（在册球员，区别于休赛期 reSignPlayer 的 faPool 入口） ===== */
+/* 仅允许剩余年限 ≤ 2 的球员续约（避免任意合同无限重签） */
+function extendContract(save, playerId, newYears, newSalary) {
+  const entry = save.roster.find(r => r.id === playerId);
+  if (!entry) { toast("球员不在阵容中"); return false; }
+  /* 资格门槛：剩余年限 ≤ 2 */
+  if (entry.years > 2) { toast("剩余 " + entry.years + " 年合同，不符合提前续约条件（需 ≤ 2 年）"); return false; }
+  /* 鸟权等级：复用现有规则。无鸟权（birdYears < 1）→ 非鸟权，按非鸟权顶薪续约 */
+  const level = birdRightsLevel(entry.birdYears || 0);
+  if (!level) { toast("该球员无鸟权，无法提前续约"); return false; }
+  /* 顶薪校验 */
+  const p = PLAYERS_RATED.players.find(x => x.id === playerId) || { ovr: 75 };
+  const maxSal = maxSalaryByBird(p.ovr, playerId, level);
+  if (newSalary > maxSal + 0.01) { toast("超过鸟权顶薪上限 " + fmtM(maxSal)); return false; }
+  /* 年限校验 */
+  const [minY, maxY] = birdYearsRange(level);
+  if (newYears < minY || newYears > maxY) { toast("年限不合法（" + minY + "-" + maxY + "年）"); return false; }
+  /* 工资帽校验：替换旧合同后的总薪资不得超过鸟权超帽上限 */
+  const total = save.roster.reduce((s, r) => s + r.salary, 0) - entry.salary + newSalary;
+  const cap = birdCapAbsolute(level);
+  if (total > cap + 0.01) { toast("超过鸟权超帽上限 " + fmtM(cap) + "（" + birdLabel(level) + "）"); return false; }
+  /* 续约成功：替换原合同，保留鸟权累计，重置选项 */
+  entry.salary = newSalary;
+  entry.years = newYears;
+  entry.optionType = null;
+  entry.optionYear = 0;
+  entry.optionSalary = 0;
+  entry.isRookieScale = false;
+  entry.signedVia = "extension";
+  maybeAssignOption(entry, p.ovr, playerId);
+  writeSave(save);
+  toast("续约成功！" + newYears + " 年 " + fmtM(newSalary) + "/年（" + birdLabel(level) + "）");
+  return true;
+}
+
 /* ===== 签约自由球员（UFA，受工资帽约束） ===== */
 function signFreeAgent(save, playerId, years, salary) {
   const faItem = (save.faPool || []).find(f => f.id === playerId);

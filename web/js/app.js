@@ -24,6 +24,8 @@ const ARENA_POOL = ["星穹球馆", "龙曜中心", "极光体育馆", "皇冠�
 const SALARY_CAP = 140.6;
 const TAX_LINE = 170.8;
 const FIRST_APRON = 178.1;
+/* 交易截止日：常规赛第 53 场结束后（82 场的 65%，对齐 NBA 现实 2 月中旬截止日） */
+const TRADE_DEADLINE_GAME = 53;
 /* 球市分级预算：大球市可挥金至第一奢侈税线，中球市到奢侈税线，小球市紧贴硬帽 */
 const MARKET_PRESETS = [
   { key: "small",  label: "小球市", amount: SALARY_CAP,  cap: SALARY_CAP,  desc: "紧贴工资帽 · 营收有限" },
@@ -176,6 +178,7 @@ function currentStep() {
     case "seasonend": return ["赛季总结", 1, 1];
     case "trade": return ["交易中心", 1, 1];
     case "trade-deal": return ["交易谈判", 1, 1];
+    case "extend": return ["提前续约", 1, 1];
     case "draft": return ["NBA 选秀", 1, 1];
     default: return ["", 0, 1];
   }
@@ -1046,7 +1049,10 @@ RENDERERS.hub = function () {
     '<div class="hub-nav"><button class="mc-btn" id="btn-standings">📊 联盟排名</button>' +
     '<button class="mc-btn" id="btn-schedule">📅 赛程战报</button>' +
     (save.playoffs ? '<button class="mc-btn" id="btn-playoff">🏀 季后赛对阵图</button>' : "") +
-    '<button class="mc-btn" id="btn-trade">🔄 交易中心</button>' +
+    (save.tradeDeadlinePassed
+      ? '<button class="mc-btn disabled" disabled>🚫 交易截止</button>'
+      : '<button class="mc-btn" id="btn-trade">🔄 交易中心</button>') +
+    '<button class="mc-btn" id="btn-extend">📝 提前续约</button>' +
     '<button class="mc-btn" id="btn-awards">🏆 奖项追踪</button></div>' +
     gameHtml + leadersHtml +
     '<h3 class="section-h">球队阵容</h3>' +
@@ -1074,6 +1080,8 @@ RENDERERS.hub = function () {
   if (bsc) bsc.onclick = () => go("schedule");
   const bt = $("#btn-trade");
   if (bt) bt.onclick = () => go("trade");
+  const be = $("#btn-extend");
+  if (be) be.onclick = () => go("extend");
   const bpo = $("#btn-playoff");
   if (bpo) bpo.onclick = () => go("playoff");
   const ba = $("#btn-awards");
@@ -1172,6 +1180,11 @@ function completeGame(sim, win) {
     if (g) { g.result = win ? "W" : "L"; g.score = sim.score().slice(); }
     if (win) { save.record.w++; save.standings[my].w++; } else { save.record.l++; save.standings[my].l++; }
     save.gameNo++;
+    /* 交易截止日：第 53 场结束后禁用交易（约赛季 65%，对齐 NBA 现实 2 月中旬） */
+    if (save.gameNo === TRADE_DEADLINE_GAME && !save.tradeDeadlinePassed) {
+      save.tradeDeadlinePassed = true;
+      toast("🚫 交易截止日已过，本赛季不再允许交易");
+    }
     simLeagueRound(save);
     if (save.gameNo >= save.schedule.length) {
       buildPlayoffs(save);
@@ -1195,6 +1208,7 @@ RENDERERS.match = function () {
     '  <button class="mc-btn" id="mc-speed">速度 x1</button>' +
     '  <button class="mc-btn gold" id="mc-timeout">暂停 4</button>' +
     '  <button class="mc-btn" id="mc-sub">换人</button>' +
+    '  <button class="mc-btn" id="mc-stats">📊 实时数据</button>' +
     "</div>" +
     '<div class="m-tactics">' +
     '  <label>防守 <select id="m-def">' +
@@ -1215,6 +1229,14 @@ RENDERERS.match = function () {
     "    </div>" +
     '    <div class="m-modal-actions"><button class="btn btn-outline" id="sub-cancel">关闭</button>' +
     '    <button class="btn btn-primary" id="sub-do" disabled>确认换人</button></div>' +
+    "  </div>" +
+    "</div>" +
+    '<div class="m-modal hidden" id="m-statsmodal">' +
+    '  <div class="m-modal-box m-stats-box">' +
+    '    <h3>📊 实时数据</h3>' +
+    '    <div id="stats-body"></div>' +
+    '    <div class="m-modal-actions"><button class="btn btn-outline" id="stats-close">关闭</button>' +
+    '    <button class="btn btn-primary" id="stats-refresh">🔄 刷新</button></div>' +
     "  </div>" +
     "</div>";
   const save = state.save;
@@ -1240,6 +1262,7 @@ RENDERERS.match = function () {
     } else toast("暂停次数已用完");
   };
   $("#mc-sub").onclick = () => { if (!state.match.over) { setPause(true); openSubModal(); } };
+  $("#mc-stats").onclick = () => { setPause(true); openStatsModal(); };
   $("#mc-skip").onclick = () => {
     const m = state.match;
     if (m.over) return;
@@ -1255,6 +1278,9 @@ RENDERERS.match = function () {
   $("#m-pace").onchange = e => { sim.setTactic(0, "pace", e.target.value); pushFeed({ t: "tac", text: "【战术】节奏切换为 " + PACE_LABELS[e.target.value] }); };
   $("#sub-cancel").onclick = () => $("#m-submodal").classList.add("hidden");
   $("#sub-do").onclick = doSub;
+  $("#stats-close").onclick = () => $("#m-statsmodal").classList.add("hidden");
+  $("#stats-refresh").onclick = () => renderStatsBody();
+  $("#m-statsmodal").onclick = e => { if (e.target.id === "m-statsmodal") $("#m-statsmodal").classList.add("hidden"); };
   setPause(true);
 };
 let subSel = { out: null, in: null };
@@ -1288,6 +1314,40 @@ function doSub() {
     pushFeed({ t: "sub", text: "【换人】" + sim._p(sim.teams[0], subSel.in).nameCn + " 上场，" + sim._p(sim.teams[0], subSel.out).nameCn + " 下场" });
     $("#m-submodal").classList.add("hidden");
   }
+}
+/* ===== 实时数据弹窗：双方球员 box score ===== */
+function openStatsModal() { renderStatsBody(); $("#m-statsmodal").classList.remove("hidden"); }
+function renderStatsBody() {
+  const sim = state.match && state.match.sim;
+  if (!sim) return;
+  const fmtMin = sec => Math.floor(sec / 60) + ":" + String(Math.floor(sec % 60)).padStart(2, "0");
+  const HEAD = '<div class="box-h"><span class="bx-name">球员</span><span>MIN</span><span>PTS</span><span>REB</span><span>AST</span><span>STL</span><span>BLK</span><span>TOV</span><span>FG</span><span>3PT</span><span>FT</span></div>';
+  const renderSide = (side, label) => {
+    const rows = side.all.map(p => {
+      const b = side.box.get(p.id) || { pts:0,reb:0,ast:0,stl:0,blk:0,tov:0,fgm:0,fga:0,tpm:0,tpa:0,ftm:0,fta:0,sec:0 };
+      const starter = side.court.includes(p.id);
+      return '<div class="box-row' + (starter ? " starter" : "") + '">' +
+        '<span class="bx-name">' + esc(p.nameCn) + (starter ? ' <i class="bx-st">首</i>' : "") + '</span>' +
+        '<span>' + fmtMin(b.sec) + '</span>' +
+        '<span><b>' + b.pts + '</b></span>' +
+        '<span>' + b.reb + '</span>' +
+        '<span>' + b.ast + '</span>' +
+        '<span>' + b.stl + '</span>' +
+        '<span>' + b.blk + '</span>' +
+        '<span>' + b.tov + '</span>' +
+        '<span>' + b.fgm + '-' + b.fga + '</span>' +
+        '<span>' + b.tpm + '-' + b.tpa + '</span>' +
+        '<span>' + b.ftm + '-' + b.fta + '</span>' +
+      '</div>';
+    }).join("");
+    return '<div class="box-team"><h4>' + esc(label) + '</h4>' + HEAD + rows + '</div>';
+  };
+  const sc = sim.score();
+  const body =
+    '<div class="box-score-summary">' + esc(sim.teams[0].info.name) + ' <b>' + sc[0] + '</b> : <b>' + sc[1] + '</b> ' + esc(sim.teams[1].info.name) + ' · Q' + sim.q + ' ' + Math.max(0, Math.floor(sim.clock / 60)) + ":" + String(Math.floor(Math.max(0, sim.clock) % 60)).padStart(2, "0") + '</div>' +
+    renderSide(sim.teams[0], sim.teams[0].info.name) +
+    renderSide(sim.teams[1], sim.teams[1].info.name);
+  $("#stats-body").innerHTML = body;
 }
 function startTimer() {
   const m = state.match;
@@ -1822,6 +1882,12 @@ RENDERERS.seasonend = function () {
 state.trade = { aiTeam: null, myPicks: [], aiPicks: [], myDraftPicks: [], aiDraftPicks: [], result: null };
 RENDERERS.trade = function () {
   const save = state.save;
+  /* 守卫：交易截止日已过则禁止进入交易 */
+  if (save.tradeDeadlinePassed) {
+    toast("🚫 交易截止日已过，本赛季不再允许交易");
+    RENDERERS.hub(); state.stack = []; activate("hub");
+    return;
+  }
   const my = myAbbr(save);
   const others = TEAMS.filter(t => t.abbr !== my).map(t => ({
     ...t, str: teamStrength(t.abbr), val: teamStrength(t.abbr).toFixed(1)
@@ -2229,6 +2295,63 @@ RENDERERS["draft-result"] = function () {
     RENDERERS.freeagent();
     state.stack = []; activate("freeagent");
   };
+};
+
+/* ===== 赛季中提前续约 ===== */
+RENDERERS.extend = function () {
+  const save = state.save;
+  const my = myAbbr(save);
+  const mine = loadMyPlayers(save);
+  /* 资格：剩余年限 ≤ 2 年 */
+  const eligible = mine.filter(x => {
+    const entry = save.roster.find(r => r.id === x.p.id);
+    return entry && entry.years <= 2;
+  }).sort((a, b) => b.p.ovr - a.p.ovr);
+  /* 计算总薪资用于工资帽提示 */
+  const total = Math.round(save.roster.reduce((s, r) => s + r.salary, 0) * 10) / 10;
+
+  $("#screen-extend").innerHTML =
+    '<h2 class="screen-title">提前续约</h2>' +
+    '<p class="screen-sub">赛季中可提前续约剩余合同 ≤ 2 年的在册球员 · 当前薪资总额 ' + fmtM(total) + '</p>' +
+    (eligible.length
+      ? '<div class="ext-list">' + eligible.map(x => {
+          const entry = save.roster.find(r => r.id === x.p.id) || {};
+          const level = birdRightsLevel(entry.birdYears || 0);
+          const levelLabel = level ? birdLabel(level) : "无鸟权";
+          const [minY, maxY] = level ? birdYearsRange(level) : [1, 5];
+          const maxSal = level ? maxSalaryByBird(x.p.ovr, x.p.id, level) : 0;
+          const defSal = Math.round(estimateSalary(x.p.ovr, x.p.id) * 10) / 10;
+          const defYears = Math.min(maxY, Math.max(minY, 3));
+          return '<div class="ext-row" data-id="' + x.p.id + '">' +
+            '<div class="ext-head">' +
+            '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + '</div>' +
+            '  <div class="ext-name">' + esc(x.p.nameCn) + ' <span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(x.p.pos) + '</span></div>' +
+            '  <div class="ext-cur">现 ' + fmtM(entry.salary) + '/年 · 剩 ' + (entry.years || 0) + '年 · ' + levelLabel + '</div>' +
+            '</div>' +
+            (level
+              ? '<div class="ext-form">' +
+                '  <label>年限 <input type="number" class="ext-input ext-years" min="' + minY + '" max="' + maxY + '" value="' + defYears + '" /> 年 (' + minY + '-' + maxY + ')</label>' +
+                '  <label>薪资 <input type="number" class="ext-input ext-salary" step="0.1" min="0.5" max="' + maxSal + '" value="' + defSal + '" /> M (上限 ' + fmtM(maxSal) + ')</label>' +
+                '  <button class="btn btn-primary ext-submit" data-id="' + x.p.id + '">续约</button>' +
+                '</div>'
+              : '<div class="ext-no-bird">无鸟权，不可提前续约（需本赛季末进入自由市场流程）</div>') +
+          '</div>';
+        }).join("") + '</div>'
+      : '<div class="ext-empty">当前阵容无符合提前续约条件的球员（剩余合同均 > 2 年）</div>') +
+    '<button class="btn btn-outline" id="ext-back">返回经理室</button>';
+  $("#ext-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  $$("#screen-extend .ext-submit").forEach(btn => {
+    btn.onclick = () => {
+      const row = btn.closest(".ext-row");
+      const id = Number(btn.dataset.id);
+      const years = parseInt(row.querySelector(".ext-years").value, 10);
+      const salary = parseFloat(row.querySelector(".ext-salary").value);
+      if (isNaN(years) || isNaN(salary)) { toast("请输入有效的年限和薪资"); return; }
+      if (extendContract(save, id, years, salary)) {
+        RENDERERS.extend();
+      }
+    };
+  });
 };
 
 document.addEventListener("DOMContentLoaded", () => {
