@@ -264,7 +264,7 @@ class GameSim {
       const offensive = Math.random() < orebP;
       const rebTeam = offensive ? offT : defT;
       const rebPlayers = offensive ? offP.filter(p => p.id !== shooter.id) : defP;
-      const rebber = this._weighted(rebPlayers, p => this._attr(rebTeam, p.id, "reb") + (catOf(p.pos) === "C" ? 3 : catOf(p.pos) === "F" ? 1 : 0));
+      const rebber = this._weighted(rebPlayers, p => this._attr(rebTeam, p.id, "reb") * (p.pos.indexOf("C") >= 0 ? 1.55 : p.pos.indexOf("F") >= 0 ? 1.2 : 0.55));
       rebTeam.box.get(rebber.id).reb++;
       evs.push({ t: "reb", side: rebTeam.idx, text: rebber.nameCn + " 摘下" + (offensive ? "进攻" : "防守") + "篮板" });
       if (!offensive) this.off = 1 - this.off;
