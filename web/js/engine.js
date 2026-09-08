@@ -44,7 +44,7 @@ function pickRotation(players) {
     if (o < 75) return 20;
     if (o < 85) return 30;
     if (o < 90) return 34;
-    return 38;
+    return 36;
   };
   const clamp = () => {
     const total = Array.from(targetMin.values()).reduce((a, b) => a + b, 0);
@@ -132,9 +132,9 @@ class GameSim {
     const out = this._attr(side, p.id, "out");
     const ins = this._attr(side, p.id, "ins");
     let starF;
-    if (ovr >= 92) starF = 3.2;
-    else if (ovr >= 87) starF = 2.4;
-    else if (ovr >= 82) starF = 1.7;
+    if (ovr >= 92) starF = 3.5;
+    else if (ovr >= 87) starF = 2.5;
+    else if (ovr >= 82) starF = 2.35;
     else if (ovr >= 77) starF = 1.2;
     else starF = 0.7;
     return (org * 0.35 + out * 0.35 + ins * 0.30 + ovr * 0.08) * starF;
@@ -161,7 +161,7 @@ class GameSim {
     const momOff = this.momentum.side === this.off ? 0.02 : this.momentum.side === 1 - this.off ? -0.02 : 0;
 
     /* 消耗时间与体能 */
-    let poss = 14 + Math.random() * 7;
+    let poss = 12 + Math.random() * 6;
     if (tac.pace === "fast") poss = 10 + Math.random() * 6;
     if (tac.pace === "slow") poss = 19 + Math.random() * 7;
     if (defTac.def === "press") poss -= 2;
@@ -204,15 +204,16 @@ class GameSim {
     }
 
     /* 投篮选择：usage rate 驱动，star 球员出手更多 */
-    /* org/120：org 90 → 75% 传给别人（接近真实 NBA 助攻率） */
-    const shooter = Math.random() < this._attr(offT, handler.id, "org") / 120
+    /* 持球决策：roll < passP 时传给无球队友（按 usageWeight 加权），否则持球人自己攻；球星 OVR 越高 passP 越低、自攻越多 */
+    const passP = Math.max(0.30, Math.min(0.50, 0.37 + (handler.ovr - 80) * 0.005));
+    const shooter = Math.random() < passP
       ? this._weighted(offP.filter(p => p.id !== handler.id), p => this._usageWeight(offT, p))
       : handler;
-    let threeP = 0.30 + (this._attr(offT, shooter.id, "out") - 78) * 0.005;
+    let threeP = 0.35 + (this._attr(offT, shooter.id, "out") - 78) * 0.005;
     if (tac.pace === "slow") threeP *= 0.7;
     if (defTac.def === "zone") threeP -= 0.02;
     const isThree = Math.random() < Math.max(0.08, threeP);
-    const isRim = !isThree && Math.random() < 0.62;
+    const isRim = !isThree && Math.random() < 0.68;
     const defender = this._weighted(defP, p => this._attr(defT, p.id, "def") + Math.random() * 8);
     const dA = this._attr(defT, defender.id, "def");
     let fgP;
@@ -246,7 +247,7 @@ class GameSim {
       }
       ev.pts = isThree ? 3 : 2;
       evs.push(ev);
-      if (isRim && Math.random() < 0.09) this._foulFTs(offT, defT, shooter, defP, evs, 1);
+      if (Math.random() < (isRim ? 0.16 : 0.05)) this._foulFTs(offT, defT, shooter, defP, evs, 1);
       this.momentum = this.momentum.side === this.off ? { side: this.off, streak: this.momentum.streak + 1 } : { side: this.off, streak: 1 };
     } else {
       if (isRim && Math.random() < 0.075) {
@@ -258,7 +259,7 @@ class GameSim {
       }
       const oR = offP.reduce((s, p) => s + this._attr(offT, p.id, "reb"), 0);
       const dR = defP.reduce((s, p) => s + this._attr(defT, p.id, "reb"), 0);
-      let orebP = 0.28 * (oR / dR);
+      let orebP = 0.27 * Math.min(1.35, oR / dR);
       if (defTac.def === "zone") orebP -= 0.02;
       const offensive = Math.random() < orebP;
       const rebTeam = offensive ? offT : defT;
@@ -269,7 +270,7 @@ class GameSim {
       if (!offensive) this.off = 1 - this.off;
       else if (Math.random() < 0.4) evs[evs.length - 1].text += "（二次进攻）";
     }
-    if (!made && isRim && Math.random() < 0.13) this._foulFTs(offT, defT, shooter, defP, evs, 2);
+    if (!made && Math.random() < (isRim ? 0.24 : 0.09)) this._foulFTs(offT, defT, shooter, defP, evs, 2);
     this._autoSub(offT, evs); this._autoSub(defT, evs);
     return { events: evs, over: false, score: this.score(), q: this.q, clock: this.clock };
   }
@@ -302,16 +303,16 @@ class GameSim {
       let cands = bench.filter(p => {
         const pPlayed = side.playedSec.get(p.id) / 60;
         const pTarget = side.targetMin.get(p.id) || 0;
-        return pPlayed < pTarget * 0.85 && side.energy.get(p.id) > 35;
+        return pPlayed < pTarget * 1.05 && side.energy.get(p.id) > 30;
       }).sort((a, b) => {
         const fitA = Math.abs(evaluateFit(a.pos) - evaluateFit(pos));
         const fitB = Math.abs(evaluateFit(b.pos) - evaluateFit(pos));
         if (fitA !== fitB) return fitA - fitB;
         return b.ovr - a.ovr;
       });
-      /* 兜底：所有替补中选体能最高的（即使已超 targetMin，避免主力打 44 分钟） */
+      /* 兜底：所有替补中选体能最高的（即使已超 targetMin，避免主力打 44 分钟）；超出目标 2 分钟以上强制换人 */
       if (!cands.length) {
-        cands = bench.filter(p => side.energy.get(p.id) > 20)
+        cands = bench.filter(p => side.energy.get(p.id) > (played >= (target || 40) + 2 ? 0 : 20))
           .sort((a, b) => {
             const fitA = Math.abs(evaluateFit(a.pos) - evaluateFit(pos));
             const fitB = Math.abs(evaluateFit(b.pos) - evaluateFit(pos));
