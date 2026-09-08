@@ -1045,6 +1045,7 @@ RENDERERS.hub = function () {
     "</div>" +
     '<div class="hub-nav"><button class="mc-btn" id="btn-standings">📊 联盟排名</button>' +
     '<button class="mc-btn" id="btn-schedule">📅 赛程战报</button>' +
+    (save.playoffs ? '<button class="mc-btn" id="btn-playoff">🏀 季后赛对阵图</button>' : "") +
     '<button class="mc-btn" id="btn-trade">🔄 交易中心</button>' +
     '<button class="mc-btn" id="btn-awards">🏆 奖项追踪</button></div>' +
     gameHtml + leadersHtml +
@@ -1073,6 +1074,8 @@ RENDERERS.hub = function () {
   if (bsc) bsc.onclick = () => go("schedule");
   const bt = $("#btn-trade");
   if (bt) bt.onclick = () => go("trade");
+  const bpo = $("#btn-playoff");
+  if (bpo) bpo.onclick = () => go("playoff");
   const ba = $("#btn-awards");
   if (ba) ba.onclick = () => go("awards");
   const bse = $("#btn-seasonend");
@@ -1542,6 +1545,129 @@ RENDERERS.awards = function () {
     };
   });
   $$("#screen-awards .aw-row[data-id]").forEach(row => { row.onclick = () => openPlayer(Number(row.dataset.id)); });
+};
+
+/* ===== 季后赛树状对阵图 ===== */
+RENDERERS.playoff = function () {
+  const save = state.save;
+  if (!save || !save.playoffs) { back(); return; }
+  const ps = save.playoffs;
+  const my = myAbbr(save);
+  const teamShort = abbr => {
+    const t = TEAMS.find(x => x.abbr === abbr);
+    return t ? t.nameCn : abbr;
+  };
+  const logo = abbr => abbr ? teamLogoHtml(abbr) : "";
+  /* 系列赛卡片：双方球队 + 比分 + 晋级标记 */
+  const seriesCard = (s, isUserInvolved) => {
+    if (!s) return '<div class="br-empty"></div>';
+    const aWin = s.winner === s.a, bWin = s.winner === s.b;
+    const userA = s.a === my, userB = s.b === my;
+    const myWon = s.done && s.winner === my;
+    const myLost = s.done && (s.a === my || s.b === my) && s.winner !== my;
+    return '<div class="br-series' + (isUserInvolved ? " mine" : "") + (myWon ? " won" : "") + (myLost ? " lost" : "") + (s.done ? " done" : "") + '">' +
+      '<div class="br-team' + (aWin ? " adv" : "") + (userA ? " me" : "") + '">' +
+        '<span class="br-seed">' + (s.seedA || "") + '</span>' +
+        '<span class="br-logo">' + logo(s.a) + '</span>' +
+        '<span class="br-tname">' + esc(teamShort(s.a)) + '</span>' +
+        '<span class="br-score' + (aWin ? " win" : "") + '">' + (s.wa || 0) + '</span>' +
+      '</div>' +
+      '<div class="br-team' + (bWin ? " adv" : "") + (userB ? " me" : "") + '">' +
+        '<span class="br-seed">' + (s.seedB || "") + '</span>' +
+        '<span class="br-logo">' + logo(s.b) + '</span>' +
+        '<span class="br-tname">' + esc(teamShort(s.b)) + '</span>' +
+        '<span class="br-score' + (bWin ? " win" : "") + '">' + (s.wb || 0) + '</span>' +
+      '</div>' +
+      '</div>';
+  };
+  /* 计算每个系列在所属分部树中的轮次索引 */
+  const rounds = ps.rounds;
+  const curRound = ps.round;
+  /* 东部 bracket 列：R1(8 队→4 系列) | R2(2 系列) | R3(1 系列，分区冠军) */
+  const eastR1 = rounds[0] ? rounds[0].E : [];
+  const eastR2 = rounds[1] ? rounds[1].E : [];
+  const eastR3 = rounds[2] ? rounds[2].E : [];
+  const westR1 = rounds[0] ? rounds[0].W : [];
+  const westR2 = rounds[1] ? rounds[1].W : [];
+  const westR3 = rounds[2] ? rounds[2].W : [];
+  const finalRound = rounds[3] ? rounds[3].E[0] : null;
+  /* 渲染一列系列赛（垂直堆叠） */
+  const renderColumn = (seriesList, isUserInvolvedFn) => {
+    if (!seriesList || seriesList.length === 0) {
+      /* 空列占位（保持网格对齐） */
+      return '<div class="br-col">' + Array(4).fill('<div class="br-empty"></div>').join("") + '</div>';
+    }
+    return '<div class="br-col">' + seriesList.map(s => seriesCard(s, isUserInvolvedFn ? isUserInvolvedFn(s) : false)).join("") + '</div>';
+  };
+  /* 单分部 bracket（东或西） */
+  const renderConf = (r1, r2, r3, label) => {
+    const userInSeries = s => s && (s.a === my || s.b === my);
+    return '<div class="br-conf">' +
+      '<div class="br-conf-label">' + label + '</div>' +
+      '<div class="br-cols">' +
+        '<div class="br-col">' + (r1.length ? r1.map(s => seriesCard(s, userInSeries(s))).join("") : Array(4).fill('<div class="br-empty"></div>').join("")) + '</div>' +
+        '<div class="br-col">' + (r2.length ? r2.map(s => seriesCard(s, userInSeries(s))).join("") : Array(2).fill('<div class="br-empty"></div>').join("")) + '</div>' +
+        '<div class="br-col">' + (r3.length ? r3.map(s => seriesCard(s, userInSeries(s))).join("") : '<div class="br-empty"></div>') + '</div>' +
+      '</div>' +
+    '</div>';
+  };
+  /* 总决赛列 */
+  const finalHtml = finalRound
+    ? '<div class="br-col br-final">' + seriesCard(finalRound, finalRound && (finalRound.a === my || finalRound.b === my)) + '</div>'
+    : '<div class="br-col br-final"><div class="br-empty"></div></div>';
+  /* 冠军区 */
+  const champHtml = ps.done && ps.champion
+    ? '<div class="br-col br-champ"><div class="br-champion' + (ps.champion === my ? " mine" : "") + '">' +
+      '<div class="br-trophy">🏆</div>' +
+      '<div class="br-logo">' + logo(ps.champion) + '</div>' +
+      '<div class="br-tname">' + esc(teamShort(ps.champion)) + '</div>' +
+      '<div class="br-clabel">' + (ps.champion === my ? "你夺冠了！" : "总冠军") + '</div>' +
+      '</div></div>'
+    : '<div class="br-col br-champ"><div class="br-empty"></div></div>';
+  /* 当前轮次提示 */
+  const curRoundName = ps.done ? "季后赛已结束" : (rounds[curRound] ? rounds[curRound].name + " 进行中" : "季后赛");
+  /* 用户系列赛进度提示 */
+  let userSeriesHtml = "";
+  if (ps.userSeries && !ps.userSeries.done) {
+    const opp = ps.userSeries.a === my ? ps.userSeries.b : ps.userSeries.a;
+    const myWins = ps.userSeries.a === my ? ps.userSeries.wa : ps.userSeries.wb;
+    const oppWins = ps.userSeries.a === my ? ps.userSeries.wb : ps.userSeries.wa;
+    userSeriesHtml = '<div class="br-user-series">你的系列赛 vs ' + esc(teamShort(opp)) +
+      ' · 当前 <b>' + myWins + '-' + oppWins + '</b>（4 胜晋级）' +
+      (ps.userSeries.userHigher ? ' · 你有主场优势' : '') + '</div>';
+  } else if (ps.userResult) {
+    userSeriesHtml = '<div class="br-user-series">本赛季季后赛结果：' + esc(ps.userResult) + '</div>';
+  }
+  /* 横向 5 轮标签 */
+  const roundLabels = ['<div class="br-round-label">首轮</div>',
+    '<div class="br-round-label">分区半决赛</div>',
+    '<div class="br-round-label">分区决赛</div>',
+    '<div class="br-round-label">总决赛</div>',
+    '<div class="br-round-label">冠军</div>'].join("");
+
+  $("#screen-playoff").innerHTML =
+    '<h2 class="screen-title">季后赛对阵图</h2>' +
+    '<p class="screen-sub">第 ' + save.seasonNo + ' 赛季 · ' + curRoundName + '</p>' +
+    userSeriesHtml +
+    '<div class="br-scroll">' +
+    '<div class="br-round-labels">' + roundLabels + '</div>' +
+    '<div class="br-main">' +
+      renderConf(eastR1, eastR2, eastR3, "东部") +
+      '<div class="br-divider"></div>' +
+      renderConf(westR1, westR2, westR3, "西部") +
+      '<div class="br-divider"></div>' +
+      finalHtml +
+      champHtml +
+    '</div>' +
+    '</div>' +
+    '<div class="br-legend">' +
+      '<span class="lg-item"><span class="lg-dot me"></span>你的球队</span>' +
+      '<span class="lg-item"><span class="lg-dot won"></span>系列赛获胜</span>' +
+      '<span class="lg-item"><span class="lg-dot lost"></span>系列赛失利</span>' +
+      '<span class="lg-item"><span class="lg-dot pending"></span>未开始/进行中</span>' +
+    '</div>' +
+    '<button class="btn btn-outline" id="po-back">返回</button>';
+  $("#po-back").onclick = () => back();
 };
 
 /* ===== 常规赛结束总结（季后赛入口 / 赛季结束入口 + 奖项公布） ===== */

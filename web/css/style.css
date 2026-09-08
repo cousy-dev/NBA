@@ -565,6 +565,66 @@ body {
 .morale-hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
 .morale-chip { font-size: 10.5px; font-weight: 700; margin-left: 4px; }
 
+/* 季后赛树状对阵图 */
+.br-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px 0 12px; }
+.br-round-labels { display: grid; grid-template-columns: repeat(3, 130px) 8px repeat(3, 130px) 8px 130px 130px; gap: 8px; padding: 0 8px 8px; min-width: 800px; }
+.br-round-label { font-size: 11px; color: var(--muted); text-align: center; padding: 4px 0; border-bottom: 1px solid var(--border); font-weight: 600; }
+.br-main { display: grid; grid-template-columns: repeat(3, 130px) 8px repeat(3, 130px) 8px 130px 130px; gap: 8px; padding: 0 8px; min-width: 800px; align-items: stretch; }
+.br-conf-label { display: none; }
+.br-col { display: flex; flex-direction: column; justify-content: space-around; gap: 6px; padding: 4px 0; }
+.br-divider { width: 1px; background: var(--border); margin: 0 4px; }
+.br-empty { height: 60px; }
+
+/* 系列赛卡片 */
+.br-series { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--card); transition: all 0.2s; }
+.br-series.mine { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 2px 8px rgba(255,215,0,0.15); }
+.br-series.won { border-color: #2ecc71; box-shadow: 0 0 0 1px #2ecc71, 0 2px 8px rgba(46,204,113,0.15); }
+.br-series.lost { border-color: #e74c3c; opacity: 0.85; }
+.br-team { display: flex; align-items: center; gap: 4px; padding: 5px 6px; font-size: 11.5px; line-height: 1.3; background: var(--card); border-bottom: 1px solid var(--border); }
+.br-team:last-child { border-bottom: none; }
+.br-team.adv { background: linear-gradient(90deg, rgba(46,204,113,0.08), transparent); }
+.br-team.me { background: linear-gradient(90deg, rgba(255,215,0,0.12), transparent); }
+.br-seed { width: 14px; font-size: 10px; color: var(--muted); text-align: center; font-weight: 700; }
+.br-logo { width: 18px; height: 18px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.br-logo img { width: 18px; height: 18px; object-fit: contain; }
+.br-tname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.br-score { font-weight: 800; min-width: 14px; text-align: right; color: var(--muted); }
+.br-score.win { color: #2ecc71; }
+.br-series.done .br-team:not(.adv) { opacity: 0.55; }
+.br-series.done .br-tname { text-decoration: line-through; color: var(--muted); }
+
+/* 冠军区 */
+.br-champion { border: 2px solid var(--gold); border-radius: 12px; padding: 8px; text-align: center; background: linear-gradient(135deg, rgba(255,215,0,0.12), var(--card)); }
+.br-champion.mine { background: linear-gradient(135deg, rgba(255,215,0,0.25), var(--card)); box-shadow: 0 4px 16px rgba(255,215,0,0.3); }
+.br-trophy { font-size: 22px; line-height: 1; margin-bottom: 4px; }
+.br-clabel { font-size: 10px; color: var(--gold); font-weight: 700; margin-top: 2px; }
+
+/* 用户系列赛进度 */
+.br-user-series { background: linear-gradient(90deg, rgba(255,215,0,0.1), transparent); border-left: 3px solid var(--gold); padding: 8px 12px; margin: 8px 0; border-radius: 4px; font-size: 13px; }
+.br-user-series b { color: var(--gold); font-size: 16px; }
+
+/* 图例 */
+.br-legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; font-size: 11px; color: var(--muted); justify-content: center; }
+.lg-item { display: inline-flex; align-items: center; gap: 4px; }
+.lg-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.lg-dot.me { background: var(--gold); }
+.lg-dot.won { background: #2ecc71; }
+.lg-dot.lost { background: #e74c3c; }
+.lg-dot.pending { background: var(--border); }
+
+/* 手机端：保持横向滚动，缩小列宽 */
+@media (max-width: 560px) {
+  .br-round-labels, .br-main { min-width: 720px; grid-template-columns: repeat(3, 120px) 6px repeat(3, 120px) 6px 120px 120px; gap: 6px; padding: 0 4px; }
+  .br-round-label { font-size: 10px; }
+  .br-team { font-size: 10.5px; padding: 4px 5px; }
+  .br-seed { width: 12px; font-size: 9px; }
+  .br-logo, .br-logo img { width: 16px; height: 16px; }
+  .br-tname { font-size: 10.5px; }
+  .br-score { font-size: 11px; }
+  .br-champion { padding: 6px; }
+  .br-trophy { font-size: 18px; }
+}
+
 /* 盲盒选秀：大学球探报告样式 */
 .draft-row .dr-age { font-size: 11px; color: var(--muted); margin-left: 6px; font-weight: 500; }
 .draft-row .dr-college { font-size: 12px; color: #4f8ef7; margin-top: 3px; font-weight: 600; }
