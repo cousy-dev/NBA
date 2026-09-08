@@ -190,36 +190,45 @@ function signRookie(save, rookie) {
   writeSave(save);
 }
 
-/* 执行完整选秀（用户选 1 轮，AI 自动选其余）。order 长度 60（30队）或 62（含自建队） */
-function runDraft(save, userPickId, draftClass, order, userPickIdx) {
-  const pickedIds = new Set();
-  const results = []; /* {pick, abbr, rookie} */
-  for (let i = 0; i < order.length; i++) {
-    const abbr = order[i % order.length];
-    let rookie;
-    if (i === userPickIdx) {
-      rookie = draftClass.find(r => r.id === userPickId);
-    } else {
-      rookie = aiPickRookie(draftClass, save, abbr, pickedIds);
+/* 处理单个选秀签位：记录新秀归属、持久化到存档与全局库、用户队则签约 */
+/* results 累积 { pick, abbr, rookie } */
+function processPick(save, rookie, teamAbbr, pickNumber, results) {
+  rookie.team = teamAbbr;
+  save.customPlayers = save.customPlayers || [];
+  if (!save.customPlayers.find(p => p.id === rookie.id)) {
+    save.customPlayers.push(rookie);
+  }
+  if (!PLAYERS_RATED.players.find(p => p.id === rookie.id)) {
+    PLAYERS_RATED.players.push(rookie);
+    if (LEAGUE_EST) LEAGUE_EST.set(rookie.id, estStats(rookie));
+  }
+  if (teamAbbr === myAbbr(save)) {
+    signRookie(save, rookie);
+  }
+  results.push({ pick: pickNumber, abbr: teamAbbr, rookie });
+}
+
+/* AI 自动选完从 startIdx 起的所有剩余签位 */
+/* pickOrder: [{ team, round, pick, season, originalTeam }] 已按顺位排序 */
+/* userPickMap: { idx: rookieId } 用户在哪些签位选了谁（idx 为 pickOrder 下标） */
+/* pickedIds: Set 已被选走的 ID */
+/* results: 累积结果数组，函数末尾写入 save.draftResults */
+function autoRunRemaining(save, draftClass, pickOrder, startIdx, pickedIds, userPickMap, results) {
+  for (let i = startIdx; i < pickOrder.length; i++) {
+    if (pickedIds.size >= draftClass.length) break;
+    const po = pickOrder[i];
+    let rookie = null;
+    /* 用户预先选定的签位 */
+    if (userPickMap[i] != null) {
+      rookie = draftClass.find(r => r.id === userPickMap[i] && !pickedIds.has(r.id));
+    }
+    /* 否则 AI 选 */
+    if (!rookie) {
+      rookie = aiPickRookie(draftClass, save, po.team, pickedIds);
     }
     if (!rookie) continue;
     pickedIds.add(rookie.id);
-    rookie.team = abbr;
-    /* 持久化所有新秀到存档 */
-    save.customPlayers = save.customPlayers || [];
-    if (!save.customPlayers.find(p => p.id === rookie.id)) {
-      save.customPlayers.push(rookie);
-    }
-    /* 同时加入运行时全局库 */
-    if (!PLAYERS_RATED.players.find(p => p.id === rookie.id)) {
-      PLAYERS_RATED.players.push(rookie);
-      if (LEAGUE_EST) LEAGUE_EST.set(rookie.id, estStats(rookie));
-    }
-    /* 用户队签约 */
-    if (abbr === myAbbr(save)) {
-      signRookie(save, rookie);
-    }
-    results.push({ pick: i + 1, abbr, rookie });
+    processPick(save, rookie, po.team, po.pick, results);
   }
   save.draftResults = results;
   return results;

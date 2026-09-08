@@ -956,7 +956,7 @@ RENDERERS.hub = function () {
   /* 自愈：休赛期选秀未完成（如刷新/中途退出），回到经理室时自动引导回选秀大会 */
   if (save.pendingDraft) {
     if (!state.draft || !state.draft.class_) {
-      state.draft = { class_: genDraftClass(save), order: null, pickedId: null, results: null, pickOrder: null };
+      state.draft = { class_: genDraftClass(save), pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null };
     }
     toast("休赛期选秀尚未完成，请先完成选秀");
     RENDERERS.draft();
@@ -1808,7 +1808,7 @@ RENDERERS.seasonend = function () {
     writeSave(save);
     if (save.pendingDraft) {
       save.pendingDraft = false;
-      state.draft = { class_: genDraftClass(save), order: null, pickedId: null, results: null };
+      state.draft = { class_: genDraftClass(save), pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null };
       go("draft");
     } else {
       toast("第 " + save.seasonNo + " 赛季开始！");
@@ -2041,30 +2041,69 @@ RENDERERS["trade-deal"] = function () {
 };
 
 /* ===== NBA 选秀 ===== */
-state.draft = { class_: null, order: null, pickedId: null, results: null };
+/* 回合制交互式选秀：用户在属于自己的每个选秀签位上各选一次新秀，
+   其余 AI 签位可手动「AI 自动选人」逐支触发，也可「跳到我的下一顺位」自动模拟。
+   选秀权可通过交易获得多个，因此用户可能有多次选人机会。 */
+state.draft = { class_: null, pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null };
 RENDERERS.draft = function () {
   const save = state.save;
   const d = state.draft;
-  if (!d.class_) { d.class_ = genDraftClass(save); d.pickedId = null; d.results = null; }
-  /* 用 computePickOrder 获取交易后的真实顺位 */
-  if (!d.pickOrder) d.pickOrder = computePickOrder(save);
-  const po = d.pickOrder;
   const my = myAbbr(save);
-  const myPickInfo = po.find(p => p.team === my && p.round === 1);
-  const myPick = myPickInfo ? myPickInfo.pick : 15;
-  const myPickIdx = myPick - 1;
-  const top = d.class_.slice(0, 20);
+  if (!d.class_) { d.class_ = genDraftClass(save); d.results = null; }
+  if (!d.pickOrder) {
+    d.pickOrder = computePickOrder(save);
+    d.currentIdx = 0;
+    d.pickedIds = new Set();
+    d.results = [];
+    d.draftLog = [];
+  }
+  const po = d.pickOrder;
+
+  /* 已完成 → 直接进结果页 */
+  if (d.results && d.results.length >= po.length) { finishDraft(save, d); return; }
+  /* 用户在本届选秀中没有任何签位 → 自动模拟全部 */
+  const userIndices = po.map((p, i) => p.team === my ? i : -1).filter(i => i >= 0);
+  if (!userIndices.length) {
+    autoRunRemaining(save, d.class_, po, 0, d.pickedIds, {}, d.results);
+    finishDraft(save, d);
+    toast("本届选秀你没有选秀权，AI 已自动完成全部选秀");
+    return;
+  }
+  /* 全部签位走完 → 结算 */
+  if (d.currentIdx >= po.length) { finishDraft(save, d); return; }
+
+  const cur = po[d.currentIdx];
+  const isMyTurn = cur.team === my;
+  const avail = d.class_.filter(r => !d.pickedIds.has(r.id));
+  const logRows = d.draftLog.slice(-10).reverse();
+  const SHOW = 30;
 
   $("#screen-draft").innerHTML =
     '<h2 class="screen-title">NBA 选秀大会</h2>' +
-    '<p class="screen-sub">第 ' + save.seasonNo + " 赛季选秀 · 你的顺位：第 " + myPick + " 顺位 · 大学球探报告</p>" +
-    (d.pickedId ? '<div class="draft-picked-banner">已选择：' + esc((d.class_.find(r => r.id === d.pickedId) || {}).nameCn || "") +
-      ' <span class="dpb-hint">点击该球员可取消，点击其他球员可更换</span>' +
-      '<button class="btn btn-primary" id="btn-draft-confirm">确认选秀结果</button></div>' : '<div class="draft-hint">从下方新秀中选择一位（你的顺位前可选）· 能力值和潜力将在选秀后揭晓</div>') +
+    '<p class="screen-sub">第 ' + save.seasonNo + " 赛季选秀 · 第 " + cur.pick + " 顺位 / 共 " + po.length + " · 进度 " + d.currentIdx + "/" + po.length + "</p>" +
+    '<div class="draft-otc' + (isMyTurn ? " me" : "") + '">' +
+      (isMyTurn ? '🎯 轮到你了！第 ' + cur.pick + " 顺位（" + (cur.round === 1 ? "首轮" : "次轮") + "）· 从下方选择一名新秀"
+                : '⏳ 第 ' + cur.pick + " 顺位 · " + esc(teamName(cur.team)) + " 正在选秀（" + (cur.round === 1 ? "首轮" : "次轮") + "）") +
+    "</div>" +
+    /* 用户选秀权进度 */
+    '<div class="draft-my-picks">' + userIndices.map(i => {
+      const pk = po[i];
+      const done = i < d.currentIdx;
+      const isCur = i === d.currentIdx;
+      return '<span class="dmp-chip' + (done ? " done" : "") + (isCur ? " cur" : "") + '">' +
+        (done ? "✓ " : isCur ? "▶ " : "○ ") + "第" + pk.pick + "顺位(" + (pk.round === 1 ? "首轮" : "次轮") + ")</span>";
+    }).join("") + "</div>" +
+    (isMyTurn
+      ? '<div class="draft-hint">从下方新秀中选择一位 · 能力值和潜力将在选秀后揭晓</div>'
+      : '<div class="draft-ai-actions">' +
+          '<button class="btn btn-primary" id="btn-ai-pick">▶ AI 自动选人</button>' +
+          '<button class="btn btn-outline" id="btn-ai-skip-me">⏩ 跳到我的下一顺位</button>' +
+          '<button class="btn btn-outline" id="btn-ai-skip-all">⏭ 跳过剩余选秀</button>' +
+        "</div>") +
     '<div class="draft-list">' +
-    top.map((r, i) => {
+    avail.slice(0, SHOW).map((r, i) => {
       const cs = r.collegeStats || {};
-      return '<div class="draft-row' + (d.pickedId === r.id ? " picked" : "") + '" data-id="' + r.id + '">' +
+      return '<div class="draft-row' + (isMyTurn ? " selectable" : " locked") + '" data-id="' + r.id + '">' +
       '  <span class="dr-rank">' + (i + 1) + "</span>" +
       '  <div class="dr-info">' +
       '    <div class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(r.pos) + "</span>" +
@@ -2082,40 +2121,80 @@ RENDERERS.draft = function () {
       "  </div>" +
       "</div>";
     }).join("") +
+    (avail.length > SHOW ? '<div class="draft-more-hint">…还有 ' + (avail.length - SHOW) + " 名新秀（潜力更低）</div>" : "") +
     "</div>" +
-    (d.pickedId ? "" : '<button class="btn btn-outline" id="btn-skip-draft">跳过选秀（AI 自动选择）</button>');
-  $$("#screen-draft .draft-row").forEach(row => {
-    row.onclick = () => {
-      const id = Number(row.dataset.id);
-      if (d.pickedId === id) {
-        d.pickedId = null;  /* 取消选择 */
-      } else {
-        d.pickedId = id;    /* 选择/切换 */
-      }
-      RENDERERS.draft();
-    };
-  });
-  const bSkip = $("#btn-skip-draft");
-  if (bSkip) bSkip.onclick = () => {
-    const available = d.class_.filter(r => !d.pickedId || r.id !== d.pickedId);
-    d.pickedId = available[0] ? available[0].id : d.class_[0].id;
+    (logRows.length ? '<div class="draft-log"><h3>📋 选秀动态</h3>' +
+      logRows.map(l =>
+        '<div class="dl-row' + (l.isUser ? " me" : "") + '"><span class="dl-pick">#' + l.pick + "</span>" +
+        '<span class="dl-team">' + esc(teamName(l.abbr)) + "</span>" +
+        '<span class="dl-name">' + esc(l.rookieName) + "</span>" +
+        (l.isUser ? '<span class="dl-tag">你</span>' : "") + "</div>"
+      ).join("") + "</div>" : "");
+
+  /* 用户回合：点击新秀选人 */
+  if (isMyTurn) {
+    $$("#screen-draft .draft-row.selectable").forEach(row => {
+      row.onclick = () => {
+        const id = Number(row.dataset.id);
+        const rookie = d.class_.find(r => r.id === id);
+        if (!rookie || d.pickedIds.has(id)) return;
+        d.pickedIds.add(id);
+        processPick(save, rookie, my, cur.pick, d.results);
+        d.draftLog.push({ pick: cur.pick, abbr: my, rookieName: rookie.nameCn, isUser: true });
+        d.currentIdx++;
+        writeSave(save);
+        toast("第 " + cur.pick + " 顺位选中：" + rookie.nameCn);
+        RENDERERS.draft();
+      };
+    });
+    return;
+  }
+  /* AI 回合：单次自动选人 */
+  const bAi = $("#btn-ai-pick");
+  if (bAi) bAi.onclick = () => {
+    const rookie = aiPickRookie(d.class_, save, cur.team, d.pickedIds);
+    if (!rookie) { d.currentIdx = po.length; RENDERERS.draft(); return; }
+    d.pickedIds.add(rookie.id);
+    processPick(save, rookie, cur.team, cur.pick, d.results);
+    d.draftLog.push({ pick: cur.pick, abbr: cur.team, rookieName: rookie.nameCn, isUser: false });
+    d.currentIdx++;
     RENDERERS.draft();
   };
-  const bConf = $("#btn-draft-confirm");
-  if (bConf) bConf.onclick = () => {
-    /* 用 computePickOrder 获取真实顺位（含交易后变化） */
-    const order = d.pickOrder.map(p => p.team);
-    const myIdx = d.pickOrder.findIndex(p => p.team === myAbbr(save) && p.round === 1);
-    d.results = runDraft(save, d.pickedId, d.class_, order, myIdx);
-    save.pendingDraft = false;
-    writeSave(save);
-    const myRookie = d.results.find(r => r.abbr === myAbbr(save));
-    toast("选秀完成！" + (myRookie ? "你选了 " + myRookie.rookie.nameCn : ""));
-    RENDERERS["draft-result"]();
-    state.stack = [];
-    activate("draft-result");
+  /* AI 回合：自动模拟到用户的下一签位 */
+  const bSkipMe = $("#btn-ai-skip-me");
+  if (bSkipMe) bSkipMe.onclick = () => {
+    while (d.currentIdx < po.length && po[d.currentIdx].team !== my) {
+      const c = po[d.currentIdx];
+      const rookie = aiPickRookie(d.class_, save, c.team, d.pickedIds);
+      if (!rookie) { d.currentIdx = po.length; break; }
+      d.pickedIds.add(rookie.id);
+      processPick(save, rookie, c.team, c.pick, d.results);
+      d.draftLog.push({ pick: c.pick, abbr: c.team, rookieName: rookie.nameCn, isUser: false });
+      d.currentIdx++;
+    }
+    RENDERERS.draft();
+  };
+  /* AI 回合：跳过剩余全部选秀（用户的后续签位也由 AI 代选） */
+  const bSkipAll = $("#btn-ai-skip-all");
+  if (bSkipAll) bSkipAll.onclick = () => {
+    autoRunRemaining(save, d.class_, po, d.currentIdx, d.pickedIds, {}, d.results);
+    d.currentIdx = po.length;
+    finishDraft(save, d);
   };
 };
+
+/* 选秀结算：写入存档并跳转结果页 */
+function finishDraft(save, d) {
+  save.draftResults = d.results;
+  save.pendingDraft = false;
+  writeSave(save);
+  const my = myAbbr(save);
+  const myRookie = (d.results || []).find(r => r.abbr === my);
+  toast("选秀完成！" + (myRookie ? "你选了 " + myRookie.rookie.nameCn : "本届无选秀权"));
+  RENDERERS["draft-result"]();
+  state.stack = [];
+  activate("draft-result");
+}
 
 /* ===== 选秀结果 ===== */
 RENDERERS["draft-result"] = function () {
