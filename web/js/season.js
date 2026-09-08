@@ -443,14 +443,25 @@ function newSeason(save) {
   save.schedule = makeSchedule(save);
   save.standings = initStandings(save);
   save.playerStats = {};
-  save.lastPlayoffs = save.playoffs ? {
-    champion: save.playoffs.champion,
-    rounds: save.playoffs.rounds.map(r => r ? {
-      name: r.name,
-      E: r.E.map(s => ({ winner: s.winner, loser: s.a === s.winner ? s.b : s.a })),
-      W: r.W.map(s => ({ winner: s.winner, loser: s.a === s.winner ? s.b : s.a }))
-    }) : []
-  } : null;
+  /* 保存季后赛结果供选秀顺位计算 */
+  var lp = null;
+  if (save.playoffs) {
+    lp = { champion: save.playoffs.champion, rounds: [] };
+    save.playoffs.rounds.forEach(function(r) {
+      if (!r) { lp.rounds.push(null); return; }
+      var rd = { name: r.name, E: [], W: [] };
+      r.E.forEach(function(s) {
+        var loser = s.a === s.winner ? s.b : s.a;
+        rd.E.push({ winner: s.winner, loser: loser });
+      });
+      r.W.forEach(function(s) {
+        var loser = s.a === s.winner ? s.b : s.a;
+        rd.W.push({ winner: s.winner, loser: loser });
+      });
+      lp.rounds.push(rd);
+    });
+  }
+  save.lastPlayoffs = lp;
   save.playoffs = null;
   save.pendingDraft = true;  /* 标记需要选秀 */
   return save;
