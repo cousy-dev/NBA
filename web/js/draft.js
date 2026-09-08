@@ -124,8 +124,9 @@ function genDraftClass(save) {
     const seed = i / n;
     class_.push(genRookie(seed));
   }
-  /* 按潜力排序展示 */
-  class_.sort((a, b) => b.potential - a.potential || b.ovr - a.ovr);
+  /* 打乱展示顺序：避免玩家总是选第一位就拿到最高潜力新秀；
+     AI 选人时仍按潜力+需求排序，公平性不变 */
+  shuffleArr(class_);
   return class_;
 }
 
@@ -167,6 +168,8 @@ function aiPickRookie(draftClass, save, aiTeamAbbr, pickedIds) {
 
 /* 用户选人后的入职（新秀合同 = 4 年保障 + isRookieScale 标记 RFA 资格） */
 function signRookie(save, rookie) {
+  /* 幂等保护：刷新/中断后重入时避免重复签约同一新秀 */
+  if (save.roster && save.roster.some(r => r.id === rookie.id)) return;
   const sal = estimateSalary(rookie.ovr, rookie.id);
   const years = rookieContractYears(rookie.potential || 75);
   /* 新秀合同：birdYears 从 0 开始，isRookieScale=true（到期后享受 RFA 资格） */
@@ -191,8 +194,9 @@ function signRookie(save, rookie) {
 }
 
 /* 处理单个选秀签位：记录新秀归属、持久化到存档与全局库、用户队则签约 */
-/* results 累积 { pick, abbr, rookie } */
+/* results 累积 { pick, abbr, rookie }；幂等：同一新秀已处理则跳过 */
 function processPick(save, rookie, teamAbbr, pickNumber, results) {
+  if (results.some(r => r.rookie.id === rookie.id)) return;
   rookie.team = teamAbbr;
   save.customPlayers = save.customPlayers || [];
   if (!save.customPlayers.find(p => p.id === rookie.id)) {
