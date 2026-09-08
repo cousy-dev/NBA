@@ -1895,22 +1895,31 @@ RENDERERS.draft = function () {
 
   $("#screen-draft").innerHTML =
     '<h2 class="screen-title">NBA 选秀大会</h2>' +
-    '<p class="screen-sub">第 ' + save.seasonNo + " 赛季选秀 · 你的顺位：第 " + myPick + " 顺位</p>" +
+    '<p class="screen-sub">第 ' + save.seasonNo + " 赛季选秀 · 你的顺位：第 " + myPick + " 顺位 · 大学球探报告</p>" +
     (d.pickedId ? '<div class="draft-picked-banner">已选择：' + esc((d.class_.find(r => r.id === d.pickedId) || {}).nameCn || "") +
       ' <span class="dpb-hint">点击该球员可取消，点击其他球员可更换</span>' +
-      '<button class="btn btn-primary" id="btn-draft-confirm">确认选秀结果</button></div>' : '<div class="draft-hint">从下方新秀中选择一位（你的顺位前可选）</div>') +
+      '<button class="btn btn-primary" id="btn-draft-confirm">确认选秀结果</button></div>' : '<div class="draft-hint">从下方新秀中选择一位（你的顺位前可选）· 能力值和潜力将在选秀后揭晓</div>') +
     '<div class="draft-list">' +
-    top.map((r, i) =>
-      '<div class="draft-row' + (d.pickedId === r.id ? " picked" : "") + '" data-id="' + r.id + '">' +
+    top.map((r, i) => {
+      const cs = r.collegeStats || {};
+      return '<div class="draft-row' + (d.pickedId === r.id ? " picked" : "") + '" data-id="' + r.id + '">' +
       '  <span class="dr-rank">' + (i + 1) + "</span>" +
-      '  <div class="ovr-badge ' + ovrClass(r.ovr) + '">' + r.ovr + "</div>" +
       '  <div class="dr-info">' +
-      '    <div class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(r.pos) + "</span></div>" +
-      '    <div class="dr-meta">' + r.age + "岁 · 潜力 " + r.potential + " · " + esc(r.pos) + "</div>" +
+      '    <div class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(r.pos) + "</span>" +
+      '      <span class="dr-age">' + r.age + "岁 · " + (r.heightCm || 198) + "cm</span></div>" +
+      '    <div class="dr-college">' + esc(cs.college || "大学") + "</div>" +
+      '    <div class="dr-cstats">' +
+      '      <span class="cs-stat"><b>' + (cs.ppg || 0).toFixed(1) + "</b><i>分</i></span>" +
+      '      <span class="cs-stat"><b>' + (cs.rpg || 0).toFixed(1) + "</b><i>板</i></span>" +
+      '      <span class="cs-stat"><b>' + (cs.apg || 0).toFixed(1) + "</b><i>助</i></span>" +
+      '      <span class="cs-stat"><b>' + (cs.spg || 0).toFixed(1) + "</b><i>断</i></span>" +
+      '      <span class="cs-stat"><b>' + (cs.bpg || 0).toFixed(1) + "</b><i>帽</i></span>" +
+      '      <span class="cs-stat"><b>' + (cs.fgPct || 0).toFixed(1) + "%</b><i>FG</i></span>" +
+      '      <span class="cs-stat"><b>' + (cs.tpm || 0).toFixed(1) + "</b><i>3PM</i></span>" +
+      "    </div>" +
       "  </div>" +
-      '  <div class="dr-pot"><span class="pot-label">潜力</span><span class="pot-val ' + (r.potential >= 88 ? "hi" : r.potential >= 80 ? "mid" : "lo") + '">' + r.potential + "</span></div>" +
-      "</div>"
-    ).join("") +
+      "</div>";
+    }).join("") +
     "</div>" +
     (d.pickedId ? "" : '<button class="btn btn-outline" id="btn-skip-draft">跳过选秀（AI 自动选择）</button>');
   $$("#screen-draft .draft-row").forEach(row => {

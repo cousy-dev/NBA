@@ -71,6 +71,34 @@ function genRookie(pickOvrSeed) {
   const attrBonus = Math.max(0, Math.min(3, Math.round((attrs.ath - 60) * 0.08 + (attrs.org - 55) * 0.06)));
   const potential = Math.max(50, Math.min(96, potentialBase + ageMod + attrBonus));
 
+  /* 大学联赛数据：基于 OVR + 位置模板 + 随机波动，模拟真实大学赛况
+     选秀界面只展示大学数据，隐藏 OVR/潜力，给玩家"盲盒选秀"体验 */
+  const posR = { G: 3.2, "G-F": 4.6, F: 5.8, "F-C": 7.4, C: 9.6 };
+  const posA = { G: 5.8, "G-F": 4.2, F: 2.6, "F-C": 1.8, C: 1.4 };
+  const posS = { G: 1.4, "G-F": 1.2, F: 0.9, "F-C": 0.7, C: 0.5 };
+  const posB = { G: 0.5, "G-F": 0.7, F: 0.9, "F-C": 1.3, C: 1.8 };
+  const ovrFactor = Math.max(0.3, (ovr - 50) / 35); /* 0.3-1.0+ */
+  const collegeJitter = (salt, range) => Math.round((hash01(id, salt) - 0.5) * 2 * range * 10) / 10;
+  /* 得分：OVR 80+ 才能拿到 20+ 分；大学赛场比 NBA 容易，数据普遍偏高 */
+  let collegePpg;
+  if (ovr >= 75) collegePpg = 18 + (ovr - 75) * 1.4 + collegeJitter(11, 3);
+  else if (ovr >= 68) collegePpg = 12 + (ovr - 68) * 0.85 + collegeJitter(11, 3);
+  else if (ovr >= 60) collegePpg = 7 + (ovr - 60) * 0.7 + collegeJitter(11, 2);
+  else collegePpg = 3 + Math.max(0, ovr - 50) * 0.4 + collegeJitter(11, 2);
+  /* 大学名单（虚构，增强沉浸感） */
+  const COLLEGES = ["肯塔基大学", "杜克大学", "北卡大学", "UCLA", "堪萨斯大学", "冈萨加大学", "维拉诺瓦大学", "亚利桑那大学", "德州大学", "密歇根大学", "田纳西大学", "奥本大学", "普渡大学", "马凯特大学", "休斯顿大学", "贝勒大学", "伊利诺伊大学", "爱荷华大学", "克雷顿大学", "圣玛丽大学"];
+  const college = COLLEGES[Math.floor(hash01(id, 21) * COLLEGES.length)];
+  const collegeStats = {
+    college,
+    ppg: Math.max(1.5, Math.round(collegePpg * 10) / 10),
+    rpg: Math.max(1.0, Math.round(((posR[pos] || 5) * (0.6 + ovrFactor * 0.7) + collegeJitter(12, 1.5)) * 10) / 10),
+    apg: Math.max(0.3, Math.round(((posA[pos] || 3) * (0.6 + ovrFactor * 0.7) + collegeJitter(13, 1.2)) * 10) / 10),
+    spg: Math.max(0.1, Math.round(((posS[pos] || 0.8) * (0.5 + ovrFactor * 0.8) + collegeJitter(14, 0.4)) * 10) / 10),
+    bpg: Math.max(0.1, Math.round(((posB[pos] || 0.8) * (0.5 + ovrFactor * 0.8) + collegeJitter(15, 0.5)) * 10) / 10),
+    fgPct: Math.round((0.42 + ovrFactor * 0.08 + (hash01(id, 16) - 0.5) * 0.06) * 1000) / 10,
+    tpm: Math.round(Math.max(0.2, (pos === "G" || pos === "G-F" ? 1.8 : 0.6) * ovrFactor + collegeJitter(17, 0.8)) * 10) / 10
+  };
+
   return {
     id, nameCn, nameEn: nameCn, team: "ROOKIE", pos, num: 0, age,
     heightCm: pos === "C" ? 211 + Math.floor(Math.random() * 8) : pos === "F" || pos === "F-C" ? 201 + Math.floor(Math.random() * 8) : 190 + Math.floor(Math.random() * 8),
@@ -81,6 +109,7 @@ function genRookie(pickOvrSeed) {
     attrs, mgr,
     stats: null,
     potential,
+    collegeStats,
     isRookie: true
   };
 }
