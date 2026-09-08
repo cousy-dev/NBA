@@ -1551,6 +1551,8 @@ RENDERERS.awards = function () {
 RENDERERS.playoff = function () {
   const save = state.save;
   if (!save || !save.playoffs) { back(); return; }
+  /* 重建 userSeries 对象引用（JSON 序列化后引用丢失，导致 === 比较失败） */
+  if (typeof syncUserSeries === "function") syncUserSeries(save);
   const ps = save.playoffs;
   const my = myAbbr(save);
   const teamShort = abbr => {
@@ -1565,7 +1567,18 @@ RENDERERS.playoff = function () {
     const userA = s.a === my, userB = s.b === my;
     const myWon = s.done && s.winner === my;
     const myLost = s.done && (s.a === my || s.b === my) && s.winner !== my;
-    return '<div class="br-series' + (isUserInvolved ? " mine" : "") + (myWon ? " won" : "") + (myLost ? " lost" : "") + (s.done ? " done" : "") + '">' +
+    /* 用户当前进行中的系列赛：可点击进入比赛模拟 */
+    const isUserActive = !s.done && isUserInvolved && ps.userSeries === s;
+    const clickableCls = isUserActive ? " clickable" : "";
+    const gameNo = isUserActive ? (s.wa + s.wb + 1) : 0;
+    const actionHtml = isUserActive
+      ? '<div class="br-action">' +
+        '<button class="br-btn-play" data-action="play">▶ 进入比赛 G' + gameNo + '</button>' +
+        '<button class="br-btn-quick" data-action="quick">快速模拟</button>' +
+        '</div>'
+      : "";
+    return '<div class="br-series' + (isUserInvolved ? " mine" : "") + (myWon ? " won" : "") + (myLost ? " lost" : "") + (s.done ? " done" : "") + clickableCls + '"' +
+      (isUserActive ? ' data-series-active="1"' : "") + '>' +
       '<div class="br-team' + (aWin ? " adv" : "") + (userA ? " me" : "") + '">' +
         '<span class="br-seed">' + (s.seedA || "") + '</span>' +
         '<span class="br-logo">' + logo(s.a) + '</span>' +
@@ -1578,6 +1591,7 @@ RENDERERS.playoff = function () {
         '<span class="br-tname">' + esc(teamShort(s.b)) + '</span>' +
         '<span class="br-score' + (bWin ? " win" : "") + '">' + (s.wb || 0) + '</span>' +
       '</div>' +
+      actionHtml +
       '</div>';
   };
   /* 计算每个系列在所属分部树中的轮次索引 */
@@ -1667,6 +1681,28 @@ RENDERERS.playoff = function () {
       '<span class="lg-item"><span class="lg-dot pending"></span>未开始/进行中</span>' +
     '</div>' +
     '<button class="btn btn-outline" id="po-back">返回</button>';
+  /* 绑定比赛模拟按钮：进入比赛 / 快速模拟 */
+  $$("#screen-playoff .br-btn-play").forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      /* 检查季后赛是否已结束（用户被淘汰后 AI 自动模拟到冠军） */
+      if (save.playoffs.done) { toast("季后赛已结束"); return; }
+      const gi = currentGame(save);
+      if (!gi) { toast("当前无可进行的系列赛"); return; }
+      startMatch(false);
+    };
+  });
+  $$("#screen-playoff .br-btn-quick").forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      if (save.playoffs.done) { toast("季后赛已结束"); return; }
+      const gi = currentGame(save);
+      if (!gi) { toast("当前无可进行的系列赛"); return; }
+      startMatch(true);
+      /* 快速模拟后刷新对阵图（系列赛比分/状态可能已更新） */
+      RENDERERS.playoff();
+    };
+  });
   $("#po-back").onclick = () => back();
 };
 
