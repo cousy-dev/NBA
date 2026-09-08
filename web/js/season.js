@@ -443,6 +443,14 @@ function newSeason(save) {
   save.schedule = makeSchedule(save);
   save.standings = initStandings(save);
   save.playerStats = {};
+  save.lastPlayoffs = save.playoffs ? {
+    champion: save.playoffs.champion,
+    rounds: save.playoffs.rounds.map(r => r ? {
+      name: r.name,
+      E: r.E.map(s => ({ winner: s.winner, loser: s.a === s.winner ? s.b : s.a })),
+      W: r.W.map(s => ({ winner: s.winner, loser: s.a === s.winner ? s.b : s.a }))
+    }) : []
+  } : null;
   save.playoffs = null;
   save.pendingDraft = true;  /* 标记需要选秀 */
   return save;

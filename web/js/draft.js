@@ -203,7 +203,7 @@ function initDraftPicks(save) {
   save.draftPicks = picks;
 }
 
-/* 计算选秀顺位（基于上赛季战绩） */
+/* 计算选秀顺位（基于上赛季战绩 + 季后赛成绩） */
 /* 返回 [{ team, round, pick, season }] 排好序的 60 个选秀权 */
 function computePickOrder(save) {
   const season = save.seasonNo; /* 当前赛季结束后选秀 */
@@ -220,13 +220,52 @@ function computePickOrder(save) {
     const gp = s.w + s.l;
     ranked.push({ abbr: my, winPct: gp ? s.w / gp : 0.5, w: s.w, l: s.l, str: strengthOf(save, my) });
   }
-  /* 分乐透（未进季后赛）和季后赛 */
-  /* 简化：战绩最差 14 队为乐透 */
   const sorted = ranked.slice().sort((a, b) => a.winPct - b.winPct || b.str - a.str);
-  const lottery = sorted.slice(0, 14);
-  const playoff = sorted.slice(14);
+
+  /* 从 lastPlayoffs 提取季后赛成绩，确定哪些队进了季后赛及走多远 */
+  const lp = save.lastPlayoffs;
+  const playoffTeams = new Set();   /* 进了季后赛的球队 */
+  const elimRound = {};             /* 球队 → 被淘汰的轮次（0=首轮,1=半决赛,2=分区决赛,3=总决赛亚军,4=冠军） */
+  if (lp) {
+    /* 先收集所有参赛球队 */
+    lp.rounds.forEach((r, ri) => {
+      if (!r) return;
+      r.E.concat(r.W).forEach(s => {
+        if (s.winner) playoffTeams.add(s.winner);
+        if (s.loser) playoffTeams.add(s.loser);
+        /* loser 在该轮被淘汰 */
+        if (s.loser && elimRound[s.loser] == null) elimRound[s.loser] = ri;
+      });
+    });
+    /* 冠军走到最后 */
+    if (lp.champion) { playoffTeams.add(lp.champion); elimRound[lp.champion] = 4; }
+    /* winner 如果没被后续轮记为 loser，说明走得更远，更新其淘汰轮次 */
+    lp.rounds.forEach((r, ri) => {
+      if (!r) return;
+      r.E.concat(r.W).forEach(s => {
+        if (s.winner && elimRound[s.winner] != null && elimRound[s.winner] < ri) {
+          /* 该 winner 在后续更远的轮次也出现了 → 更新到至少 ri */
+          elimRound[s.winner] = ri;
+        }
+      });
+    });
+  }
+
+  /* 分乐透（未进季后赛）和季后赛 */
+  const lottery = sorted.filter(t => !playoffTeams.has(t.abbr));
+  const playoff = sorted.filter(t => playoffTeams.has(t.abbr));
+
+  /* 季后赛球队按淘汰轮次排序：首轮出局排前，冠军排最后 */
+  playoff.sort((a, b) => {
+    const ea = elimRound[a.abbr] != null ? elimRound[a.abbr] : 0;
+    const eb = elimRound[b.abbr] != null ? elimRound[b.abbr] : 0;
+    if (ea !== eb) return ea - eb;
+    /* 同轮次按胜率高的在后（战绩好的顺位靠后） */
+    return b.winPct - a.winPct;
+  });
+
   /* 乐透抽签：最差 3 队各有 14% 概率抽到前 4，简化为随机前 4 */
-  const lottoTop4 = lottery.slice(0, 4);
+  const lottoTop4 = lottery.slice(0, Math.min(4, lottery.length));
   shuffleArr(lottoTop4);
   const lottoRest = lottery.slice(4); /* 已按战绩排序 */
   const firstRoundOrder = lottoTop4.concat(lottoRest).concat(playoff);
@@ -237,13 +276,13 @@ function computePickOrder(save) {
   const allPicks = (save.draftPicks || []).filter(p => p.season === season);
   /* 按顺位分配 */
   const result = [];
-  /* 首轮 1-30 */
+  /* 首轮 */
   firstRoundOrder.forEach((t, i) => {
     /* 找到持有该队首轮签的队伍 */
     const pick = allPicks.find(p => p.originalTeam === t.abbr && p.round === 1);
     if (pick) result.push({ team: pick.team, round: 1, pick: i + 1, season, originalTeam: t.abbr });
   });
-  /* 次轮：紧接首轮顺位编号（30 队时 31-60；含自建队 31 队时 32-62） */
+  /* 次轮：紧接首轮顺位编号 */
   const secondRoundStart = firstRoundOrder.length + 1;
   secondRoundOrder.forEach((t, i) => {
     const pick = allPicks.find(p => p.originalTeam === t.abbr && p.round === 2);
