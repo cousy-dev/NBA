@@ -16,11 +16,32 @@ const CITY_CN = {
 const NAME_POOL = ["烈焰", "龙曜", "星港", "极光", "王朝", "雷霆", "猛獁", "翼龙", "黑潮", "天穹", "磐石", "皇冠", "飞鲨", "银狼"];
 const CITY_POOL = ["上海", "北京", "深圳", "广州", "杭州", "成都", "武汉", "西安", "南京", "重庆", "青岛", "长沙", "苏州", "厦门"];
 const ARENA_POOL = ["星穹球馆", "龙曜中心", "极光体育馆", "皇冠竞技场", "磐石中心", "天穹球馆", "凤凰巢", "海豚湾中心", "长江体育馆", "银河广场"];
-const BUDGET_PRESETS = [
-  { key: "conservative", label: "保守市场", amount: 95, desc: "精打细算 · 挑战模式" },
-  { key: "standard", label: "标准市场", amount: 115, desc: "均衡预算 · 推荐新手" },
-  { key: "luxury", label: "豪华市场", amount: 135, desc: "挥金如土 · 即刻争冠" }
+/* 2024-25 NBA 现实工资帑（百万美元）
+   - SALARY_CAP    = $140.588M  硬工资帽（UFA 不可超）
+   - TAX_LINE      = $170.810M  奢侈税线（超线罚款，但游戏里仅作预算上限）
+   - FIRST_APRON   = $178.132M  第一奢侈税线（带鸟权续约的硬上限）
+*/
+const SALARY_CAP = 140.6;
+const TAX_LINE = 170.8;
+const FIRST_APRON = 178.1;
+/* 球市分级预算：大球市可挥金至第一奢侈税线，中球市到奢侈税线，小球市紧贴硬帽 */
+const MARKET_PRESETS = [
+  { key: "small",  label: "小球市", amount: SALARY_CAP,  cap: SALARY_CAP,  desc: "紧贴工资帽 · 营收有限" },
+  { key: "medium", label: "中球市", amount: TAX_LINE,    cap: TAX_LINE,    desc: "触及奢侈税线 · 营收稳健" },
+  { key: "large",  label: "大球市", amount: FIRST_APRON, cap: FIRST_APRON, desc: "挥金至第一奢侈税线 · 财力雄厚" }
 ];
+/* 兼容字段：BUDGET_PRESETS 旧代码引用（仅用于自建模式选预算） */
+const BUDGET_PRESETS = [
+  { key: "small",  label: "小球市",   amount: SALARY_CAP,  desc: "精打细算 · 工资帽硬约束" },
+  { key: "medium", label: "中球市",   amount: TAX_LINE,    desc: "中等预算 · 触及奢侈税线" },
+  { key: "large",  label: "大球市",   amount: FIRST_APRON, desc: "挥金如土 · 第一奢侈税线" }
+];
+/* 取球队所在球市的预设（接管模式用） */
+function presetForTeam(abbr) {
+  const t = TEAMS.find(x => x.abbr === abbr);
+  const mk = t ? (t.market || "small") : "small";
+  return MARKET_PRESETS.find(p => p.key === mk) || MARKET_PRESETS[0];
+}
 /* 工资估算分档（百万美元/年），按 OVR 区间线性插值 + 基于 id 的确定性浮动 */
 const SALARY_BANDS = [
   [95, 99, 46, 60], [90, 94, 36, 45], [85, 89, 26, 34], [80, 84, 16, 24],
@@ -206,17 +227,20 @@ RENDERERS["team-select"] = function () {
   const teams = TEAMS.map(t => ({
     ...t, strength: teamStrength(t.abbr), count: playersByTeam(t.abbr).length
   })).sort((a, b) => b.strength - a.strength);
+  const marketName = m => m === "large" ? "大球市" : m === "medium" ? "中球市" : "小球市";
+  const marketClass = m => "mkt-" + (m || "small");
 
   $("#screen-team-select").innerHTML =
     '<h2 class="screen-title">选择你的球队</h2>' +
-    '<p class="screen-sub">接管一支 NBA 球队，继承现有完整阵容</p>' +
+    '<p class="screen-sub">接管一支 NBA 球队 · 球市决定预算上限（大球市 $178M / 中球市 $171M / 小球市 $141M）</p>' +
     '<div class="team-grid">' +
     teams.map(t =>
-      '<div class="team-card" data-abbr="' + t.abbr + '">' +
+      '<div class="team-card ' + marketClass(t.market) + '" data-abbr="' + t.abbr + '">' +
       '  <div class="team-logo">' + teamLogoHtml(t.abbr) + "</div>" +
       '  <div class="team-name">' + esc(t.nameCn) + "</div>" +
       '  <div class="team-city">' + esc(CITY_CN[t.abbr] || t.cityEn) + "</div>" +
       '  <div class="team-meta">' + "★".repeat(stars(t.strength)) + " · " + t.count + "人 · 均" + t.strength.toFixed(1) + "</div>" +
+      '  <div class="team-market">' + marketName(t.market) + " · " + fmtM(presetForTeam(t.abbr).amount) + "</div>" +
       "</div>"
     ).join("") +
     "</div>";
@@ -269,11 +293,11 @@ RENDERERS["create-info"] = function () {
   };
 };
 
-/* ===== 预算 ===== */
+/* ===== 预算（自建模式） ===== */
 RENDERERS.budget = function () {
   $("#screen-budget").innerHTML =
-    '<h2 class="screen-title">初始资金预算</h2>' +
-    '<p class="screen-sub">决定建队时能花多少钱签球员（百万美元）</p>' +
+    '<h2 class="screen-title">选择球市规模</h2>' +
+    '<p class="screen-sub">工资帽 $' + SALARY_CAP + 'M · 奢侈税线 $' + TAX_LINE + 'M · 第一奢侈税线 $' + FIRST_APRON + 'M（2024-25 NBA 真实数据）</p>' +
     '<div class="budget-list">' +
     BUDGET_PRESETS.map(b =>
       '<div class="budget-card ' + (state.budgetKey === b.key ? "active" : "") + '" data-key="' + b.key + '">' +
@@ -477,8 +501,8 @@ function buildSummaryData() {
       arena: "",
       logoAbbr: state.team,
       rosterArr,
-      budget: STANDARD_BUDGET,
-      budgetLabel: "标准工资空间"
+      budget: presetForTeam(state.team).amount,
+      budgetLabel: presetForTeam(state.team).label + " · " + presetForTeam(state.team).desc
     };
   }
   const rosterArr = Array.from(state.roster.values())
@@ -492,7 +516,7 @@ function buildSummaryData() {
     logoAbbr: null,
     rosterArr,
     budget: state.budget,
-    budgetLabel: "初始预算"
+    budgetLabel: state.budgetKey ? (BUDGET_PRESETS.find(b => b.key === state.budgetKey).label + " · 自建球队") : "自建球队预算"
   };
 }
 RENDERERS.summary = function () {
@@ -831,6 +855,14 @@ function migrateSave(save) {
     if (r.isRookieScale === undefined) r.isRookieScale = false;
     if (r.signedVia === undefined) r.signedVia = "init";
   });
+  /* 工资帽升级：旧档 budget ≤ 140 视为陈旧，按球市预设重新设定 */
+  if (!save.budget || save.budget < SALARY_CAP - 1) {
+    const preset = presetForTeam(myAbbr(save));
+    save.budget = preset.amount;
+    save.budgetLabel = preset.label + " · " + preset.desc;
+  } else if (!save.budgetLabel) {
+    save.budgetLabel = "球队预算";
+  }
   /* 选秀权兜底：旧档无 draftPicks 则初始化 */
   if (!save.draftPicks || !save.draftPicks.length) {
     initDraftPicks(save);

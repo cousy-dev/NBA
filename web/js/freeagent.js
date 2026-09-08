@@ -42,12 +42,16 @@ function birdMaxFactor(level) {
   if (level === "non") return 1.08;
   return 1.00;
 }
-/* 鸟权等级 → 超帽容忍（budget 的倍数上限） */
-function birdCapFactor(level) {
-  if (level === "bird") return 1.15;
-  if (level === "early") return 1.10;
-  if (level === "non") return 1.05;
-  return 1.00;
+/* 鸟权等级 → 超帽绝对上限（基于 SALARY_CAP 的倍数，对应现实 NBA 工资帑）
+   - 完全鸟权：第一奢侈税线 = 1.27 × SALARY_CAP
+   - 早鸟权：奢侈税线     = 1.215 × SALARY_CAP
+   - 非鸟权：略超帽       = 1.05 × SALARY_CAP
+   注：UFA 不可超 SALARY_CAP（budget ≤ SALARY_CAP 的球队） */
+function birdCapAbsolute(level) {
+  if (level === "bird") return (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6) * 1.27;
+  if (level === "early") return (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6) * 1.215;
+  if (level === "non") return (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6) * 1.05;
+  return (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6);
 }
 /* 鸟权等级 → 可签年限范围 */
 function birdYearsRange(level) {
@@ -213,10 +217,10 @@ function reSignPlayer(save, playerId, years, salary) {
   /* 年限校验 */
   const [minY, maxY] = birdYearsRange(level);
   if (years < minY || years > maxY) { toast("年限不合法（" + minY + "-" + maxY + "年）"); return false; }
-  /* 工资帽校验：鸟权允许超帽到 birdCapFactor × budget */
+  /* 工资帽校验：鸟权允许超帽到 birdCapAbsolute（基于 SALARY_CAP 的绝对上限） */
   const total = save.roster.reduce((s, r) => s + r.salary, 0);
-  const cap = (save.budget || 115) * birdCapFactor(level);
-  if (total + salary > cap + 0.01) { toast("超过鸟权工资帽上限 " + fmtM(cap)); return false; }
+  const cap = birdCapAbsolute(level);
+  if (total + salary > cap + 0.01) { toast("超过鸟权超帽上限 " + fmtM(cap) + "（" + birdLabel(level) + "）"); return false; }
   /* 续约成功 */
   const entry = {
     id: playerId, salary, years,
@@ -407,7 +411,7 @@ RENDERERS.freeagent = function () {
     const lv = birdRightsLevel(f.birdYears) || "non";
     const maxSal = maxSalaryByBird(f.ovr, f.id, lv);
     const [minY, maxY] = birdYearsRange(lv);
-    const cap = budget * birdCapFactor(lv);
+    const cap = birdCapAbsolute(lv);
     return '<div class="fa-row renew-row" data-id="' + f.id + '">' +
       '  <span class="aw-rank">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
