@@ -20,12 +20,15 @@ function genRookie(pickOvrSeed) {
   /* pickOvrSeed: 0-1, 0=状元 1=末轮 */
   const posList = ["G", "G", "G-F", "F", "F", "F-C", "C"];
   const pos = posList[Math.floor(Math.random() * posList.length)];
-  /* OVR: 状元 76-80, 乐透 70-76, 首轮 65-72, 二轮 60-67 */
+  /* OVR: 状元 76-80, 前5 72-77, 乐透 68-74, 首轮中段 63-70, 首轮末 60-66, 二轮 55-62 */
   let ovr;
-  if (pickOvrSeed < 0.05) ovr = 76 + Math.floor(Math.random() * 5);
-  else if (pickOvrSeed < 0.14) ovr = 70 + Math.floor(Math.random() * 6);
-  else if (pickOvrSeed < 0.30) ovr = 65 + Math.floor(Math.random() * 7);
-  else ovr = 60 + Math.floor(Math.random() * 7);
+  if (pickOvrSeed < 0.025) ovr = 76 + Math.floor(Math.random() * 5);   /* 状元 76-80 */
+  else if (pickOvrSeed < 0.08) ovr = 72 + Math.floor(Math.random() * 6);  /* 前5 72-77 */
+  else if (pickOvrSeed < 0.23) ovr = 68 + Math.floor(Math.random() * 7);  /* 乐透 68-74 */
+  else if (pickOvrSeed < 0.40) ovr = 63 + Math.floor(Math.random() * 8);  /* 首轮中段 63-70 */
+  else if (pickOvrSeed < 0.50) ovr = 60 + Math.floor(Math.random() * 7);  /* 首轮末 60-66 */
+  else if (pickOvrSeed < 0.75) ovr = 55 + Math.floor(Math.random() * 8);  /* 二轮前段 55-62 */
+  else ovr = 50 + Math.floor(Math.random() * 8);                          /* 二轮末 50-57 */
 
   const nameCn = ROOKIE_FIRST[Math.floor(Math.random() * ROOKIE_FIRST.length)] + "·" +
     ROOKIE_LAST[Math.floor(Math.random() * ROOKIE_LAST.length)];
@@ -51,19 +54,22 @@ function genRookie(pickOvrSeed) {
     sta: clamp(62 + (age <= 20 ? 8 : 4) + jitter(7, 3)),
     twk: clamp(55 + jitter(8, 5))
   };
-  /* 潜力分：基于顺位 + 年龄 + 随机波动，拉开差距 */
-  /* 状元级 88-94, 乐透 80-88, 首轮中段 74-82, 首轮末段 68-76, 二轮 60-70 */
+  /* 潜力分：基于顺位 + 年龄 + 随机波动，严格按真实 NBA 顺位梯度拉开差距
+     现实参考：状元/前3（Wemby/LeBron 级）独一档 92-96；前5 85-92；乐透(6-14) 78-86；
+     首轮中段(15-20) 70-80；首轮末(21-30) 65-74；二轮 55-68（偶有黑马≤72） */
   let potentialBase;
-  if (pickOvrSeed < 0.05) potentialBase = 88 + Math.floor(Math.random() * 7);      /* 88-94 */
-  else if (pickOvrSeed < 0.14) potentialBase = 80 + Math.floor(Math.random() * 9); /* 80-88 */
-  else if (pickOvrSeed < 0.30) potentialBase = 74 + Math.floor(Math.random() * 9); /* 74-82 */
-  else if (pickOvrSeed < 0.50) potentialBase = 68 + Math.floor(Math.random() * 9); /* 68-76 */
-  else potentialBase = 60 + Math.floor(Math.random() * 11);                         /* 60-70 */
+  if (pickOvrSeed < 0.025) potentialBase = 92 + Math.floor(Math.random() * 5);     /* 状元级 92-96 */
+  else if (pickOvrSeed < 0.08) potentialBase = 85 + Math.floor(Math.random() * 7);  /* 前5 85-91 */
+  else if (pickOvrSeed < 0.23) potentialBase = 78 + Math.floor(Math.random() * 9);  /* 乐透 78-86 */
+  else if (pickOvrSeed < 0.40) potentialBase = 70 + Math.floor(Math.random() * 10); /* 首轮中段 70-79 */
+  else if (pickOvrSeed < 0.50) potentialBase = 65 + Math.floor(Math.random() * 9);  /* 首轮末 65-73 */
+  else if (pickOvrSeed < 0.75) potentialBase = 58 + Math.floor(Math.random() * 10); /* 二轮前段 58-67 */
+  else potentialBase = 52 + Math.floor(Math.random() * 10);                          /* 二轮末 52-61 */
   /* 年龄修正：年轻 +1~2, 年长 -1~2 */
   const ageMod = age <= 19 ? 2 : age <= 20 ? 1 : age >= 22 ? -2 : 0;
-  /* 高 ath/org 微加成 */
-  const attrBonus = Math.round((attrs.ath - 60) * 0.1 + (attrs.org - 55) * 0.08);
-  const potential = Math.max(58, Math.min(95, potentialBase + ageMod + attrBonus));
+  /* 高 ath/org 微加成，封顶 +3 避免高顺位被反复加成至 95 */
+  const attrBonus = Math.max(0, Math.min(3, Math.round((attrs.ath - 60) * 0.08 + (attrs.org - 55) * 0.06)));
+  const potential = Math.max(50, Math.min(96, potentialBase + ageMod + attrBonus));
 
   return {
     id, nameCn, nameEn: nameCn, team: "ROOKIE", pos, num: 0, age,
