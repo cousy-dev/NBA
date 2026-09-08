@@ -128,11 +128,17 @@ function aiPickRookie(draftClass, save, aiTeamAbbr, pickedIds) {
   return pool[0];
 }
 
-/* 用户选人后的入职 */
+/* 用户选人后的入职（新秀合同 = 4 年保障 + isRookieScale 标记 RFA 资格） */
 function signRookie(save, rookie) {
   const sal = estimateSalary(rookie.ovr, rookie.id);
   const years = rookieContractYears(rookie.potential || 75);
-  save.roster.push({ id: rookie.id, salary: sal, years });
+  /* 新秀合同：birdYears 从 0 开始，isRookieScale=true（到期后享受 RFA 资格） */
+  save.roster.push({
+    id: rookie.id, salary: sal, years,
+    birdYears: 0,
+    optionType: null, optionYear: 0, optionSalary: 0,
+    isRookieScale: true, signedVia: "draft"
+  });
   /* 持久化新秀到存档（防止刷新丢失） */
   save.customPlayers = save.customPlayers || [];
   if (!save.customPlayers.find(p => p.id === rookie.id)) {

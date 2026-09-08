@@ -815,8 +815,22 @@ function migrateSave(save) {
   Object.keys(save.standings).forEach(a => {
     if (save.standings[a].streak === undefined) save.standings[a].streak = 0;
   });
-  /* 合同年限兜底：旧档无 years 则赋默认值 */
-  save.roster.forEach(r => { if (r.years === undefined) r.years = 1 + Math.floor(hash01(r.id, 41) * 3); });
+  /* 合同年限兜底：旧档无 years 则赋默认值；并补齐 NBA 规则合同字段（鸟权/选项/RFA 资格） */
+  save.roster.forEach(r => {
+    if (r.years === undefined) r.years = 1 + Math.floor(hash01(r.id, 41) * 3);
+    if (r.birdYears === undefined) {
+      /* 老档：按球员年龄推算连续效力年数（19 岁入行，封顶 5 年防过老球员获得顶鸟权） */
+      const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));
+      const p0 = customById.get(r.id) || PLAYERS_RATED.players.find(x => x.id === r.id);
+      const age = p0 ? ((p0.age || 24) + ((save.ageAdj || {})[r.id] || 0)) : 24;
+      r.birdYears = Math.max(1, Math.min(Math.max(0, age - 19), 5));
+    }
+    if (r.optionType === undefined) r.optionType = null;
+    if (r.optionYear === undefined) r.optionYear = 0;
+    if (r.optionSalary === undefined) r.optionSalary = 0;
+    if (r.isRookieScale === undefined) r.isRookieScale = false;
+    if (r.signedVia === undefined) r.signedVia = "init";
+  });
   /* 选秀权兜底：旧档无 draftPicks 则初始化 */
   if (!save.draftPicks || !save.draftPicks.length) {
     initDraftPicks(save);
