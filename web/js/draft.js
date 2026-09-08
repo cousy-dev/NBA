@@ -260,8 +260,8 @@ function computePickOrder(save) {
     const ea = elimRound[a.abbr] != null ? elimRound[a.abbr] : 0;
     const eb = elimRound[b.abbr] != null ? elimRound[b.abbr] : 0;
     if (ea !== eb) return ea - eb;
-    /* 同轮次按胜率高的在后（战绩好的顺位靠后） */
-    return b.winPct - a.winPct;
+    /* 同轮次：战绩差的顺位靠前（更早选人） */
+    return a.winPct - b.winPct;
   });
 
   /* 乐透抽签：最差 3 队各有 14% 概率抽到前 4，简化为随机前 4 */
