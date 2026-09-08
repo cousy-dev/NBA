@@ -490,6 +490,11 @@ body {
 .tr-name { font-size: 12px; font-weight: 800; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tr-meta { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .tr-val { font-size: 10.5px; color: var(--gold); white-space: nowrap; }
+/* 非卖品球员：置灰 + 锁定徽章，不可点击 */
+.tr-row.untouchable { opacity: .55; cursor: not-allowed; }
+.tr-row.untouchable:active { background: transparent; }
+.tr-lock { display: inline-block; font-size: 9px; font-weight: 800; line-height: 1; padding: 2.5px 4px; border-radius: 4px; background: rgba(220, 53, 69, .15); color: #e05260; border: 1px solid rgba(220, 53, 69, .4); vertical-align: 1px; margin-left: 2px; flex: none; }
+.tr-row.untouchable .tr-val { color: #e05260; }
 
 /* ===== 选秀系统 ===== */
 .draft-hint { text-align: center; color: var(--muted); font-size: 13px; padding: 12px 0; }

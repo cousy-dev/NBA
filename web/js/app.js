@@ -1857,7 +1857,7 @@ RENDERERS["trade-deal"] = function () {
   const aiTeam = state.trade.aiTeam;
   const aiT = TEAMS.find(t => t.abbr === aiTeam);
   const mine = loadMyPlayers(save).map(x => ({ p: x.p, sal: x.sal }));
-  const tradable = getTradable(aiTeam).map(p => ({ p, sal: estimateSalary(p.ovr, p.id) }));
+  const tradable = getTradable(aiTeam).map(x => ({ p: x.p, sal: estimateSalary(x.p.ovr, x.p.id), untouchable: !!x.untouchable }));
   const myPicks = state.trade.myPicks;
   const aiPicks = state.trade.aiPicks;
   const myDPicks = state.trade.myDraftPicks;
@@ -1924,11 +1924,11 @@ RENDERERS["trade-deal"] = function () {
     ).join("") + "</div>" +
     '  <div class="tr-sec"><h3 class="tc-h">' + esc(aiT.nameCn) + ' 阵容</h3>' +
     tradable.map(x =>
-      '<div class="tr-row' + (aiPicks.find(p => p.p.id === x.p.id) ? " picked" : "") + '" data-id="' + x.p.id + '" data-side="ai">' +
+      '<div class="tr-row' + (x.untouchable ? " untouchable" : "") + (aiPicks.find(p => p.p.id === x.p.id) ? " picked" : "") + '" data-id="' + x.p.id + '" data-side="ai">' +
       '<div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
-      '<div class="tr-name">' + esc(x.p.nameCn) + '</div>' +
+      '<div class="tr-name">' + esc(x.p.nameCn) + (x.untouchable ? ' <span class="tr-lock">非卖品</span>' : "") + '</div>' +
       '<div class="tr-meta">' + esc(x.p.pos) + " · " + fmtM(x.sal) + "</div>" +
-      '<div class="tr-val">价值 ' + tradeValue(x.p, x.sal) + "</div></div>"
+      '<div class="tr-val">' + (x.untouchable ? "非卖品" : "价值 " + tradeValue(x.p, x.sal)) + "</div></div>"
     ).join("") + "</div>" +
     "</div>" +
     /* 选秀权区域 */
@@ -1956,7 +1956,7 @@ RENDERERS["trade-deal"] = function () {
     "</div>";
 
   /* 球员选择 */
-  $$("#screen-trade-deal .tr-row:not(.dp-row)").forEach(row => {
+  $$("#screen-trade-deal .tr-row:not(.dp-row):not(.untouchable)").forEach(row => {
     row.onclick = () => {
       const id = Number(row.dataset.id);
       const side = row.dataset.side;

@@ -82,7 +82,7 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   /* 拒绝时尝试生成还价 */
   if (effectiveRatio >= 0.82) {
     /* 接近但不够，AI 选一个价值稍低的替代品还价 */
-    const allAi = playersByTeam(aiTeam).filter(p => !aiOffer.find(x => x.p.id === p.id));
+    const allAi = playersByTeam(aiTeam).filter(p => p.ovr < 90 && !aiOffer.find(x => x.p.id === p.id));
     const targetVal = aiVal * 0.95;
     const counter = allAi
       .map(p => ({ p, v: tradeValue(p, estimateSalary(p.ovr, p.id)) }))
@@ -124,9 +124,11 @@ function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPi
   writeSave(save);
 }
 
-/* ===== 获取 AI 队伍可交易球员（排除 star 球员） ===== */
+/* ===== 获取 AI 队伍可交易球员（全部返回，OVR≥90 标记为非卖品） ===== */
 function getTradable(aiTeamAbbr) {
   const all = playersByTeam(aiTeamAbbr);
-  /* OVR≥90 视为非卖品（除非用户给出超级报价） */
-  return all.filter(p => p.ovr < 90).sort((a, b) => b.ovr - a.ovr);
+  /* OVR≥90 视为非卖品：仍然展示，但打上标记且不可被选入交易篮 */
+  return all
+    .map(p => ({ p, untouchable: p.ovr >= 90 }))
+    .sort((a, b) => b.p.ovr - a.p.ovr);
 }
