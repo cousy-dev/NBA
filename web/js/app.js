@@ -2076,8 +2076,8 @@ RENDERERS.draft = function () {
       '      <span class="cs-stat"><b>' + (cs.apg || 0).toFixed(1) + "</b><i>助</i></span>" +
       '      <span class="cs-stat"><b>' + (cs.spg || 0).toFixed(1) + "</b><i>断</i></span>" +
       '      <span class="cs-stat"><b>' + (cs.bpg || 0).toFixed(1) + "</b><i>帽</i></span>" +
-      '      <span class="cs-stat"><b>' + (cs.fgPct || 0).toFixed(1) + "%</b><i>FG</i></span>" +
-      '      <span class="cs-stat"><b>' + (cs.tpm || 0).toFixed(1) + "</b><i>3PM</i></span>" +
+      '      <span class="cs-stat"><b>' + (cs.fgPct || 0).toFixed(1) + "%</b><i>FG%</i></span>" +
+      '      <span class="cs-stat"><b>' + (cs.tpPct || 0).toFixed(1) + "%</b><i>3P%</i></span>" +
       "    </div>" +
       "  </div>" +
       "</div>";

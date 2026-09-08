@@ -204,7 +204,8 @@ class GameSim {
     }
 
     /* 投篮选择：usage rate 驱动，star 球员出手更多 */
-    const shooter = Math.random() < this._attr(offT, handler.id, "org") / 340
+    /* org/120：org 90 → 75% 传给别人（接近真实 NBA 助攻率） */
+    const shooter = Math.random() < this._attr(offT, handler.id, "org") / 120
       ? this._weighted(offP.filter(p => p.id !== handler.id), p => this._usageWeight(offT, p))
       : handler;
     let threeP = 0.30 + (this._attr(offT, shooter.id, "out") - 78) * 0.005;
@@ -237,7 +238,7 @@ class GameSim {
     if (made) {
       boxS.fgm++; if (isThree) boxS.tpm++;
       boxS.pts += isThree ? 3 : 2;
-      if (shooter.id !== handler.id && Math.random() < 0.55 + (this._attr(offT, handler.id, "org") - 75) * 0.006 + (defTac.def === "double" ? 0.10 : 0)) {
+      if (shooter.id !== handler.id && Math.random() < 0.80 + (this._attr(offT, handler.id, "org") - 75) * 0.006 + (defTac.def === "double" ? 0.10 : 0)) {
         offT.box.get(handler.id).ast++;
         ev = { t: "score", side: this.off, text: shooter.nameCn + (isThree ? " 命中三分" : isRim ? " 空接/吃饼得手" : " 中距离命中") + "（" + handler.nameCn + " 助攻）" };
       } else {

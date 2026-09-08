@@ -96,7 +96,9 @@ function genRookie(pickOvrSeed) {
     spg: Math.max(0.1, Math.round(((posS[pos] || 0.8) * (0.5 + ovrFactor * 0.8) + collegeJitter(14, 0.4)) * 10) / 10),
     bpg: Math.max(0.1, Math.round(((posB[pos] || 0.8) * (0.5 + ovrFactor * 0.8) + collegeJitter(15, 0.5)) * 10) / 10),
     fgPct: Math.round((0.42 + ovrFactor * 0.08 + (hash01(id, 16) - 0.5) * 0.06) * 1000) / 10,
-    tpm: Math.round(Math.max(0.2, (pos === "G" || pos === "G-F" ? 1.8 : 0.6) * ovrFactor + collegeJitter(17, 0.8)) * 10) / 10
+    tpm: Math.round(Math.max(0.2, (pos === "G" || pos === "G-F" ? 1.8 : 0.6) * ovrFactor + collegeJitter(17, 0.8)) * 10) / 10,
+    /* 三分出手数 = 命中数 / 命中率（命中率 28-42%） */
+    tpPct: Math.round((0.28 + ovrFactor * 0.12 + (hash01(id, 18) - 0.5) * 0.08) * 1000) / 10
   };
 
   return {
