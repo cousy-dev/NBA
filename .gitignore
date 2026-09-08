@@ -1,0 +1,18 @@
+# Tools (PowerShell scripts, not needed for deployment)
+tools/
+
+# Data cache (raw API responses)
+data/details/
+
+# Trae internal
+.trae/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+*~
