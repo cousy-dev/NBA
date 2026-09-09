@@ -193,7 +193,7 @@ function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPi
   const newRoster = save.roster.filter(r => !myOfferIds.includes(r.id));
   aiOfferIds.forEach(id => {
     const p = PLAYERS_RATED.players.find(x => x.id === id);
-    if (p) newRoster.push({ id: p.id, salary: estimateSalary(p.ovr, p.id) });
+    if (p) newRoster.push({ id: p.id, salary: estimateSalary(p.ovr, p.id), years: realYearsForId(p.id) });
   });
   save.roster = newRoster;
   /* AI 阵容变化：从 aiTeam 移除 aiOffer，加入 myOffer（仅记录，不影响玩家） */

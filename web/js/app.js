@@ -32,14 +32,14 @@ const CITY_CN = {
 const NAME_POOL = ["烈焰", "龙曜", "星港", "极光", "王朝", "雷霆", "猛獁", "翼龙", "黑潮", "天穹", "磐石", "皇冠", "飞鲨", "银狼"];
 const CITY_POOL = ["上海", "北京", "深圳", "广州", "杭州", "成都", "武汉", "西安", "南京", "重庆", "青岛", "长沙", "苏州", "厦门"];
 const ARENA_POOL = ["星穹球馆", "龙曜中心", "极光体育馆", "皇冠竞技场", "磐石中心", "天穹球馆", "凤凰巢", "海豚湾中心", "长江体育馆", "银河广场"];
-/* 2024-25 NBA 现实工资帑（百万美元）
-   - SALARY_CAP    = $140.588M  工资帽（UFA 签约不可超；鸟权续约可超）
-   - TAX_LINE      = $170.810M  奢侈税线（鸟权续约可超，仅警告需缴奢侈税）
-   - FIRST_APRON   = $178.132M  第一土豪线（鸟权续约可超；硬帽仅在先签后换/中产特例触发）
+/* 2026-27 NBA 现实工资帑（百万美元，NBA 官方 2026-06-30 公布）
+   - SALARY_CAP    = $164.961M  工资帽（UFA 签约不可超；鸟权续约可超）
+   - TAX_LINE      = $200.428M  奢侈税线（鸟权续约可超，仅警告需缴奢侈税）
+   - FIRST_APRON   = $209.015M  第一土豪线（鸟权续约可超；硬帽仅在先签后换/中产特例触发）
 */
-const SALARY_CAP = 140.6;
-const TAX_LINE = 170.8;
-const FIRST_APRON = 178.1;
+const SALARY_CAP = 165.0;
+const TAX_LINE = 200.4;
+const FIRST_APRON = 209.0;
 /* 交易截止日：常规赛第 53 场结束后（82 场的 65%，对齐 NBA 现实 2 月中旬截止日） */
 const TRADE_DEADLINE_GAME = 53;
 /* 球市分级预算：大球市可挥金至第一奢侈税线，中球市到奢侈税线，小球市紧贴硬帽 */
@@ -60,11 +60,71 @@ function presetForTeam(abbr) {
   const mk = t ? (t.market || "small") : "small";
   return MARKET_PRESETS.find(p => p.key === mk) || MARKET_PRESETS[0];
 }
-/* 工资估算分档（百万美元/年），按 OVR 区间线性插值 + 基于 id 的确定性浮动 */
+/* 工资估算分档（百万美元/年），按 OVR 区间线性插值 + 基于 id 的确定性浮动。
+   仅作为「查不到真实薪资」时的兜底（底薪边缘球员、未来生成新秀等）。 */
 const SALARY_BANDS = [
   [95, 99, 46, 60], [90, 94, 36, 45], [85, 89, 26, 34], [80, 84, 16, 24],
   [75, 79, 9, 14], [70, 74, 5, 8], [65, 69, 2.5, 4.5], [60, 64, 1.2, 2.4], [0, 59, 0.8, 1.6]
 ];
+
+/* ===== 真实薪资（data/salaries.js，NBA 2026-27 合同）===== */
+/* 姓名归一化（见下方实现）：去重音、去标点、去世代后缀，用于跨数据源精确匹配。 */
+function normPlayerName(n) {
+  /* 归一化：小写、去重音、标点转空格分词，丢弃世代后缀（jr/sr/ii/iii/iv/v）后拼接。
+     使 "Jokic/Jokić"、"Jimmy Butler III/Jimmy Butler"、"GG Jackson/GG Jackson II"、
+     "A.J. Green/AJ Green" 等两侧写法差异归到同一键。 */
+  const SUFFIX = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
+  return String(n || "").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/).filter(Boolean)
+    .filter(tok => !SUFFIX.has(tok))
+    .join("");
+}
+/* 游戏球队缩写 → Basketball-Reference 合同页缩写（仅差异队需要映射） */
+function gameToBBRefTeam(abbr) {
+  return ({ BKN: "BRK", CHA: "CHO", PHX: "PHO" })[abbr] || abbr;
+}
+let _REAL_SAL_IDX = null;   // 数字 id -> {s, y}
+let _REAL_SAL_NAME = null;  // 归一名 -> 单条记录 或 {_multi:{TEAM:rec}}
+function buildRealSalaryIndex() {
+  if (_REAL_SAL_NAME) return _REAL_SAL_NAME;
+  const idx = new Map();
+  if (typeof REAL_SALARIES === "undefined" || !Array.isArray(REAL_SALARIES)) { _REAL_SAL_NAME = idx; return idx; }
+  for (const e of REAL_SALARIES) {
+    const k = normPlayerName(e.n);
+    if (!k) continue;
+    if (!idx.has(k)) { idx.set(k, e); continue; }
+    /* 同名冲突（转会悬而未决/数据重复）：转为按球队映射 */
+    const prev = idx.get(k);
+    if (prev && prev._multi) { prev.m[e.t] = e; }
+    else { const m = {}; m[prev.t] = prev; m[e.t] = e; idx.set(k, { _multi: true, m }); }
+  }
+  _REAL_SAL_NAME = idx;
+  /* 建立 数字 id -> 记录 的快速表（基于当前全局球员库；建队时球队归属即真实 2026-27 阵容） */
+  const byId = new Map();
+  for (const p of PLAYERS_RATED.players) {
+    const rec = idx.get(normPlayerName(p.nameEn));
+    if (!rec) continue;
+    let r = rec;
+    if (rec._multi) r = rec.m[gameToBBRefTeam(p.team)] || Object.values(rec.m)[0] || null;
+    if (r) byId.set(p.id, r);
+  }
+  _REAL_SAL_IDX = byId;
+  return idx;
+}
+/* 真实薪资（百万美元）。查不到返回 null。 */
+function realSalaryForId(id) {
+  buildRealSalaryIndex();
+  const r = _REAL_SAL_IDX && _REAL_SAL_IDX.get(id);
+  return r ? r.s : null;
+}
+/* 真实剩余合同年数。查不到返回 null。 */
+function realYearsForId(id) {
+  buildRealSalaryIndex();
+  const r = _REAL_SAL_IDX && _REAL_SAL_IDX.get(id);
+  return r ? r.y : null;
+}
 
 /* ===== 状态 ===== */
 const state = {
@@ -102,6 +162,9 @@ function ovrClass(ovr) {
 }
 /* posClass 已移至 positions.js，支持新旧位置值（PG/SG/SF/PF/C + G/G-F/F/F-C/C） */
 function estimateSalary(ovr, id) {
+  /* 优先使用 NBA 2026-27 真实合同薪资；查不到再按 OVR 分档估算兜底 */
+  const real = realSalaryForId(id);
+  if (real != null) return real;
   for (const b of SALARY_BANDS) {
     if (ovr >= b[0] && ovr <= b[1]) {
       const t = (ovr - b[0]) / Math.max(1, b[1] - b[0]);
@@ -123,6 +186,8 @@ function purgeRuntimePlayers() {
   );
   /* 联盟估算缓存基于旧库构建，直接作废，下次 leagueEst() 按需重建 */
   if (typeof LEAGUE_EST !== "undefined") LEAGUE_EST = null;
+  /* 真实薪资索引同样基于球员库构建，一并作废，下次按需重建 */
+  _REAL_SAL_IDX = null; _REAL_SAL_NAME = null;
   return before - PLAYERS_RATED.players.length;
 }
 /* 重置建队向导状态（模式/球队/自定义信息/预算/已选阵容/筛选器），避免上一次建队残留 */
@@ -294,7 +359,7 @@ RENDERERS["team-select"] = function () {
 
   $("#screen-team-select").innerHTML =
     '<h2 class="screen-title">选择你的球队</h2>' +
-    '<p class="screen-sub">接管一支 NBA 球队 · 球市决定预算上限（大球市 $178M / 中球市 $171M / 小球市 $141M）</p>' +
+    '<p class="screen-sub">接管一支 NBA 球队 · 球市决定预算上限（大球市 ' + fmtM(MARKET_PRESETS[2].amount) + ' / 中球市 ' + fmtM(MARKET_PRESETS[1].amount) + ' / 小球市 ' + fmtM(MARKET_PRESETS[0].amount) + '）</p>' +
     '<div class="team-grid">' +
     teams.map(t =>
       '<div class="team-card ' + marketClass(t.market) + '" data-abbr="' + t.abbr + '">' +
@@ -458,7 +523,7 @@ RENDERERS.expand = function () {
 RENDERERS.budget = function () {
   $("#screen-budget").innerHTML =
     '<h2 class="screen-title">选择球市规模</h2>' +
-    '<p class="screen-sub">工资帽 $' + SALARY_CAP + 'M · 奢侈税线 $' + TAX_LINE + 'M · 第一奢侈税线 $' + FIRST_APRON + 'M（2024-25 NBA 真实数据）</p>' +
+    '<p class="screen-sub">工资帽 $' + SALARY_CAP + 'M · 奢侈税线 $' + TAX_LINE + 'M · 第一土豪线 $' + FIRST_APRON + 'M（2026-27 NBA 真实数据）</p>' +
     '<div class="budget-list">' +
     BUDGET_PRESETS.map(b =>
       '<div class="budget-card ' + (state.budgetKey === b.key ? "active" : "") + '" data-key="' + b.key + '">' +
@@ -738,7 +803,7 @@ RENDERERS.summary = function () {
       budget: d.budget,
       budgetLabel: d.budgetLabel,
       teamOvr: parseFloat(teamOvr),
-      roster: d.rosterArr.map(x => ({ id: x.p.id, salary: x.sal }))
+      roster: d.rosterArr.map(x => ({ id: x.p.id, salary: x.sal, years: realYearsForId(x.p.id) }))
     };
     /* 扩张建队：记录被选走球员，原 30 队阵容移除他们，并给予选秀权优待 */
     if (isExpansion && state.expansion) {
@@ -1019,7 +1084,11 @@ function migrateSave(save) {
   });
   /* 合同年限兜底：旧档无 years 则赋默认值；并补齐 NBA 规则合同字段（鸟权/选项/RFA 资格） */
   save.roster.forEach(r => {
-    if (r.years === undefined) r.years = 1 + Math.floor(hash01(r.id, 41) * 3);
+    if (r.years === undefined || r.years === null) {
+      /* 真实合同年限优先；查不到（生成新秀/边缘球员）再用确定性随机兜底 */
+      const ry = realYearsForId(r.id);
+      r.years = ry != null ? ry : 1 + Math.floor(hash01(r.id, 41) * 3);
+    }
     if (r.birdYears === undefined) {
       /* 老档：按球员年龄推算连续效力年数（19 岁入行，封顶 5 年防过老球员获得顶鸟权） */
       const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));

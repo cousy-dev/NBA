@@ -47,12 +47,12 @@ function birdMaxFactor(level) {
    乃至奢侈税线续约本队球员（如库里、文班这种顶薪球星续约后球队薪资普遍超税线）。
    硬工资帽（卡在第一土豪线）只在先签后换、空间中产特例、双年特例等场景触发。
    因此这里只设宽松安全阀防止误操作，顶薪本身仍由 maxSalaryByBird 限制：
-   - 完全鸟权：1.80 × SALARY_CAP（约 253M，15 人阵容合理极限约 220M，等于不限制）
-   - 早鸟权：1.50 × SALARY_CAP（约 211M，早鸟起薪受限顶不到此线）
-   - 非鸟权：1.25 × SALARY_CAP（约 176M，非鸟起薪 ≤ 前薪 120%）
+   - 完全鸟权：1.80 × SALARY_CAP（约 297M，15 人阵容合理极限约 260M，等于不限制）
+   - 早鸟权：1.50 × SALARY_CAP（约 248M，早鸟起薪受限顶不到此线）
+   - 非鸟权：1.25 × SALARY_CAP（约 206M，非鸟起薪 ≤ 前薪 120%）
    注：UFA 签约不可超 SALARY_CAP（budget ≤ SALARY_CAP 的球队） */
 function birdCapAbsolute(level) {
-  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6;
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
   if (level === "bird") return cap * 1.80;
   if (level === "early") return cap * 1.50;
   if (level === "non") return cap * 1.25;
@@ -60,10 +60,10 @@ function birdCapAbsolute(level) {
 }
 
 /* 奢侈税警告：续约后总薪资超线时返回警告文案（仅警告不阻止，鸟权续约可超帽）
-   TAX_LINE(170.8)=奢侈税线（超线交税）；FIRST_APRON(178.1)=第一土豪线（操作受限） */
+   TAX_LINE(200.4)=奢侈税线（超线交税）；FIRST_APRON(209.0)=第一土豪线（操作受限） */
 function taxWarning(total) {
-  const apron = typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 178.1;
-  const tax = typeof TAX_LINE !== "undefined" ? TAX_LINE : 170.8;
+  const apron = typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 209.0;
+  const tax = typeof TAX_LINE !== "undefined" ? TAX_LINE : 200.4;
   if (total > apron + 0.01) return "⚠ 续约后总薪资 " + fmtM(total) + " 超第一土豪线 " + fmtM(apron) + "，将面临土豪线限制";
   if (total > tax + 0.01) return "⚠ 续约后总薪资 " + fmtM(total) + " 超奢侈税线 " + fmtM(tax) + "，需缴纳奢侈税";
   return "";

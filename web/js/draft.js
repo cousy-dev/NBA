@@ -177,7 +177,7 @@ function buildExpansionPool() {
 }
 
 /* 扩张球队特殊工资帽（建队首年可超帽吸收合同，给到大球市级别的财力空间） */
-function expansionBudget() { return (typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 178.1); }
+function expansionBudget() { return (typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 209.0); }
 
 /* 扩张完成后构建 AI 各队阵容：30 队原有球员 id 列表，排除被新队选走的球员 */
 function buildExpansionAiRosters(selectedIds) {
@@ -224,11 +224,22 @@ function aiPickRookie(draftClass, save, aiTeamAbbr, pickedIds) {
   return pool[0];
 }
 
+/* 2026 届新秀工资标尺（百万美元/年，首年薪资，按顺位）。
+   参照真实 2026-27 标尺：状元 AJ Dybantsa $14.75M，首轮末约 $2.4M；
+   次轮介于底薪与约 $2.0M 之间。逐年递增由续约/年结逻辑处理，首年定薪以此为准。 */
+function rookieScaleSalary(pick) {
+  if (pick <= 30) {
+    return Math.round((14.75 - (pick - 1) * 0.426) * 10) / 10;
+  }
+  return Math.round((2.0 - (pick - 31) * 0.028) * 10) / 10;
+}
+
 /* 用户选人后的入职（新秀合同 = 4 年保障 + isRookieScale 标记 RFA 资格） */
 function signRookie(save, rookie) {
   /* 幂等保护：刷新/中断后重入时避免重复签约同一新秀 */
   if (save.roster && save.roster.some(r => r.id === rookie.id)) return;
-  const sal = estimateSalary(rookie.ovr, rookie.id);
+  /* 薪资按真实新秀工资标尺（顺位）定；无顺位信息时退回能力值估算 */
+  const sal = rookie.pick ? rookieScaleSalary(rookie.pick) : estimateSalary(rookie.ovr, rookie.id);
   const years = rookieContractYears(rookie.potential || 75);
   /* 新秀合同：birdYears 从 0 开始，isRookieScale=true（到期后享受 RFA 资格） */
   save.roster.push({
@@ -256,6 +267,7 @@ function signRookie(save, rookie) {
 function processPick(save, rookie, teamAbbr, pickNumber, results) {
   if (results.some(r => r.rookie.id === rookie.id)) return;
   rookie.team = teamAbbr;
+  rookie.pick = pickNumber;  /* 记录真实顺位，供新秀工资标尺定薪 */
   save.customPlayers = save.customPlayers || [];
   if (!save.customPlayers.find(p => p.id === rookie.id)) {
     save.customPlayers.push(rookie);
