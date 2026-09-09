@@ -232,11 +232,11 @@ function readSave() {
 
 /* ===== 导航 ===== */
 const RENDERERS = {};
-function activate(name) {
+function activate(name, keepScroll) {
   state.screen = name;
   $$(".screen").forEach(el => el.classList.add("hidden"));
   $("#screen-" + name).classList.remove("hidden");
-  window.scrollTo(0, 0);
+  if (!keepScroll) window.scrollTo(0, 0);
   updateTopbar();
 }
 function go(name) { state.stack.push(state.screen); RENDERERS[name](); activate(name); }
@@ -487,9 +487,9 @@ RENDERERS.expand = function () {
     "</div>";
 
   $$("#screen-expand .pos-filter button").forEach(btn => {
-    btn.onclick = () => { state.filter.pos = btn.dataset.pos; RENDERERS.expand(); activate("expand"); };
+    btn.onclick = () => { state.filter.pos = btn.dataset.pos; RENDERERS.expand(); activate("expand", true); };
   });
-  $("#exp-search").oninput = e => { state.filter.q = e.target.value.trim(); clearTimeout(window._expTimer); window._expTimer = setTimeout(() => { RENDERERS.expand(); activate("expand"); const el = $("#exp-search"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 200); };
+  $("#exp-search").oninput = e => { state.filter.q = e.target.value.trim(); clearTimeout(window._expTimer); window._expTimer = setTimeout(() => { RENDERERS.expand(); activate("expand", true); const el = $("#exp-search"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 200); };
   $$("#screen-expand .exp-card").forEach(c => {
     c.onclick = () => {
       const id = Number(c.dataset.id);
@@ -505,7 +505,7 @@ RENDERERS.expand = function () {
         ex.selected.add(id);
         ex.teamsHit.add(item.from);
       }
-      RENDERERS.expand(); activate("expand");
+      RENDERERS.expand(); activate("expand", true);
     };
   });
   $("#btn-exp-confirm").onclick = () => {
