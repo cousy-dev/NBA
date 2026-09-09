@@ -1009,8 +1009,10 @@ RENDERERS.summary = function () {
       '<div class="r-row" data-id="' + x.p.id + '">' +
       '  <span class="r-idx">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
-      '  <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
-      '  <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + "岁</div>" +
+      '  <div class="r-main">' +
+      '    <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
+      '    <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + "岁</div>" +
+      "  </div>" +
       '  <div class="r-salary">' + fmtM(x.sal) + "</div>" +
       "</div>"
     ).join("") +
@@ -1511,8 +1513,10 @@ RENDERERS.hub = function () {
       leaders.map((o, i) =>
         '<div class="r-row" data-id="' + o.x.p.id + '"><span class="r-idx">' + (i + 1) + "</span>" +
         '<div class="ovr-badge ' + ovrClass(o.x.p.ovr) + '">' + o.x.p.ovr + "</div>" +
-        '<div class="r-name">' + esc(o.x.p.nameCn) + "</div>" +
-        '<div class="r-meta">' + o.ps.g + "场</div>" +
+        '<div class="r-main">' +
+        '  <div class="r-name">' + esc(o.x.p.nameCn) + "</div>" +
+        '  <div class="r-meta">' + o.ps.g + "场</div>" +
+        "</div>" +
         '<div class="r-salary"><b>' + (o.ps.pts / o.ps.g).toFixed(1) + '</b>分</div></div>'
       ).join("") + "</div>"
     : "";
@@ -1561,8 +1565,10 @@ RENDERERS.hub = function () {
       return '<div class="r-row" data-id="' + x.p.id + '">' +
         '  <span class="r-idx">' + (i + 1) + "</span>" +
         '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
-        '  <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
-        '  <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + '岁 <span class="morale-chip" style="color:' + moraleColor(m) + '">士气' + m + '</span></div>' +
+        '  <div class="r-main">' +
+        '    <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
+        '    <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + '岁 <span class="morale-chip" style="color:' + moraleColor(m) + '">士气' + m + '</span></div>' +
+        "  </div>" +
         '  <div class="r-salary">' + fmtM(x.sal) + " · " + (save.roster.find(rr => rr.id === x.p.id) || {}).years + "年</div>" +
         "</div>";
     }).join("") +
