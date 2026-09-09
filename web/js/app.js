@@ -1126,7 +1126,7 @@ RENDERERS.player = function () {
     '      <span class="pd-tag">' + (p.heightCm || "?") + 'cm</span>' +
     '      <span class="pd-tag">' + (p.weightKg || "?") + 'kg</span>' +
     '      <span class="pd-tag">' + (p.draftYear ? p.draftYear + "年选秀" : "落选秀") + "</span>" +
-    '      <span class="pd-tag">' + (p.expYears || 0) + "年球龄</span></div>" +
+    '      <span class="pd-tag">' + getExpYears(p, state.save.seasonNo) + "年球龄</span></div>" +
     "  </div>" +
     '  <div class="pd-ovr"><div class="ovr-badge ' + ovrClass(p.ovr) + '">' + p.ovr + "</div><span>总评</span></div>" +
     "</div>" +

@@ -12,6 +12,26 @@ const GAMES_PER_SEASON = 82;
 function shuffleArr(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 function myAbbr(save) { return save.team.abbr || "CUS"; }
 
+/* 游戏的基准年份：第 1 赛季 = 2026 年 */
+const BASE_GAME_YEAR = 2026;
+/* 动态球龄：draftYear 已知时精确计算，否则根据年龄估算（球员默认 20 岁进联盟）。
+   好处：不依赖数据文件硬编码的 expYears，赛季推进时 seasonNo++ 自动增长。 */
+function getExpYears(p, seasonNo) {
+  if (!p) return 0;
+  const sn = seasonNo || 1;
+  if (p.draftYear && p.draftYear > 1980) {
+    const gameYear = BASE_GAME_YEAR + sn - 1;
+    return Math.max(0, gameYear - p.draftYear - 1);
+  }
+  /* 无 draftYear：落选秀 / 自由球员，按 20 岁进联盟估算 */
+  if (p.age) return Math.max(0, p.age - 20);
+  return 0;
+}
+/* 新秀判断：expYears === 0 或显式标记 isRookie（自定义新秀） */
+function isRookiePlayer(p, seasonNo) {
+  return (p && p.isRookie) || getExpYears(p, seasonNo) === 0;
+}
+
 /* ===== 赛程生成：82 场，每对手主客各一次 + 24 场随机 ===== */
 function makeSchedule(save) {
   const pool = TEAMS.map(t => t.abbr).filter(a => a !== myAbbr(save));
@@ -150,7 +170,7 @@ function liveAwardRanks(save) {
   /* 篮板王 */
   const reboundTop = candidates.slice().sort((a, b) => b.st.rpg - a.st.rpg).slice(0, 10);
   /* 最佳新秀实时榜（expYears === 0） */
-  const rookieTop = candidates.filter(c => c.p.expYears === 0 || c.p.isRookie)
+  const rookieTop = candidates.filter(c => isRookiePlayer(c.p, save.seasonNo))
     .sort((a, b) => b.mvp - a.mvp).slice(0, 10);
 
   return { mvpTop, dpoyTop, sixthTop, scoringTop, assistTop, reboundTop, rookieTop, gp };
@@ -241,7 +261,7 @@ function seasonAwards(save) {
   );
 
   /* 最佳新秀 & 新秀一二阵：expYears === 0 */
-  const rookCands = candidates.filter(c => c.p.expYears === 0 || c.p.isRookie);
+  const rookCands = candidates.filter(c => isRookiePlayer(c.p, save.seasonNo));
   const rookPool = {
     g: rookCands.filter(c => catOf(c.p.pos) === "G").sort((a, b) => b.mvp - a.mvp),
     f: rookCands.filter(c => catOf(c.p.pos) === "F").sort((a, b) => b.mvp - a.mvp),
