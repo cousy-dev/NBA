@@ -40,6 +40,8 @@ const ARENA_POOL = ["星穹球馆", "龙曜中心", "极光体育馆", "皇冠�
 const SALARY_CAP = 165.0;
 const TAX_LINE = 200.4;
 const FIRST_APRON = 209.0;
+/* 梦幻选秀：30 队蛇形选秀，每队选 FANTASY_ROUNDS 人（不考虑薪资，纯按能力选） */
+const FANTASY_ROUNDS = 15;
 /* 交易截止日：常规赛第 53 场结束后（82 场的 65%，对齐 NBA 现实 2 月中旬截止日） */
 const TRADE_DEADLINE_GAME = 53;
 /* 球市分级预算：大球市可挥金至第一奢侈税线，中球市到奢侈税线，小球市紧贴硬帽 */
@@ -126,6 +128,18 @@ function realYearsForId(id) {
   return r ? r.y : null;
 }
 
+/* 备份球员原始球队（梦幻选秀会改写 p.team，需在重置/换档时还原） */
+let _ORIG_TEAMS = null;
+function origTeams() {
+  if (!_ORIG_TEAMS) _ORIG_TEAMS = new Map(PLAYERS_RATED.players.map(p => [p.id, p.team]));
+  return _ORIG_TEAMS;
+}
+/* 还原所有球员的原始球队归属（开启新生涯/切换存档前调用） */
+function resetPlayerTeams() {
+  const m = origTeams();
+  PLAYERS_RATED.players.forEach(p => { const o = m.get(p.id); if (o) p.team = o; });
+}
+
 /* ===== 状态 ===== */
 const state = {
   stack: [],
@@ -133,6 +147,8 @@ const state = {
   mode: null,          // "existing" | "custom"
   saveSlot: null,      // 当前生涯所在的存档槽位（1-3）
   expansion: null,     // 扩张选秀状态（自建模式）：{ pool, selected:Set, teamsHit:Set }
+  fantasy: null,       // 梦幻选秀状态（接管模式）：{ order, picks, round, pickNo, userTeam, done }
+  takeMode: "direct",  // 接管模式："direct" 直接接管 / "fantasy" 梦幻选秀
   team: null,          // 接管模式: 球队缩写
   custom: { name: "", city: "", arena: "" },
   budget: 0,
@@ -188,6 +204,8 @@ function purgeRuntimePlayers() {
   if (typeof LEAGUE_EST !== "undefined") LEAGUE_EST = null;
   /* 真实薪资索引同样基于球员库构建，一并作废，下次按需重建 */
   _REAL_SAL_IDX = null; _REAL_SAL_NAME = null;
+  /* 还原球员原始球队归属（梦幻选秀会改写 p.team） */
+  resetPlayerTeams();
   return before - PLAYERS_RATED.players.length;
 }
 /* 重置建队向导状态（模式/球队/自定义信息/预算/已选阵容/筛选器），避免上一次建队残留 */
@@ -195,6 +213,9 @@ function resetWizardState() {
   state.mode = null;
   state.team = null;
   state.expansion = null;
+  state.fantasy = null;
+  state.takeMode = "direct";
+  state._fantasyAiRosters = null;
   state.custom = { name: "", city: "", arena: "" };
   state.budget = 0;
   state.budgetKey = null;
@@ -252,6 +273,7 @@ function currentStep() {
     case "budget": return ["资金预算", 2, 4];
     case "roster": return ["选拔阵容", 3, 4];
     case "expand": return ["扩张选秀", 2, 3];
+    case "fantasy": return ["梦幻选秀", 2, 2];
     case "summary": return state.mode === "existing" ? ["确认球队", 2, 2] : ["确认建队", 3, 3];
     case "player": return ["球员详情", 1, 1];
     case "hub": return ["经理室", 1, 1];
@@ -277,6 +299,8 @@ function updateTopbar() {
 
 /* ===== 开始页 ===== */
 RENDERERS.start = function () {
+  resetWizardState();
+  resetPlayerTeams();   /* 还原梦幻选秀改写过的球队归属 */
   state.stack = [];
   migrateLegacySave(); /* 旧版单存档迁移到槽位 1 */
   const slots = readAllSaves();
@@ -356,10 +380,16 @@ RENDERERS["team-select"] = function () {
   })).sort((a, b) => b.strength - a.strength);
   const marketName = m => m === "large" ? "大球市" : m === "medium" ? "中球市" : "小球市";
   const marketClass = m => "mkt-" + (m || "small");
+  const mode = state.takeMode || "direct";
 
   $("#screen-team-select").innerHTML =
     '<h2 class="screen-title">选择你的球队</h2>' +
     '<p class="screen-sub">接管一支 NBA 球队 · 球市决定预算上限（大球市 ' + fmtM(MARKET_PRESETS[2].amount) + ' / 中球市 ' + fmtM(MARKET_PRESETS[1].amount) + ' / 小球市 ' + fmtM(MARKET_PRESETS[0].amount) + '）</p>' +
+    '<div class="mode-toggle">' +
+    '  <button class="mt-btn' + (mode === "direct" ? " active" : "") + '" data-mode="direct">直接接管</button>' +
+    '  <button class="mt-btn' + (mode === "fantasy" ? " active" : "") + '" data-mode="fantasy">梦幻选秀</button>' +
+    "</div>" +
+    (mode === "fantasy" ? '<p class="screen-sub" style="margin-top:0;color:#7dd3fc">所有球员清空重选 · 30 队随机蛇形顺位 · 纯按能力值选人 · 不考虑薪资</p>' : "") +
     '<div class="team-grid">' +
     teams.map(t =>
       '<div class="team-card ' + marketClass(t.market) + '" data-abbr="' + t.abbr + '">' +
@@ -372,8 +402,15 @@ RENDERERS["team-select"] = function () {
     ).join("") +
     "</div>";
 
+  $$("#screen-team-select .mt-btn").forEach(btn => {
+    btn.onclick = () => { state.takeMode = btn.dataset.mode; RENDERERS["team-select"](); activate("team-select", true); };
+  });
   $$("#screen-team-select .team-card").forEach(card => {
-    card.onclick = () => { state.team = card.dataset.abbr; go("summary"); };
+    card.onclick = () => {
+      state.team = card.dataset.abbr;
+      if (state.takeMode === "fantasy") { startFantasyDraft(state.team); go("fantasy"); }
+      else { go("summary"); }
+    };
   });
 };
 
@@ -517,6 +554,196 @@ RENDERERS.expand = function () {
     state.budgetKey = "expansion";
     go("summary");
   };
+};
+
+/* ===== 梦幻选秀（接管模式：全联盟球员蛇形重选，不考虑薪资） ===== */
+/* 初始化：随机 30 队蛇形顺位，用户队随机落位 */
+function startFantasyDraft(userTeam) {
+  origTeams();          /* 备份原始球队归属 */
+  resetPlayerTeams();   /* 还原上一次生涯可能改写过的球队 */
+  state.fantasy = {
+    order: shuffleArr(TEAMS.map(t => t.abbr)),  /* 首轮顺位（奇数轮正向，偶数轮反向） */
+    picks: [],        /* [{round, pickNo, team, playerId}] */
+    round: 1,
+    pickNo: 1,        /* 总顺位（从 1 开始） */
+    userTeam,
+    done: false
+  };
+}
+/* 蛇形：第 round 轮第 pickInRound 顺位对应哪支队 */
+function fantasyTeamAt(round, pickInRound) {
+  const order = state.fantasy.order;
+  if (round % 2 === 1) return order[pickInRound - 1];
+  return order[order.length - pickInRound];
+}
+function fantasyPickedIds() { return new Set(state.fantasy.picks.map(p => p.playerId)); }
+/* 可用球员（按 OVR 降序） */
+function fantasyAvailable() {
+  const picked = fantasyPickedIds();
+  return PLAYERS_RATED.players.filter(p => !picked.has(p.id)).sort((a, b) => b.ovr - a.ovr);
+}
+/* AI 选人：前 3 中 70% 选最强、30% 随机，避免完全 predictable */
+function aiFantasyPick() {
+  const avail = fantasyAvailable();
+  if (!avail.length) return null;
+  const top = avail.slice(0, 3);
+  return Math.random() < 0.7 ? top[0] : top[Math.floor(Math.random() * top.length)];
+}
+/* 执行一签 */
+function fantasyDraftPick(playerId) {
+  const f = state.fantasy;
+  const pickInRound = ((f.pickNo - 1) % 30) + 1;
+  const team = fantasyTeamAt(f.round, pickInRound);
+  f.picks.push({ round: f.round, pickNo: f.pickNo, team, playerId });
+  f.pickNo += 1;
+  if (pickInRound === 30) f.round += 1;
+  if (f.pickNo > 30 * FANTASY_ROUNDS) f.done = true;
+}
+function fantasyCurrentTeam() {
+  const f = state.fantasy;
+  const pickInRound = ((f.pickNo - 1) % 30) + 1;
+  return fantasyTeamAt(f.round, pickInRound);
+}
+/* 模拟 AI 选人。stopBeforeUser=true 时到用户下一站停下；否则全部模拟完 */
+function simulateFantasy(stopBeforeUser) {
+  const f = state.fantasy;
+  while (!f.done) {
+    if (stopBeforeUser && fantasyCurrentTeam() === f.userTeam) break;
+    const p = aiFantasyPick();
+    if (!p) break;
+    fantasyDraftPick(p.id);
+  }
+}
+/* 完成选秀：构建各队阵容、改写球员归属、填入用户阵容 */
+function finalizeFantasyDraft() {
+  const f = state.fantasy;
+  const teamRosters = {};
+  TEAMS.forEach(t => { teamRosters[t.abbr] = []; });
+  f.picks.forEach(pk => { teamRosters[pk.team].push(pk.playerId); });
+  /* 改写球员球队归属（使 playersByTeam / 自由市场 / 交易逻辑正常） */
+  const pById = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+  f.picks.forEach(pk => { const p = pById.get(pk.playerId); if (p) p.team = pk.team; });
+  /* 用户队阵容填入向导 */
+  state.roster = new Map(
+    teamRosters[f.userTeam].map(id => { const p = pById.get(id); return p ? [id, p] : null; }).filter(Boolean)
+  );
+  /* aiRosters 不含用户队（用户队用 save.roster，避免 doAging 重复处理） */
+  delete teamRosters[f.userTeam];
+  state._fantasyAiRosters = teamRosters;
+  state.takeMode = "direct";
+}
+
+RENDERERS.fantasy = function () {
+  const f = state.fantasy;
+  if (!f) { go("team-select"); return; }
+  const teamNameOf = abbr => { const t = TEAMS.find(x => x.abbr === abbr); return t ? t.nameCn : abbr; };
+  const isUserTurn = !f.done && fantasyCurrentTeam() === f.userTeam;
+  const avail = fantasyAvailable();
+  const topAvail = avail.slice(0, 40);
+
+  /* 我的签位预览：列出用户在每一轮的顺位 */
+  const myPickInRound = r => {
+    const idx = f.order.indexOf(f.userTeam) + 1;
+    return r % 2 === 1 ? idx : (31 - idx);
+  };
+
+  /* 选秀历史（最近 12 条） */
+  const recent = f.picks.slice(-12).reverse();
+  const historyHtml = recent.map(pk => {
+    const p = PLAYERS_RATED.players.find(x => x.id === pk.playerId);
+    const isMine = pk.team === f.userTeam;
+    return '<div class="fan-pick' + (isMine ? " mine" : "") + '">' +
+      '<span class="fp-no">R' + pk.round + "·" + pk.pickNo + "</span>" +
+      '<span class="fp-team">' + esc(teamNameOf(pk.team)) + "</span>" +
+      '<span class="fp-name">' + esc(p ? p.nameCn : "?") + "</span>" +
+      '<span class="fp-ovr ' + ovrClass(p ? p.ovr : 60) + '">' + (p ? p.ovr : "-") + "</span>" +
+      "</div>";
+  }).join("") || '<div class="empty-stats">还没有选秀记录</div>';
+
+  /* 首轮顺位展示 */
+  const orderHtml = f.order.map((abbr, i) =>
+    '<span class="fan-ord' + (abbr === f.userTeam ? " mine" : "") + '" title="' + esc(teamNameOf(abbr)) + '">' + (i + 1) + "." + abbr + "</span>"
+  ).join("");
+
+  let body;
+  if (f.done) {
+    const mine = f.picks.filter(p => p.team === f.userTeam).length;
+    body = '<div class="fan-done">' +
+      '<h3>选秀完成！</h3>' +
+      '<p>你的球队 <b>' + esc(teamNameOf(f.userTeam)) + "</b> 共选得 <b>" + mine + "</b> 名球员。</p>" +
+      '<button class="btn btn-primary" id="btn-fan-confirm">确认阵容 · 开启生涯</button>' +
+      "</div>";
+  } else if (isUserTurn) {
+    const pickInRound = ((f.pickNo - 1) % 30) + 1;
+    const list = topAvail.map(p =>
+      '<div class="exp-card" data-id="' + p.id + '">' +
+      '  <div class="ovr-badge ' + ovrClass(p.ovr) + '">' + p.ovr + "</div>" +
+      '  <div class="exp-main">' +
+      '    <div class="exp-name">' + esc(p.nameCn) + ' <span class="pos-chip ' + posClass(p.pos) + '">' + esc(posLabel(p)) + "</span></div>" +
+      '    <div class="exp-meta">' + esc(teamNameOf(p.team)) + " · " + (p.age || "-") + "岁</div>" +
+      "  </div>" +
+      '  <div class="exp-act"><span class="exp-tag add">＋ 选择</span></div>' +
+      "</div>"
+    ).join("");
+    body = '<div class="fan-turn">' +
+      '  <div class="fan-turn-hd"><b>轮到你了！</b> 第 ' + f.round + " 轮 · 第 " + pickInRound + " 顺位（总第 " + f.pickNo + " 签）</div>" +
+      '  <div class="fan-actions">' +
+      '    <button class="btn" id="btn-fan-ai">AI 帮我选</button>' +
+      '    <button class="btn" id="btn-fan-sim-rest">模拟剩余全部</button>' +
+      "  </div>" +
+      '  <div class="exp-list">' + list + "</div>" +
+      "</div>";
+  } else {
+    const team = fantasyCurrentTeam();
+    const pickInRound = ((f.pickNo - 1) % 30) + 1;
+    body = '<div class="fan-turn">' +
+      '  <div class="fan-turn-hd">等待 <b>' + esc(teamNameOf(team)) + "</b> 选择 · 第 " + f.round + " 轮 · 第 " + pickInRound + " 顺位</div>" +
+      '  <div class="fan-actions">' +
+      '    <button class="btn btn-primary" id="btn-fan-sim-user">模拟到我的回合</button>' +
+      '    <button class="btn" id="btn-fan-sim-rest">模拟剩余全部</button>' +
+      "  </div>" +
+      "</div>";
+  }
+
+  $("#screen-fantasy").innerHTML =
+    '<h2 class="screen-title">梦幻选秀</h2>' +
+    '<p class="screen-sub">所有 530 名球员清空重选 · 30 队随机蛇形顺位 · 纯按能力值选人 · 不考虑薪资 · 每队 ' + FANTASY_ROUNDS + " 人</p>" +
+    '<div class="fan-round">' +
+    '  <div class="er-pill">第 <b>' + (f.done ? FANTASY_ROUNDS : f.round) + "</b> / " + FANTASY_ROUNDS + " 轮</div>" +
+    '  <div class="er-pill">已选 <b>' + f.picks.length + "</b> / " + (30 * FANTASY_ROUNDS) + "</div>" +
+    '  <div class="er-pill">你的球队 <b>' + esc(teamNameOf(f.userTeam)) + "</b></div>" +
+    '  <div class="er-pill">剩余球员 <b>' + avail.length + "</b></div>" +
+    "</div>" +
+    '<details class="fan-order"><summary>首轮顺位（点击展开）</summary><div class="fan-order-list">' + orderHtml + "</div></details>" +
+    '<div class="fan-body">' +
+    '  <div class="fan-main">' + body + "</div>" +
+    '  <div class="fan-history"><h4>选秀记录</h4><div class="fan-history-list">' + historyHtml + "</div></div>" +
+    "</div>";
+
+  /* 事件绑定 */
+  if (isUserTurn) {
+    $$("#screen-fantasy .exp-card").forEach(c => {
+      c.onclick = () => {
+        fantasyDraftPick(Number(c.dataset.id));
+        /* 自动模拟到用户下一回合 */
+        simulateFantasy(true);
+        RENDERERS.fantasy(); activate("fantasy", true);
+      };
+    });
+    $("#btn-fan-ai").onclick = () => {
+      const p = aiFantasyPick();
+      if (p) { fantasyDraftPick(p.id); simulateFantasy(true); RENDERERS.fantasy(); activate("fantasy", true); }
+    };
+  }
+  if (!f.done) {
+    const simRest = $("#btn-fan-sim-rest");
+    if (simRest) simRest.onclick = () => { simulateFantasy(false); RENDERERS.fantasy(); activate("fantasy", true); };
+    const simUser = $("#btn-fan-sim-user");
+    if (simUser) simUser.onclick = () => { simulateFantasy(true); RENDERERS.fantasy(); activate("fantasy", true); };
+  }
+  if (f.done) {
+    $("#btn-fan-confirm").onclick = () => { finalizeFantasyDraft(); go("summary"); };
+  }
 };
 
 /* ===== 预算（自建模式） ===== */
@@ -720,7 +947,11 @@ function confirmRoster() {
 function buildSummaryData() {
   if (state.mode === "existing") {
     const t = TEAMS.find(x => x.abbr === state.team);
-    const rosterArr = playersByTeam(state.team)
+    /* 梦幻选秀：使用 state.roster（已选阵容）；直接接管：用 playersByTeam 原阵容 */
+    const rosterSrc = state.roster && state.roster.size
+      ? Array.from(state.roster.values())
+      : playersByTeam(state.team);
+    const rosterArr = rosterSrc
       .map(p => ({ p, sal: estimateSalary(p.ovr, p.id) }))
       .sort((a, b) => b.p.ovr - a.p.ovr);
     return {
@@ -812,6 +1043,12 @@ RENDERERS.summary = function () {
       save.expansion = true;
       /* 前两次选秀（第2、3赛季）额外首轮签优待 */
       save.expansionBonusUntilSeason = 3;
+    }
+    /* 梦幻选秀：写入全部 30 队阵容 */
+    if (state._fantasyAiRosters) {
+      save.aiRosters = state._fantasyAiRosters;
+      save.fantasy = true;
+      state._fantasyAiRosters = null;
     }
     try {
       writeSave(save);
