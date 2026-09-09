@@ -1918,12 +1918,44 @@ RENDERERS.trade = function () {
 };
 
 /* ===== 交易谈判 ===== */
+/* 生成球员价值徽章：彩色数值 + 星级 + 悬停明细 */
+function valBadgeHtml(p, salary, ctx) {
+  const d = tradeValueDetail(p, salary, ctx);
+  const t = valueTier(d.value);
+  const stars = "★".repeat(t.stars) + '<span class="v-star-off">★</span>'.repeat(5 - t.stars);
+  const bd = d.breakdown;
+  const tip =
+    '<div class="vtip-title">' + esc(p.nameCn) + ' · 价值 ' + d.value + '</div>' +
+    '<div class="vtip-row"><span>基础(OVR)</span><b>+' + bd.base + '</b></div>' +
+    (bd.age ? '<div class="vtip-row"><span>年龄</span><b class="' + (bd.age >= 0 ? "pos" : "neg") + '">' + (bd.age >= 0 ? "+" : "") + bd.age + '</b></div>' : "") +
+    (bd.position ? '<div class="vtip-row"><span>位置稀缺</span><b class="pos">+' + bd.position + '</b></div>' : "") +
+    (bd.salary ? '<div class="vtip-row"><span>合同性价比</span><b class="' + (bd.salary >= 0 ? "pos" : "neg") + '">' + (bd.salary >= 0 ? "+" : "") + bd.salary + '</b></div>' : "") +
+    (bd.rookie ? '<div class="vtip-row"><span>新秀合同</span><b class="pos">+' + bd.rookie + '</b></div>' : "") +
+    (bd.contractYears != null ? '<div class="vtip-row"><span>剩余年限</span><b class="' + (bd.contractYears >= 0 ? "pos" : "neg") + '">' + (bd.contractYears >= 0 ? "+" : "") + bd.contractYears + '</b></div>' : "") +
+    (bd.potential != null ? '<div class="vtip-row"><span>潜力</span><b class="pos">+' + bd.potential + '</b></div>' : "") +
+    (bd.morale != null ? '<div class="vtip-row"><span>士气</span><b class="' + (bd.morale >= 0 ? "pos" : "neg") + '">' + (bd.morale >= 0 ? "+" : "") + bd.morale + '</b></div>' : "") +
+    (bd.birdRights != null ? '<div class="vtip-row"><span>鸟权</span><b class="' + (bd.birdRights >= 0 ? "pos" : "neg") + '">' + (bd.birdRights >= 0 ? "+" : "") + bd.birdRights + '</b></div>' : "");
+  return '<span class="val-badge ' + t.color + '">' + d.value + ' ' + stars + '<span class="vtip">' + tip + '</span></span>';
+}
+
 RENDERERS["trade-deal"] = function () {
   const save = state.save;
   const aiTeam = state.trade.aiTeam;
   const aiT = TEAMS.find(t => t.abbr === aiTeam);
-  const mine = loadMyPlayers(save).map(x => ({ p: x.p, sal: x.sal }));
-  const tradable = getTradable(aiTeam).map(x => ({ p: x.p, sal: estimateSalary(x.p.ovr, x.p.id), untouchable: !!x.untouchable }));
+  const mine = loadMyPlayers(save).map(x => {
+    const entry = save.roster.find(r => r.id === x.p.id) || {};
+    return {
+      p: x.p, sal: x.sal,
+      ctx: { years: entry.years || 0, morale: moraleOf(save, x.p.id), potential: x.p.potential, birdYears: entry.birdYears || 0 }
+    };
+  });
+  const tradable = getTradable(aiTeam).map(x => {
+    const entry = (save.aiRosters && save.aiRosters[aiTeam] ? null : null); /* AI 球员无本地合同记录，用默认值 */
+    return {
+      p: x.p, sal: estimateSalary(x.p.ovr, x.p.id), untouchable: !!x.untouchable,
+      ctx: { years: 2, potential: x.p.potential, birdYears: 0 }  /* AI 球员默认 2 年合同 */
+    };
+  });
   const myPicks = state.trade.myPicks;
   const aiPicks = state.trade.aiPicks;
   const myDPicks = state.trade.myDraftPicks;
@@ -1932,8 +1964,8 @@ RENDERERS["trade-deal"] = function () {
   const myPickPool = getTeamPicks(save, myAbbr(save));
   const aiPickPool = getTeamPicks(save, aiTeam);
   /* 总价值 = 球员 + 选秀权 */
-  const myVal = myPicks.reduce((s, x) => s + tradeValue(x.p, x.sal), 0) + myDPicks.reduce((s, pk) => s + pickValue(pk), 0);
-  const aiVal = aiPicks.reduce((s, x) => s + tradeValue(x.p, x.sal), 0) + aiDPicks.reduce((s, pk) => s + pickValue(pk), 0);
+  const myVal = myPicks.reduce((s, x) => s + tradeValue(x.p, x.sal, x.ctx), 0) + myDPicks.reduce((s, pk) => s + pickValue(pk), 0);
+  const aiVal = aiPicks.reduce((s, x) => s + tradeValue(x.p, x.sal, x.ctx), 0) + aiDPicks.reduce((s, pk) => s + pickValue(pk), 0);
   const result = state.trade.result;
   const mySal = myPicks.reduce((s, x) => s + x.sal, 0);
   const aiSal = aiPicks.reduce((s, x) => s + x.sal, 0);
@@ -1945,7 +1977,7 @@ RENDERERS["trade-deal"] = function () {
       '<div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '<div class="tp-name">' + esc(x.p.nameCn) + "</div>" +
       '<div class="tp-meta">' + esc(x.p.pos) + " · " + (x.p.age || "-") + "岁 · " + fmtM(x.sal) + "</div>" +
-      '<div class="tp-val">价值 ' + tradeValue(x.p, x.sal) + "</div>" +
+      '<div class="tp-val">' + valBadgeHtml(x.p, x.sal, x.ctx) + "</div>" +
       '<button class="tp-remove" data-side="' + side + '" data-id="' + x.p.id + '">✕</button></div>'
     ).join("") : "";
   const draftPickList = (arr, side) =>
@@ -1986,7 +2018,7 @@ RENDERERS["trade-deal"] = function () {
       '<div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '<div class="tr-name">' + esc(x.p.nameCn) + '</div>' +
       '<div class="tr-meta">' + esc(x.p.pos) + " · " + fmtM(x.sal) + "</div>" +
-      '<div class="tr-val">价值 ' + tradeValue(x.p, x.sal) + "</div></div>"
+      '<div class="tr-val">' + valBadgeHtml(x.p, x.sal, x.ctx) + "</div></div>"
     ).join("") + "</div>" +
     '  <div class="tr-sec"><h3 class="tc-h">' + esc(aiT.nameCn) + ' 阵容</h3>' +
     tradable.map(x =>
@@ -1994,7 +2026,7 @@ RENDERERS["trade-deal"] = function () {
       '<div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '<div class="tr-name">' + esc(x.p.nameCn) + (x.untouchable ? ' <span class="tr-lock">非卖品</span>' : "") + '</div>' +
       '<div class="tr-meta">' + esc(x.p.pos) + " · " + fmtM(x.sal) + "</div>" +
-      '<div class="tr-val">' + (x.untouchable ? "非卖品" : "价值 " + tradeValue(x.p, x.sal)) + "</div></div>"
+      '<div class="tr-val">' + (x.untouchable ? '<span class="val-badge t6">非卖品</span>' : valBadgeHtml(x.p, x.sal, x.ctx)) + "</div></div>"
     ).join("") + "</div>" +
     "</div>" +
     /* 选秀权区域 */

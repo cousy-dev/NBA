@@ -2,28 +2,94 @@
 /* 交易系统 —— 球员价值评估 / AI 报价 / 谈判逻辑（纯逻辑无 DOM） */
 
 /* ===== 球员交易价值 ===== */
-/* 基于 OVR + 年龄 + 合同，返回 0-100 价值分 */
-function tradeValue(p, salary) {
+/* ctx: { years, morale, potential, birdYears } 可选上下文，传入后启用对应维度 */
+function tradeValueDetail(p, salary, ctx) {
+  ctx = ctx || {};
   const ovr = p.ovr;
-  let v = ovr;                          // 基础 = OVR
-  /* 年龄修正：年轻潜力股加分，老将减分 */
   const age = p.age || 24;
-  if (age <= 22) v += 8;
-  else if (age <= 25) v += 4;
-  else if (age <= 28) v += 0;
-  else if (age <= 31) v -= 3;
-  else if (age <= 34) v -= 8;
-  else v -= 15;
+  const breakdown = { base: ovr };
+  let v = ovr;
+  /* 年龄修正：年轻潜力股加分，老将减分 */
+  let ageMod;
+  if (age <= 22) ageMod = 8;
+  else if (age <= 25) ageMod = 4;
+  else if (age <= 28) ageMod = 0;
+  else if (age <= 31) ageMod = -3;
+  else if (age <= 34) ageMod = -8;
+  else ageMod = -15;
+  v += ageMod; breakdown.age = ageMod;
+  /* 位置稀缺性：中锋和控卫更值钱 */
+  const pos = p.pos || "F";
+  const posMod = { C: 3, G: 2, "F-C": 1.5, "G-F": 1, F: 0 }[pos] || 0;
+  v += posMod; breakdown.position = posMod;
   /* 合同性价比：工资 vs OVR 预期 */
   const exp = estimateSalary(ovr, p.id);
+  let salMod = 0;
   if (salary && exp > 0) {
     const ratio = salary / exp;
-    if (ratio < 0.7) v += 5;           // 物超所值
-    else if (ratio > 1.4) v -= 6;       // 溢价合同
+    if (ratio < 0.7) salMod = 5;
+    else if (ratio > 1.4) salMod = -6;
+    else if (ratio > 1.15) salMod = -2;
+    else if (ratio < 0.85) salMod = 2;
   }
+  v += salMod; breakdown.salary = salMod;
   /* 新秀合同特别加分（低薪高能） */
-  if (p.draftYear && p.draftYear >= 2024 && ovr >= 75) v += 4;
-  return Math.max(10, Math.min(99, Math.round(v)));
+  const rookieMod = (p.draftYear && p.draftYear >= 2024 && ovr >= 75) ? 4 : 0;
+  v += rookieMod; breakdown.rookie = rookieMod;
+  /* 合同剩余年限：长合同可控性更强，到期合同贬值 */
+  if (ctx.years != null) {
+    let yrsMod;
+    if (ctx.years >= 4) yrsMod = 3;
+    else if (ctx.years === 3) yrsMod = 2;
+    else if (ctx.years === 2) yrsMod = 1;
+    else if (ctx.years === 1) yrsMod = -1;
+    else yrsMod = -4;
+    v += yrsMod; breakdown.contractYears = yrsMod;
+  }
+  /* 潜力加成：年轻高潜球员更值钱 */
+  if (ctx.potential != null && age <= 25) {
+    let potMod = 0;
+    if (ctx.potential >= 90) potMod = 5;
+    else if (ctx.potential >= 85) potMod = 3;
+    else if (ctx.potential >= 80) potMod = 1;
+    v += potMod; breakdown.potential = potMod;
+  }
+  /* 士气修正：士气低的球员交易价值下降 */
+  if (ctx.morale != null) {
+    let morMod;
+    if (ctx.morale >= 80) morMod = 2;
+    else if (ctx.morale >= 60) morMod = 0;
+    else if (ctx.morale >= 40) morMod = -3;
+    else morMod = -6;
+    v += morMod; breakdown.morale = morMod;
+  }
+  /* 鸟权加成：完全鸟权可帽上续约，提升交易价值 */
+  if (ctx.birdYears != null) {
+    let birdMod;
+    if (ctx.birdYears >= 3) birdMod = 3;
+    else if (ctx.birdYears === 2) birdMod = 1;
+    else if (ctx.birdYears === 1) birdMod = 0;
+    else birdMod = -1;
+    v += birdMod; breakdown.birdRights = birdMod;
+  }
+  const total = Math.max(10, Math.min(99, Math.round(v)));
+  breakdown.total = total;
+  return { value: total, breakdown };
+}
+
+/* 兼容旧调用：直接返回数值 */
+function tradeValue(p, salary, ctx) {
+  return tradeValueDetail(p, salary, ctx).value;
+}
+
+/* 价值等级标签：用于 UI 星级展示 */
+function valueTier(v) {
+  if (v >= 90) return { stars: 5, label: "基石", color: "t1" };
+  if (v >= 80) return { stars: 4, label: "明星", color: "t2" };
+  if (v >= 70) return { stars: 3, label: "优质", color: "t3" };
+  if (v >= 55) return { stars: 2, label: "轮换", color: "t4" };
+  if (v >= 40) return { stars: 1, label: "边缘", color: "t5" };
+  return { stars: 0, label: "添头", color: "t6" };
 }
 
 /* ===== 阵容需求评估 ===== */
@@ -53,10 +119,10 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   const aiTeam = myAbbrCode;
   myPicks = myPicks || [];
   aiPicks = aiPicks || [];
-  /* 计算双方价值（球员 + 选秀权） */
-  const myVal = myOffer.reduce((s, x) => s + tradeValue(x.p, x.sal), 0) +
+  /* 计算双方价值（球员 + 选秀权），传入 ctx 启用多维度评估 */
+  const myVal = myOffer.reduce((s, x) => s + tradeValue(x.p, x.sal, x.ctx), 0) +
     myPicks.reduce((s, pk) => s + pickValue(pk), 0);
-  const aiVal = aiOffer.reduce((s, x) => s + tradeValue(x.p, x.sal), 0) +
+  const aiVal = aiOffer.reduce((s, x) => s + tradeValue(x.p, x.sal, x.ctx), 0) +
     aiPicks.reduce((s, pk) => s + pickValue(pk), 0);
   /* AI 需要得到略多的价值才愿意交易（主场优势心理） */
   const threshold = 1.05;
