@@ -72,6 +72,10 @@ function tradeValueDetail(p, salary, ctx) {
     else birdMod = -1;
     v += birdMod; breakdown.birdRights = birdMod;
   }
+  /* 球队需求：填补阵容短板的球员更值钱（从评估方视角） */
+  if (ctx.needBonus != null) {
+    v += ctx.needBonus; breakdown.teamNeed = ctx.needBonus;
+  }
   const total = Math.max(10, Math.min(99, Math.round(v)));
   breakdown.total = total;
   return { value: total, breakdown };
@@ -112,6 +116,22 @@ function teamNeeds(save, abbr) {
   return { weak: gaps[0].pos, gaps };
 }
 
+/* 计算某位置对某球队的需求加成：
+   - 填补最大缺口：+6
+   - 填补次级缺口（depth > 0）：+3
+   - 位置人数刚好：0
+   - 位置冗余（depth < 0）：-3 */
+function positionNeedBonus(save, abbr, pos) {
+  const needs = teamNeeds(save, abbr);
+  const cat = catOf(pos);
+  const gap = needs.gaps.find(g => g.pos === cat);
+  if (!gap) return 0;
+  if (needs.weak === cat && gap.depth > 0) return 6;   /* 最大缺口 */
+  if (gap.depth > 0) return 3;                          /* 次级缺口 */
+  if (gap.depth < 0) return -3;                         /* 冗余 */
+  return 0;                                             /* 刚好 */
+}
+
 /* ===== AI 交易意愿 ===== */
 /* AI 评估一笔交易是否接受，返回 { accept: bool, reason: string, counter?: offer } */
 /* myOffer/aiOffer: [{ p, sal }] 或空数组; myPicks/aiPicks: [pickInfo] 或空数组 */
@@ -120,17 +140,19 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   myPicks = myPicks || [];
   aiPicks = aiPicks || [];
   /* 计算双方价值（球员 + 选秀权），传入 ctx 启用多维度评估 */
-  const myVal = myOffer.reduce((s, x) => s + tradeValue(x.p, x.sal, x.ctx), 0) +
-    myPicks.reduce((s, pk) => s + pickValue(pk), 0);
-  const aiVal = aiOffer.reduce((s, x) => s + tradeValue(x.p, x.sal, x.ctx), 0) +
-    aiPicks.reduce((s, pk) => s + pickValue(pk), 0);
+  /* AI 接收的球员（myOffer）按 AI 队阵容短板重新计算需求加成 */
+  const myVal = myOffer.reduce((s, x) => {
+    const ctx = { ...(x.ctx || {}), needBonus: positionNeedBonus(save, aiTeam, x.p.pos) };
+    return s + tradeValue(x.p, x.sal, ctx);
+  }, 0) + myPicks.reduce((s, pk) => s + pickValue(pk), 0);
+  /* AI 送出的球员（aiOffer）按 AI 队冗余度评估：送走冗余位置球员损失更小 */
+  const aiVal = aiOffer.reduce((s, x) => {
+    const ctx = { ...(x.ctx || {}), needBonus: -positionNeedBonus(save, aiTeam, x.p.pos) * 0.5 };
+    return s + tradeValue(x.p, x.sal, ctx);
+  }, 0) + aiPicks.reduce((s, pk) => s + pickValue(pk), 0);
   /* AI 需要得到略多的价值才愿意交易（主场优势心理） */
   const threshold = 1.05;
   const ratio = myVal / Math.max(1, aiVal);
-  /* 阵容需求：如果用户提供的球员恰好补 AI 弱位，加成 */
-  const needs = teamNeeds(save, aiTeam);
-  const fillsNeed = myOffer.some(p => catOf(p.p.pos) === needs.weak);
-  const needBonus = fillsNeed ? 1.08 : 1.0;
   /* 战绩因素：烂队更愿意送走老将换潜力 */
   const aiStr = teamStrength(aiTeam);
   const record = save.standings[aiTeam] || { w: 0, l: 0 };
@@ -141,7 +163,7 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   const avgAgeAi = aiOffer.reduce((s, p) => s + (p.p.age || 24), 0) / aiOffer.length;
   const rebuildBonus = (winPct < 0.4 && avgAgeMy < avgAgeAi) ? 1.10 : 1.0;
 
-  const effectiveRatio = ratio * needBonus * rebuildBonus;
+  const effectiveRatio = ratio * rebuildBonus;
   if (effectiveRatio >= threshold) {
     return { accept: true, reason: "交易方案公平，对方愿意接受。" };
   }

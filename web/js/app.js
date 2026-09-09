@@ -1934,7 +1934,8 @@ function valBadgeHtml(p, salary, ctx) {
     (bd.contractYears != null ? '<div class="vtip-row"><span>剩余年限</span><b class="' + (bd.contractYears >= 0 ? "pos" : "neg") + '">' + (bd.contractYears >= 0 ? "+" : "") + bd.contractYears + '</b></div>' : "") +
     (bd.potential != null ? '<div class="vtip-row"><span>潜力</span><b class="pos">+' + bd.potential + '</b></div>' : "") +
     (bd.morale != null ? '<div class="vtip-row"><span>士气</span><b class="' + (bd.morale >= 0 ? "pos" : "neg") + '">' + (bd.morale >= 0 ? "+" : "") + bd.morale + '</b></div>' : "") +
-    (bd.birdRights != null ? '<div class="vtip-row"><span>鸟权</span><b class="' + (bd.birdRights >= 0 ? "pos" : "neg") + '">' + (bd.birdRights >= 0 ? "+" : "") + bd.birdRights + '</b></div>' : "");
+    (bd.birdRights != null ? '<div class="vtip-row"><span>鸟权</span><b class="' + (bd.birdRights >= 0 ? "pos" : "neg") + '">' + (bd.birdRights >= 0 ? "+" : "") + bd.birdRights + '</b></div>' : "") +
+    (bd.teamNeed != null ? '<div class="vtip-row"><span>球队需求</span><b class="' + (bd.teamNeed >= 0 ? "pos" : "neg") + '">' + (bd.teamNeed >= 0 ? "+" : "") + bd.teamNeed + '</b></div>' : "");
   return '<span class="val-badge ' + t.color + '">' + d.value + ' ' + stars + '<span class="vtip">' + tip + '</span></span>';
 }
 
@@ -1942,20 +1943,26 @@ RENDERERS["trade-deal"] = function () {
   const save = state.save;
   const aiTeam = state.trade.aiTeam;
   const aiT = TEAMS.find(t => t.abbr === aiTeam);
+  const myAbbrCode = myAbbr(save);
   const mine = loadMyPlayers(save).map(x => {
     const entry = save.roster.find(r => r.id === x.p.id) || {};
     return {
       p: x.p, sal: x.sal,
-      ctx: { years: entry.years || 0, morale: moraleOf(save, x.p.id), potential: x.p.potential, birdYears: entry.birdYears || 0 }
+      ctx: {
+        years: entry.years || 0, morale: moraleOf(save, x.p.id),
+        potential: x.p.potential, birdYears: entry.birdYears || 0,
+        needBonus: positionNeedBonus(save, myAbbrCode, x.p.pos)
+      }
     };
   });
-  const tradable = getTradable(aiTeam).map(x => {
-    const entry = (save.aiRosters && save.aiRosters[aiTeam] ? null : null); /* AI 球员无本地合同记录，用默认值 */
-    return {
-      p: x.p, sal: estimateSalary(x.p.ovr, x.p.id), untouchable: !!x.untouchable,
-      ctx: { years: 2, potential: x.p.potential, birdYears: 0 }  /* AI 球员默认 2 年合同 */
-    };
-  });
+  /* AI 球员显示「我方需求加成」：我队缺什么位置，对方那个位置球员就更值钱 */
+  const tradable = getTradable(aiTeam).map(x => ({
+    p: x.p, sal: estimateSalary(x.p.ovr, x.p.id), untouchable: !!x.untouchable,
+    ctx: {
+      years: 2, potential: x.p.potential, birdYears: 0,
+      needBonus: positionNeedBonus(save, myAbbrCode, x.p.pos)
+    }
+  }));
   const myPicks = state.trade.myPicks;
   const aiPicks = state.trade.aiPicks;
   const myDPicks = state.trade.myDraftPicks;
