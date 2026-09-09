@@ -17,9 +17,9 @@ const NAME_POOL = ["烈焰", "龙曜", "星港", "极光", "王朝", "雷霆", "
 const CITY_POOL = ["上海", "北京", "深圳", "广州", "杭州", "成都", "武汉", "西安", "南京", "重庆", "青岛", "长沙", "苏州", "厦门"];
 const ARENA_POOL = ["星穹球馆", "龙曜中心", "极光体育馆", "皇冠竞技场", "磐石中心", "天穹球馆", "凤凰巢", "海豚湾中心", "长江体育馆", "银河广场"];
 /* 2024-25 NBA 现实工资帑（百万美元）
-   - SALARY_CAP    = $140.588M  硬工资帽（UFA 不可超）
-   - TAX_LINE      = $170.810M  奢侈税线（超线罚款，但游戏里仅作预算上限）
-   - FIRST_APRON   = $178.132M  第一奢侈税线（带鸟权续约的硬上限）
+   - SALARY_CAP    = $140.588M  工资帽（UFA 签约不可超；鸟权续约可超）
+   - TAX_LINE      = $170.810M  奢侈税线（鸟权续约可超，仅警告需缴奢侈税）
+   - FIRST_APRON   = $178.132M  第一土豪线（鸟权续约可超；硬帽仅在先签后换/中产特例触发）
 */
 const SALARY_CAP = 140.6;
 const TAX_LINE = 170.8;
@@ -2356,7 +2356,7 @@ RENDERERS.extend = function () {
 
   $("#screen-extend").innerHTML =
     '<h2 class="screen-title">提前续约</h2>' +
-    '<p class="screen-sub">提前续约剩余 ≤ 2 年球员（球星 OVR ≥ 88 可 ≤ 3 年 · 指定老将条款） · 当前薪资总额 ' + fmtM(total) + '</p>' +
+    '<p class="screen-sub">提前续约剩余 ≤ 2 年球员（球星 OVR ≥ 88 可 ≤ 3 年 · 指定老将条款） · 当前薪资总额 ' + fmtM(total) + ' · 鸟权续约可超工资帽（超奢侈税线仅警告）</p>' +
     (eligible.length
       ? '<div class="ext-list">' + eligible.map(x => {
           const entry = save.roster.find(r => r.id === x.p.id) || {};
@@ -2388,7 +2388,7 @@ RENDERERS.extend = function () {
       : '<div class="ext-empty">当前阵容无符合提前续约条件的球员（剩余合同均 > 2 年）</div>') +
     '<button class="btn btn-outline" id="ext-back">返回经理室</button>';
   $("#ext-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
-  /* 实时刷新接受度指示器 */
+  /* 实时刷新接受度指示器 + 奢侈税超线提示（鸟权可超帽，仅警告） */
   const refreshAccept = (row) => {
     const id = Number(row.dataset.id);
     const years = parseInt(row.querySelector(".ext-years").value, 10);
@@ -2397,9 +2397,13 @@ RENDERERS.extend = function () {
     if (!accEl || isNaN(years) || isNaN(salary)) { if (accEl) accEl.textContent = ""; return; }
     const acc = extensionAcceptance(save, id, salary, years);
     const cls = acc.accept ? "ok" : acc.chance >= 30 ? "maybe" : "no";
-    accEl.className = "ext-accept " + cls;
-    accEl.textContent = "接受度 " + acc.chance + "%";
-    accEl.title = acc.reason;
+    /* 续约后预测总薪资 = 当前总额 - 现合同薪 + 新合同薪 */
+    const curEntry = save.roster.find(r => r.id === id);
+    const projectedTotal = total - (curEntry ? curEntry.salary : 0) + salary;
+    const warn = taxWarning(projectedTotal);
+    accEl.className = "ext-accept " + cls + (warn ? " tax-warn" : "");
+    accEl.textContent = "接受度 " + acc.chance + "%" + (warn ? " · " + warn : "");
+    accEl.title = acc.reason + (warn ? "\n" + warn : "");
   };
   $$("#screen-extend .ext-row").forEach(row => {
     const accEl = row.querySelector(".ext-accept");

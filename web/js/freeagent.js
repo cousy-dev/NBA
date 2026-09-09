@@ -42,16 +42,31 @@ function birdMaxFactor(level) {
   if (level === "non") return 1.08;
   return 1.00;
 }
-/* 鸟权等级 → 超帽绝对上限（基于 SALARY_CAP 的倍数，对应现实 NBA 工资帑）
-   - 完全鸟权：第一奢侈税线 = 1.27 × SALARY_CAP
-   - 早鸟权：奢侈税线     = 1.215 × SALARY_CAP
-   - 非鸟权：略超帽       = 1.05 × SALARY_CAP
-   注：UFA 不可超 SALARY_CAP（budget ≤ SALARY_CAP 的球队） */
+/* 鸟权等级 → 超帽安全阀（基于 SALARY_CAP 的倍数）
+   现实 NBA 规则：鸟权续约（完全/早/非）本身【不触发硬工资帽】，可以超工资帽
+   乃至奢侈税线续约本队球员（如库里、文班这种顶薪球星续约后球队薪资普遍超税线）。
+   硬工资帽（卡在第一土豪线）只在先签后换、空间中产特例、双年特例等场景触发。
+   因此这里只设宽松安全阀防止误操作，顶薪本身仍由 maxSalaryByBird 限制：
+   - 完全鸟权：1.80 × SALARY_CAP（约 253M，15 人阵容合理极限约 220M，等于不限制）
+   - 早鸟权：1.50 × SALARY_CAP（约 211M，早鸟起薪受限顶不到此线）
+   - 非鸟权：1.25 × SALARY_CAP（约 176M，非鸟起薪 ≤ 前薪 120%）
+   注：UFA 签约不可超 SALARY_CAP（budget ≤ SALARY_CAP 的球队） */
 function birdCapAbsolute(level) {
-  if (level === "bird") return (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6) * 1.27;
-  if (level === "early") return (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6) * 1.215;
-  if (level === "non") return (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6) * 1.05;
-  return (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6);
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 140.6;
+  if (level === "bird") return cap * 1.80;
+  if (level === "early") return cap * 1.50;
+  if (level === "non") return cap * 1.25;
+  return cap;
+}
+
+/* 奢侈税警告：续约后总薪资超线时返回警告文案（仅警告不阻止，鸟权续约可超帽）
+   TAX_LINE(170.8)=奢侈税线（超线交税）；FIRST_APRON(178.1)=第一土豪线（操作受限） */
+function taxWarning(total) {
+  const apron = typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 178.1;
+  const tax = typeof TAX_LINE !== "undefined" ? TAX_LINE : 170.8;
+  if (total > apron + 0.01) return "⚠ 续约后总薪资 " + fmtM(total) + " 超第一土豪线 " + fmtM(apron) + "，将面临土豪线限制";
+  if (total > tax + 0.01) return "⚠ 续约后总薪资 " + fmtM(total) + " 超奢侈税线 " + fmtM(tax) + "，需缴纳奢侈税";
+  return "";
 }
 /* 鸟权等级 → 可签年限范围 */
 function birdYearsRange(level) {
@@ -217,10 +232,11 @@ function reSignPlayer(save, playerId, years, salary) {
   /* 年限校验 */
   const [minY, maxY] = birdYearsRange(level);
   if (years < minY || years > maxY) { toast("年限不合法（" + minY + "-" + maxY + "年）"); return false; }
-  /* 工资帽校验：鸟权允许超帽到 birdCapAbsolute（基于 SALARY_CAP 的绝对上限） */
+  /* 工资帽校验：鸟权续约可超工资帽/奢侈税线，仅设宽松安全阀 */
   const total = save.roster.reduce((s, r) => s + r.salary, 0);
   const cap = birdCapAbsolute(level);
-  if (total + salary > cap + 0.01) { toast("超过鸟权超帽上限 " + fmtM(cap) + "（" + birdLabel(level) + "）"); return false; }
+  const newTotal = total + salary;
+  if (newTotal > cap + 0.01) { toast("超过薪资安全阀 " + fmtM(cap) + "（" + birdLabel(level) + "）"); return false; }
   /* 续约成功 */
   const entry = {
     id: playerId, salary, years,
@@ -232,7 +248,8 @@ function reSignPlayer(save, playerId, years, salary) {
   save.roster.push(entry);
   save.faPool = save.faPool.filter(f => f.id !== playerId);
   writeSave(save);
-  toast("续约成功！" + years + " 年 " + fmtM(salary) + "/年（" + birdLabel(level) + "）");
+  const warn = taxWarning(newTotal);
+  toast("续约成功！" + years + " 年 " + fmtM(salary) + "/年（" + birdLabel(level) + "）" + (warn ? " " + warn : ""));
   return true;
 }
 
@@ -309,10 +326,10 @@ function extendContract(save, playerId, newYears, newSalary) {
     toast("❌ " + acc.reason + "（接受度 " + acc.chance + "%）");
     return false;
   }
-  /* 工资帽校验：替换旧合同后的总薪资不得超过鸟权超帽上限 */
+  /* 工资帽校验：鸟权续约可超工资帽/奢侈税线，仅设宽松安全阀 */
   const total = save.roster.reduce((s, r) => s + r.salary, 0) - entry.salary + newSalary;
   const cap = birdCapAbsolute(level);
-  if (total > cap + 0.01) { toast("超过鸟权超帽上限 " + fmtM(cap) + "（" + birdLabel(level) + "）"); return false; }
+  if (total > cap + 0.01) { toast("超过薪资安全阀 " + fmtM(cap) + "（" + birdLabel(level) + "）"); return false; }
   /* 续约成功：替换原合同，保留鸟权累计，重置选项 */
   entry.salary = newSalary;
   entry.years = newYears;
@@ -323,7 +340,8 @@ function extendContract(save, playerId, newYears, newSalary) {
   entry.signedVia = "extension";
   maybeAssignOption(entry, p.ovr, playerId);
   writeSave(save);
-  toast("✅ 续约成功！" + p.nameCn + " · " + newYears + " 年 " + fmtM(newSalary) + "/年（" + birdLabel(level) + "）");
+  const warn = taxWarning(total);
+  toast("✅ 续约成功！" + p.nameCn + " · " + newYears + " 年 " + fmtM(newSalary) + "/年（" + birdLabel(level) + "）" + (warn ? " " + warn : ""));
   return true;
 }
 
@@ -502,7 +520,9 @@ RENDERERS.freeagent = function () {
     const lv = birdRightsLevel(f.birdYears) || "non";
     const maxSal = maxSalaryByBird(f.ovr, f.id, lv);
     const [minY, maxY] = birdYearsRange(lv);
-    const cap = birdCapAbsolute(lv);
+    /* 鸟权续约可超工资帽：仅提示是否会触发奢侈税（不阻止） */
+    const warnHint = taxWarning(total + maxSal);
+    const renewHint = warnHint || "鸟权可超帽续约";
     return '<div class="fa-row renew-row" data-id="' + f.id + '">' +
       '  <span class="aw-rank">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
@@ -515,7 +535,7 @@ RENDERERS.freeagent = function () {
       '    <input type="number" class="fa-salary" data-id="' + f.id + '" value="' + maxSal + '" step="0.1" min="0.5" max="' + maxSal + '">' +
       '    <button class="fa-renew-btn" data-id="' + f.id + '">续约</button>' +
       '  </div>' +
-      '  <div class="fa-cap-hint">帽 ' + fmtM(cap) + "</div>" +
+      '  <div class="fa-cap-hint' + (warnHint ? " tax-warn" : "") + '">' + esc(renewHint) + "</div>" +
       "</div>";
   };
 

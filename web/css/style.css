@@ -776,6 +776,9 @@ body {
 .ext-accept.ok { background: rgba(76, 175, 80, .18); color: #4caf50; border: 1px solid rgba(76, 175, 80, .4); }
 .ext-accept.maybe { background: rgba(240, 177, 63, .15); color: var(--gold); border: 1px solid rgba(240, 177, 63, .4); }
 .ext-accept.no { background: rgba(214, 66, 75, .15); color: #ff9b9b; border: 1px solid rgba(214, 66, 75, .4); }
+/* 奢侈税超线警告（鸟权可超帽续约，仅提示不阻止） */
+.ext-accept.tax-warn { background: rgba(255, 152, 0, .18); color: #ffb74d; border-color: rgba(255, 152, 0, .55); }
+.fa-cap-hint.tax-warn { color: #ffb74d; font-weight: 700; }
 @media (max-width: 480px) {
   .ext-form .btn { margin-left: 0; width: 100%; }
   .ext-input { width: 100%; flex: 1; }
