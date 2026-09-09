@@ -2382,16 +2382,25 @@ RENDERERS["regular-end"] = function () {
       '<div class="aw-line">' + (statTxt || "") + "</div></div>";
   };
   const POS_LABEL = ["G", "G", "F", "F", "C"];
-  const teamCard = (title, members, badge) => {
+  const teamCard = (title, members) => {
     if (!members || members.length === 0) return "";
-    const rows = members.map((m, i) =>
-      '<div class="tm-row' + (m.mine ? " me" : "") + '">' +
-      '<span class="tm-pos">' + POS_LABEL[i % POS_LABEL.length] + '</span>' +
-      '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
-      '<div class="tm-name">' + esc(m.p.nameCn) +
-      '<span class="tm-team">' + esc(teamName(m.p.team)) + '</span></div>' +
-      '</div>').join("");
-    return '<div class="se-card tm-group"><h3>' + (badge ? '<span class="tm-badge">' + badge + '</span> ' : '') + title + '</h3>' + rows + '</div>';
+    const rows = members.map((m, i) => {
+      const st = m.st || {};
+      const statLine = '<span class="tm-stats">' +
+        (st.ppg != null ? st.ppg.toFixed(1) + "分" : "-") + " " +
+        (st.rpg != null ? st.rpg.toFixed(1) + "板" : "-") + " " +
+        (st.apg != null ? st.apg.toFixed(1) + "助" : "-") +
+        (st.spg != null && st.bpg != null ? " · " + st.spg.toFixed(1) + "断 " + st.bpg.toFixed(1) + "帽" : "") +
+        "</span>";
+      return '<div class="tm-row' + (m.mine ? " me" : "") + '">' +
+        '<span class="tm-pos">' + POS_LABEL[i % POS_LABEL.length] + '</span>' +
+        '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
+        '<div class="tm-name">' + esc(m.p.nameCn) +
+        '<span class="tm-team">' + esc(teamName(m.p.team)) + '</span></div>' +
+        statLine +
+        '</div>';
+    }).join("");
+    return '<div class="se-card tm-group"><h3>' + title + '</h3>' + rows + '</div>';
   };
   const dpoyFmt = st => st ? st.spg.toFixed(1) + "断 " + st.bpg.toFixed(1) + "帽" : "";
   const sixthFmt = st => st ? st.ppg.toFixed(1) + "分 " + st.rpg.toFixed(1) + "板 " + st.apg.toFixed(1) + "助" : "";
@@ -2412,15 +2421,15 @@ RENDERERS["regular-end"] = function () {
     awardRow("篮板王", rebounds) +
     "</div>" +
     '<h3 class="section-h">最佳阵容</h3>' +
-    teamCard("最佳阵容 一阵", awards.allNBA1, "1") +
-    teamCard("最佳阵容 二阵", awards.allNBA2, "2") +
-    teamCard("最佳阵容 三阵", awards.allNBA3, "3") +
+    teamCard("最佳阵容 一阵", awards.allNBA1) +
+    teamCard("最佳阵容 二阵", awards.allNBA2) +
+    teamCard("最佳阵容 三阵", awards.allNBA3) +
     '<h3 class="section-h">最佳防守阵容</h3>' +
-    teamCard("最佳防守 一阵", awards.allDef1, "1") +
-    teamCard("最佳防守 二阵", awards.allDef2, "2") +
+    teamCard("最佳防守 一阵", awards.allDef1) +
+    teamCard("最佳防守 二阵", awards.allDef2) +
     '<h3 class="section-h">最佳新秀阵容</h3>' +
-    teamCard("最佳新秀 一阵", awards.allRookie1, "1") +
-    teamCard("最佳新秀 二阵", awards.allRookie2, "2") +
+    teamCard("最佳新秀 一阵", awards.allRookie1) +
+    teamCard("最佳新秀 二阵", awards.allRookie2) +
     (madePlayoffs
       ? '<button class="btn btn-primary" id="btn-to-playoffs">进入季后赛</button>'
       : '<button class="btn btn-primary" id="btn-to-seasonend">查看赛季总结</button>') +
@@ -2466,16 +2475,25 @@ RENDERERS.seasonend = function () {
   }).join("");
   /* 位置标签：2G 2F 1C */
   const POS_LABEL = ["G", "G", "F", "F", "C"];
-  const teamCard = (title, members, badge) => {
+  const teamCard = (title, members) => {
     if (!members || members.length === 0) return "";
-    const rows = members.map((m, i) =>
-      '<div class="tm-row' + (m.mine ? " me" : "") + '">' +
-      '<span class="tm-pos">' + POS_LABEL[i % POS_LABEL.length] + '</span>' +
-      '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
-      '<div class="tm-name">' + esc(m.p.nameCn) +
-      '<span class="tm-team">' + esc(teamName(m.p.team)) + '</span></div>' +
-      '</div>').join("");
-    return '<div class="se-card tm-group"><h3>' + (badge ? '<span class="tm-badge">' + badge + '</span> ' : '') + title + '</h3>' + rows + '</div>';
+    const rows = members.map((m, i) => {
+      const st = m.st || {};
+      const statLine = '<span class="tm-stats">' +
+        (st.ppg != null ? st.ppg.toFixed(1) + "分" : "-") + " " +
+        (st.rpg != null ? st.rpg.toFixed(1) + "板" : "-") + " " +
+        (st.apg != null ? st.apg.toFixed(1) + "助" : "-") +
+        (st.spg != null && st.bpg != null ? " · " + st.spg.toFixed(1) + "断 " + st.bpg.toFixed(1) + "帽" : "") +
+        "</span>";
+      return '<div class="tm-row' + (m.mine ? " me" : "") + '">' +
+        '<span class="tm-pos">' + POS_LABEL[i % POS_LABEL.length] + '</span>' +
+        '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
+        '<div class="tm-name">' + esc(m.p.nameCn) +
+        '<span class="tm-team">' + esc(teamName(m.p.team)) + '</span></div>' +
+        statLine +
+        '</div>';
+    }).join("");
+    return '<div class="se-card tm-group"><h3>' + title + '</h3>' + rows + '</div>';
   };
   $("#screen-seasonend").innerHTML =
     '<h2 class="screen-title">赛季总结</h2>' +
