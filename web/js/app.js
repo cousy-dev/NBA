@@ -2,7 +2,23 @@
 /* NBA 篮球经理 — 建队流程（模式选择 / 球队选择 / 建队信息 / 预算 / 选人 / 确认） */
 
 /* ===== 常量 ===== */
-const SAVE_KEY = "nba_gm_save_v1";
+/* 存档槽位：支持 3 个独立生涯存档 */
+const SAVE_SLOT_COUNT = 3;
+const SAVE_KEY_LEGACY = "nba_gm_save_v1";
+function slotKey(s) { return "nba_gm_save_slot_" + s; }
+function readSlot(s) { try { return JSON.parse(localStorage.getItem(slotKey(s)) || "null"); } catch (e) { return null; } }
+function writeSlot(s, save) { localStorage.setItem(slotKey(s), JSON.stringify(save)); }
+function deleteSlot(s) { localStorage.removeItem(slotKey(s)); }
+function readAllSaves() { const arr = []; for (let s = 1; s <= SAVE_SLOT_COUNT; s++) arr.push({ slot: s, save: readSlot(s) }); return arr; }
+/* 返回第一个空槽位号；满则返回 0 */
+function firstFreeSlot() { for (let s = 1; s <= SAVE_SLOT_COUNT; s++) if (!readSlot(s)) return s; return 0; }
+/* 旧版单存档（v1）一次性迁移到槽位 1 */
+function migrateLegacySave() {
+  try {
+    const old = localStorage.getItem(SAVE_KEY_LEGACY);
+    if (old) { if (!readSlot(1)) localStorage.setItem(slotKey(1), old); localStorage.removeItem(SAVE_KEY_LEGACY); }
+  } catch (e) {}
+}
 const STANDARD_BUDGET = 115; // 接管现有球队时的标准工资空间（百万美元）
 
 const CITY_CN = {
@@ -55,6 +71,8 @@ const state = {
   stack: [],
   screen: "start",
   mode: null,          // "existing" | "custom"
+  saveSlot: null,      // 当前生涯所在的存档槽位（1-3）
+  expansion: null,     // 扩张选秀状态（自建模式）：{ pool, selected:Set, teamsHit:Set }
   team: null,          // 接管模式: 球队缩写
   custom: { name: "", city: "", arena: "" },
   budget: 0,
@@ -111,6 +129,7 @@ function purgeRuntimePlayers() {
 function resetWizardState() {
   state.mode = null;
   state.team = null;
+  state.expansion = null;
   state.custom = { name: "", city: "", arena: "" };
   state.budget = 0;
   state.budgetKey = null;
@@ -143,7 +162,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add("hidden"), 1900);
 }
 function readSave() {
-  try { return JSON.parse(localStorage.getItem(SAVE_KEY) || "null"); } catch (e) { return null; }
+  return readSlot(state.saveSlot || 1);
 }
 
 /* ===== 导航 ===== */
@@ -164,10 +183,11 @@ function back() {
 function currentStep() {
   switch (state.screen) {
     case "team-select": return ["选择球队", 1, 2];
-    case "create-info": return ["建队信息", 1, 4];
+    case "create-info": return ["建队信息", 1, 3];
     case "budget": return ["资金预算", 2, 4];
     case "roster": return ["选拔阵容", 3, 4];
-    case "summary": return state.mode === "existing" ? ["确认球队", 2, 2] : ["确认建队", 4, 4];
+    case "expand": return ["扩张选秀", 2, 3];
+    case "summary": return state.mode === "existing" ? ["确认球队", 2, 2] : ["确认建队", 3, 3];
     case "player": return ["球员详情", 1, 1];
     case "hub": return ["经理室", 1, 1];
     case "match": return ["比赛日", 1, 1];
@@ -193,35 +213,74 @@ function updateTopbar() {
 /* ===== 开始页 ===== */
 RENDERERS.start = function () {
   state.stack = [];
-  const save = readSave();
+  migrateLegacySave(); /* 旧版单存档迁移到槽位 1 */
+  const slots = readAllSaves();
+  const slotCard = ({ slot, save }) => {
+    if (!save) {
+      return '<div class="save-slot empty" data-slot="' + slot + '">' +
+        '  <div class="ss-head"><span class="ss-no">槽位 ' + slot + "</span><span class='ss-state'>空</span></div>" +
+        '  <div class="ss-body">未使用的存档槽位</div>' +
+        "</div>";
+    }
+    const rec = save.record || { w: 0, l: 0 };
+    const season = save.seasonNo || 1;
+    return '<div class="save-slot" data-slot="' + slot + '">' +
+      '  <div class="ss-head"><span class="ss-no">槽位 ' + slot + "</span>" +
+      '    <span class="ss-mode">' + (save.mode === "custom" ? "扩张球队" : "接管球队") + "</span></div>" +
+      '  <div class="ss-team">' + esc(save.team.displayName || "球队") + "</div>" +
+      '  <div class="ss-meta">第 ' + season + " 赛季 · " + (rec.w || 0) + "胜" + (rec.l || 0) + "负" +
+      (save.teamOvr ? " · 总评 " + save.teamOvr : "") + "</div>" +
+      '  <div class="ss-actions">' +
+      '    <button class="btn btn-gold ss-continue" data-slot="' + slot + '">继续生涯</button>' +
+      '    <button class="link-danger ss-delete" data-slot="' + slot + '">删除</button>' +
+      "  </div>" +
+      "</div>";
+  };
   $("#screen-start").innerHTML =
     '<div class="hero">' +
     '  <div class="hero-logo">🏀</div>' +
     "  <h1>NBA 篮球经理</h1>" +
-    '  <p class="sub">' + PLAYERS_RATED.count + ' 名现役球员 · 30 支球队 · 2K27 能力值</p>' +
+    '  <p class="sub">' + PLAYERS_RATED.count + " 名现役球员 · 30 支球队 · 2K27 能力值 · 最多 " + SAVE_SLOT_COUNT + " 个存档</p>" +
     "</div>" +
+    '<div class="save-slots">' + slots.map(slotCard).join("") + "</div>" +
     '<div class="start-actions">' +
     '  <button class="btn btn-primary" id="btn-existing">接管现有球队</button>' +
-    '  <button class="btn btn-outline" id="btn-custom">创建自定义球队</button>' +
-    (save
-      ? '<button class="btn btn-gold" id="btn-continue">继续生涯 · ' + esc(save.team.displayName) + "</button>" +
-        '<button class="link-danger" id="btn-delsave">删除存档</button>'
-      : "") +
+    '  <button class="btn btn-outline" id="btn-custom">创建扩张球队</button>' +
     "</div>" +
     '<p class="foot-note">数据来源：NBA中国官方 · 能力值依据 2K27 官方榜单与 2025-26 赛季统计估算<br>赛季 ' + esc(PLAYERS_RATED.updatedAt || "") + "</p>";
 
-  $("#btn-existing").onclick = () => { purgeRuntimePlayers(); resetWizardState(); go("team-select"); };
-  $("#btn-custom").onclick = () => { purgeRuntimePlayers(); resetWizardState(); go("create-info"); };
-  if (save) {
-    $("#btn-continue").onclick = () => { restoreFromSave(save); };
-    $("#btn-delsave").onclick = () => {
-      localStorage.removeItem(SAVE_KEY);
-      if (window._originalPlayers) PLAYERS_RATED.players = window._originalPlayers.slice();
+  /* 开启新游戏：自动占用第一个空槽位，满则提示 */
+  const startNew = (mode) => {
+    const s = firstFreeSlot();
+    if (!s) { toast("存档槽位已满（" + SAVE_SLOT_COUNT + " 个），请先删除一个存档"); return; }
+    state.saveSlot = s;
+    purgeRuntimePlayers(); resetWizardState();
+    state.saveSlot = s; /* resetWizardState 不清槽位，但保险重设 */
+    go(mode === "custom" ? "create-info" : "team-select");
+  };
+  $("#btn-existing").onclick = () => startNew("existing");
+  $("#btn-custom").onclick = () => startNew("custom");
+  $$("#screen-start .ss-continue").forEach(btn => {
+    btn.onclick = () => {
+      const s = Number(btn.dataset.slot);
+      const save = readSlot(s);
+      if (!save) return;
+      state.saveSlot = s;
+      purgeRuntimePlayers();
+      restoreFromSave(save);
+    };
+  });
+  $$("#screen-start .ss-delete").forEach(btn => {
+    btn.onclick = () => {
+      const s = Number(btn.dataset.slot);
+      if (!confirm("确定删除槽位 " + s + " 的存档？此操作不可撤销。")) return;
+      deleteSlot(s);
+      if (state.saveSlot === s) { state.save = null; state.saveSlot = null; }
       LEAGUE_EST = null;
-      toast("存档已删除");
+      toast("槽位 " + s + " 存档已删除");
       RENDERERS.start(); activate("start");
     };
-  }
+  });
 };
 
 /* ===== 球队选择（接管模式） ===== */
@@ -271,7 +330,7 @@ RENDERERS["create-info"] = function () {
     '    <input id="in-arena" maxlength="12" placeholder="如：星穹球馆" value="' + esc(c.arena) + '">' +
     '    <button class="dice" data-for="arena" type="button">🎲</button></div></label>' +
     "</div>" +
-    '<button class="btn btn-primary" id="btn-to-budget" style="margin-top:24px">下一步 · 设定预算</button>';
+    '<button class="btn btn-primary" id="btn-to-budget" style="margin-top:24px">下一步 · 扩张选秀</button>';
 
   $$("#screen-create-info .dice").forEach(btn => {
     btn.onclick = () => {
@@ -292,7 +351,106 @@ RENDERERS["create-info"] = function () {
     }
     if (!state.custom.city) state.custom.city = CITY_POOL[Math.floor(Math.random() * CITY_POOL.length)];
     if (!state.custom.arena) state.custom.arena = state.custom.city + "中心球馆";
-    go("budget");
+    /* 自建球队：作为第 31 队加入联盟，通过扩张选秀组队 */
+    go("expand");
+  };
+};
+
+/* ===== 扩张选秀（自建球队作为第 31 队加入联盟） ===== */
+RENDERERS.expand = function () {
+  state.mode = "custom";
+  if (!state.expansion) {
+    state.expansion = {
+      pool: buildExpansionPool(),
+      selected: new Set(),
+      teamsHit: new Set()
+    };
+  }
+  const ex = state.expansion;
+  if (!state.filter) state.filter = { pos: "all", q: "", sort: "ovr" };
+  state.filter.pos = state.filter.pos || "all";
+  state.filter.q = state.filter.q || "";
+  const pickCount = ex.selected.size;
+  const totalSal = Math.round(ex.pool.filter(x => ex.selected.has(x.p.id))
+    .reduce((s, x) => s + estimateSalary(x.p.ovr, x.p.id), 0) * 10) / 10;
+  const teamNameOf = abbr => { const t = TEAMS.find(x => x.abbr === abbr); return t ? t.nameCn : abbr; };
+  const canConfirm = pickCount >= EXPANSION_PICK_MIN && pickCount <= EXPANSION_PICK_MAX;
+
+  const card = (x) => {
+    const p = x.p;
+    const isSel = ex.selected.has(p.id);
+    const teamBlocked = !isSel && ex.teamsHit.has(x.from);
+    const sal = estimateSalary(p.ovr, p.id);
+    return '<div class="exp-card' + (isSel ? " selected" : teamBlocked ? " blocked" : "") + '" data-id="' + p.id + '">' +
+      '  <div class="ovr-badge ' + ovrClass(p.ovr) + '">' + p.ovr + "</div>" +
+      '  <div class="exp-main">' +
+      '    <div class="exp-name">' + esc(p.nameCn) + ' <span class="pos-chip ' + posClass(p.pos) + '">' + esc(posLabel(p)) + "</span></div>" +
+      '    <div class="exp-meta">' + esc(teamNameOf(x.from)) + " · " + (p.age || "-") + "岁 · " + fmtM(sal) + "/年</div>" +
+      "  </div>" +
+      '  <div class="exp-act">' + (isSel ? '<span class="exp-tag sel">✓ 已选</span>' : teamBlocked ? '<span class="exp-tag locked">该队已流失1人</span>' : '<span class="exp-tag add">＋ 选择</span>') + "</div>" +
+      "</div>";
+  };
+
+  const q = (state.filter.q || "").toLowerCase();
+  const visible = ex.pool.filter(x => {
+    if (state.filter.pos !== "all" && catOf(getPos(x.p).pos) !== state.filter.pos) return false;
+    if (q && x.p.nameCn.toLowerCase().indexOf(q) < 0 && (x.p.nameEn || "").toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+
+  $("#screen-expand").innerHTML =
+    '<h2 class="screen-title">扩张选秀</h2>' +
+    '<p class="screen-sub">你的球队将作为第 31 队加入联盟。规则：每支原球队最多保护 8 人（按能力自动保护），每队至少暴露 1 人，<b>每队最多流失 1 人</b>。你需挑选 <b>' + EXPANSION_PICK_MIN + "-" + EXPANSION_PICK_MAX + "</b> 名球员。</p>" +
+    '<div class="exp-rules">' +
+    '  <div class="er-pill">已选 <b>' + pickCount + "</b> / " + EXPANSION_PICK_MIN + "-" + EXPANSION_PICK_MAX + "</div>" +
+    '  <div class="er-pill">覆盖球队 <b>' + ex.teamsHit.size + "</b> / 30</div>" +
+    '  <div class="er-pill">已吸收合同 <b>' + fmtM(totalSal) + "</b>（扩张阶段不限工资帽）</div>" +
+    "</div>" +
+    '<div class="filters">' +
+    '  <div class="pos-filter">' +
+    '    <button data-pos="all"' + (state.filter.pos === "all" ? ' class="active"' : "") + ">全部</button>" +
+    '    <button data-pos="G"' + (state.filter.pos === "G" ? ' class="active"' : "") + ">后卫</button>" +
+    '    <button data-pos="F"' + (state.filter.pos === "F" ? ' class="active"' : "") + ">前锋</button>" +
+    '    <button data-pos="C"' + (state.filter.pos === "C" ? ' class="active"' : "") + ">中锋</button>" +
+    "  </div>" +
+    "</div>" +
+    '<input id="exp-search" placeholder="搜索球员姓名…" value="' + esc(state.filter.q || "") + '" />' +
+    '<div class="exp-list">' + (visible.map(card).join("") || '<div class="empty-stats">没有符合条件的暴露球员</div>') + "</div>" +
+    '<div class="exp-bottombar">' +
+    '  <span class="exp-hint">已选 ' + pickCount + " 人（至少 " + EXPANSION_PICK_MIN + " 人，最多 " + EXPANSION_PICK_MAX + " 人）</span>" +
+    '  <button class="btn btn-primary" id="btn-exp-confirm"' + (canConfirm ? "" : " disabled") + ">确认阵容 · 下一步</button>" +
+    "</div>";
+
+  $$("#screen-expand .pos-filter button").forEach(btn => {
+    btn.onclick = () => { state.filter.pos = btn.dataset.pos; RENDERERS.expand(); activate("expand"); };
+  });
+  $("#exp-search").oninput = e => { state.filter.q = e.target.value.trim(); clearTimeout(window._expTimer); window._expTimer = setTimeout(() => { RENDERERS.expand(); activate("expand"); const el = $("#exp-search"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 200); };
+  $$("#screen-expand .exp-card").forEach(c => {
+    c.onclick = () => {
+      const id = Number(c.dataset.id);
+      const item = ex.pool.find(x => x.p.id === id);
+      if (!item) return;
+      if (ex.selected.has(id)) {
+        ex.selected.delete(id);
+        /* 若这是该队唯一被选球员，解除该队锁定 */
+        if (![...ex.selected].some(sid => ex.pool.find(y => y.p.id === sid)?.from === item.from)) ex.teamsHit.delete(item.from);
+      } else {
+        if (ex.teamsHit.has(item.from)) { toast(teamNameOf(item.from) + " 已流失 1 名球员，不可再选该队球员"); return; }
+        if (ex.selected.size >= EXPANSION_PICK_MAX) { toast("最多挑选 " + EXPANSION_PICK_MAX + " 人"); return; }
+        ex.selected.add(id);
+        ex.teamsHit.add(item.from);
+      }
+      RENDERERS.expand(); activate("expand");
+    };
+  });
+  $("#btn-exp-confirm").onclick = () => {
+    if (ex.selected.size < EXPANSION_PICK_MIN) { toast("至少需要挑选 " + EXPANSION_PICK_MIN + " 名球员（当前 " + ex.selected.size + "）"); return; }
+    if (ex.selected.size > EXPANSION_PICK_MAX) { toast("最多挑选 " + EXPANSION_PICK_MAX + " 名球员"); return; }
+    /* 把选中球员填入向导阵容（供确认页与建队使用），并套用扩张特殊工资帽 */
+    state.roster = new Map(ex.pool.filter(x => ex.selected.has(x.p.id)).map(x => [x.p.id, x.p]));
+    state.budget = expansionBudget();
+    state.budgetKey = "expansion";
+    go("summary");
   };
 };
 
@@ -514,6 +672,7 @@ function buildSummaryData() {
   const rosterArr = Array.from(state.roster.values())
     .map(p => ({ p, sal: estimateSalary(p.ovr, p.id) }))
     .sort((a, b) => b.p.ovr - a.p.ovr);
+  const isExpansion = state.budgetKey === "expansion";
   return {
     abbr: null,
     displayName: state.custom.name + "队",
@@ -522,7 +681,8 @@ function buildSummaryData() {
     logoAbbr: null,
     rosterArr,
     budget: state.budget,
-    budgetLabel: state.budgetKey ? (BUDGET_PRESETS.find(b => b.key === state.budgetKey).label + " · 自建球队") : "自建球队预算"
+    budgetLabel: isExpansion ? "扩张球队 · 特殊工资帽（可超帽吸收合同）"
+      : state.budgetKey ? (BUDGET_PRESETS.find(b => b.key === state.budgetKey).label + " · 自建球队") : "自建球队预算"
   };
 }
 RENDERERS.summary = function () {
@@ -565,8 +725,10 @@ RENDERERS.summary = function () {
   $$("#screen-summary .r-row").forEach(row => { row.onclick = () => openPlayer(Number(row.dataset.id)); });
 
   $("#btn-save-game").onclick = () => {
+    const isExpansion = state.mode === "custom" && state.budgetKey === "expansion";
     const save = {
       version: 1,
+      slot: state.saveSlot || 1,
       createdAt: new Date().toISOString(),
       mode: state.mode,
       team: {
@@ -574,14 +736,24 @@ RENDERERS.summary = function () {
         arena: d.arena, logoAbbr: d.logoAbbr
       },
       budget: d.budget,
+      budgetLabel: d.budgetLabel,
       teamOvr: parseFloat(teamOvr),
       roster: d.rosterArr.map(x => ({ id: x.p.id, salary: x.sal }))
     };
+    /* 扩张建队：记录被选走球员，原 30 队阵容移除他们，并给予选秀权优待 */
+    if (isExpansion && state.expansion) {
+      const selectedIds = new Set(state.expansion.selected);
+      save.aiRosters = buildExpansionAiRosters(selectedIds);
+      save.expansion = true;
+      /* 前两次选秀（第2、3赛季）额外首轮签优待 */
+      save.expansionBonusUntilSeason = 3;
+    }
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-      toast("✓ 生涯已开启");
-      const s2 = migrateSave(JSON.parse(localStorage.getItem(SAVE_KEY)));
+      writeSave(save);
+      toast("✓ 生涯已开启" + (isExpansion ? "（扩张选秀组队完成）" : ""));
+      const s2 = migrateSave(readSlot(save.slot));
       state.save = s2;
+      state.saveSlot = save.slot;
       RENDERERS.hub();
       state.stack = [];
       activate("hub");
@@ -884,7 +1056,11 @@ function migrateSave(save) {
   }
   return save;
 }
-function writeSave(save) { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
+function writeSave(save) {
+  const s = save.slot || state.saveSlot || 1;
+  save.slot = s;
+  writeSlot(s, save);
+}
 /* 应用老化修正（ovr/属性等比缩放 + 年龄） */
 function applyAdj(p0, save) {
   const oa = (save.ovrAdj && save.ovrAdj[p0.id]) || 0;
@@ -1071,7 +1247,7 @@ RENDERERS.hub = function () {
         "</div>";
     }).join("") +
     "</div>" + histHtml +
-    '<button class="link-danger" id="btn-quit">重置生涯</button>';
+    '<button class="link-danger" id="btn-quit">返回主菜单</button>';
   $$("#screen-hub .r-row[data-id]").forEach(row => { row.onclick = () => openPlayer(Number(row.dataset.id)); });
   const bp = $("#btn-play");
   if (bp) bp.onclick = () => startMatch(false);
@@ -1092,14 +1268,15 @@ RENDERERS.hub = function () {
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
   $("#btn-quit").onclick = () => {
-    localStorage.removeItem(SAVE_KEY);
+    /* 返回主菜单但保留存档（多槽位，删除在开始页单独操作） */
+    if (state.save) writeSave(state.save);
     state.save = null;
     /* 清理运行时全局库：移除之前 push 进去的自定义球员（新秀等），恢复原始数据 */
     if (window._originalPlayers) {
       PLAYERS_RATED.players = window._originalPlayers.slice();
     }
     LEAGUE_EST = null; /* 重置联盟估算缓存 */
-    toast("生涯已重置");
+    toast("已返回主菜单（存档已保留）");
     RENDERERS.start(); activate("start");
   };
 };

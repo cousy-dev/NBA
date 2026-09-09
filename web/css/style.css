@@ -71,6 +71,51 @@ body {
 .start-actions { padding: 0 6px; }
 .foot-note { text-align: center; color: #565d70; font-size: 11px; margin-top: 46px; line-height: 1.7; }
 
+/* ===== 存档槽位 ===== */
+.save-slots { display: flex; flex-direction: column; gap: 10px; margin: 0 auto 26px; max-width: 560px; padding: 0 6px; }
+.save-slot {
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.save-slot.empty { opacity: .55; border-style: dashed; align-items: center; justify-content: center; min-height: 74px; }
+.ss-head { display: flex; justify-content: space-between; align-items: center; }
+.ss-no { font-size: 12px; font-weight: 800; color: var(--muted); letter-spacing: 1px; }
+.ss-state { font-size: 12px; color: var(--muted); }
+.ss-mode { font-size: 11px; color: var(--gold); background: rgba(240,177,63,.12); border: 1px solid rgba(240,177,63,.3); padding: 2px 8px; border-radius: 10px; }
+.ss-team { font-size: 17px; font-weight: 900; }
+.ss-meta { font-size: 12px; color: var(--muted); }
+.ss-actions { display: flex; gap: 10px; margin-top: 6px; align-items: center; }
+.ss-actions .btn { padding: 6px 16px; font-size: 13px; }
+.ss-actions .link-danger { margin: 0; font-size: 12px; }
+
+/* ===== 扩张选秀 ===== */
+.exp-rules { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.er-pill { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--muted); }
+.er-pill b { color: var(--text); }
+.exp-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.exp-card {
+  display: flex; align-items: center; gap: 12px; background: var(--card);
+  border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 14px; cursor: pointer; transition: border-color .15s, background .15s;
+}
+.exp-card:hover { border-color: var(--gold); }
+.exp-card.selected { border-color: #3fbf7f; background: rgba(63,191,127,.08); }
+.exp-card.blocked { opacity: .45; cursor: not-allowed; }
+.exp-card.blocked:hover { border-color: var(--line); }
+.exp-main { flex: 1; min-width: 0; }
+.exp-name { font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.exp-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.exp-act { flex-shrink: 0; }
+.exp-tag { font-size: 12px; font-weight: 800; padding: 4px 10px; border-radius: 12px; white-space: nowrap; }
+.exp-tag.add { background: rgba(79,142,247,.16); color: #6ea8ff; border: 1px solid rgba(79,142,247,.4); }
+.exp-tag.sel { background: rgba(63,191,127,.16); color: #3fbf7f; border: 1px solid rgba(63,191,127,.4); }
+.exp-tag.locked { background: rgba(120,128,150,.14); color: var(--muted); border: 1px solid var(--line); }
+.exp-bottombar {
+  position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  background: var(--bg); border-top: 1px solid var(--line); padding: 14px 4px; margin-top: 18px; flex-wrap: wrap;
+}
+.exp-hint { font-size: 13px; color: var(--muted); }
+
+
 /* ===== 球队选择 ===== */
 .team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .team-card {

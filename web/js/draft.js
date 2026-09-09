@@ -151,6 +151,43 @@ function genDraftClass(save) {
   return class_;
 }
 
+/* ===== 扩张选秀（新球队作为第 31 队加入联盟时，从 30 支原球队挑选无人保护的球员） ===== */
+/* 规则（贴近 NBA 扩张选秀，如 2004 山猫）：
+   - 每支原球队最多保护 8 名球员（含受限制自由球员），按 OVR 自动保护最强 8 人
+   - 每队必须至少提供 1 名非自由球员供挑选（保护数 = min(8, 阵容人数-1)）
+   - 每支原球队最多流失 1 人：新队从某队挑走 1 人后，该队其余暴露球员即不可再选
+   - 新球队挑选 14-29 人
+   - 扩张球队享受特殊工资帽政策（建队阶段可吸收任意合同，不计工资帽）+ 早期额外首轮签优待 */
+const EXPANSION_PROTECT_MAX = 8;
+const EXPANSION_PICK_MIN = 14;
+const EXPANSION_PICK_MAX = 29;
+const EXPANSION_BONUS_PICKS = 2;   /* 扩张球队前两个赛季每年额外 1 个首轮签 */
+
+/* 构建扩张选秀可选池：每队保护 OVR 最高的 8 人，其余暴露 */
+function buildExpansionPool() {
+  const pool = [];
+  TEAMS.forEach(t => {
+    const players = playersByTeam(t.abbr).slice().sort((a, b) => b.ovr - a.ovr);
+    const protectCount = Math.min(EXPANSION_PROTECT_MAX, Math.max(0, players.length - 1));
+    players.slice(protectCount).forEach(p => pool.push({ p, from: t.abbr }));
+  });
+  /* 按 OVR 降序，最强可挑球员排前 */
+  pool.sort((a, b) => b.p.ovr - a.p.ovr);
+  return pool;
+}
+
+/* 扩张球队特殊工资帽（建队首年可超帽吸收合同，给到大球市级别的财力空间） */
+function expansionBudget() { return (typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 178.1); }
+
+/* 扩张完成后构建 AI 各队阵容：30 队原有球员 id 列表，排除被新队选走的球员 */
+function buildExpansionAiRosters(selectedIds) {
+  const rosters = {};
+  TEAMS.forEach(t => {
+    rosters[t.abbr] = playersByTeam(t.abbr).map(p => p.id).filter(id => !selectedIds.has(id));
+  });
+  return rosters;
+}
+
 /* 选秀顺位：用户顺位基于上赛季战绩（越差越前，季后赛出局越早越前） */
 function draftOrder(save) {
   const my = myAbbr(save);
@@ -276,6 +313,11 @@ function initDraftPicks(save) {
   if (!TEAMS.some(t => t.abbr === my)) {
     picks.push({ team: my, round: 1, season, originalTeam: my });
     picks.push({ team: my, round: 2, season, originalTeam: my });
+    /* 扩张球队选秀权优待：前两次选秀（第2、3赛季）每年额外 1 个首轮签（扩张补偿）。
+       用赛季号判定，避免建队时 migrate 的初始签位生成误扣次数。 */
+    if (save.expansion && season >= 2 && season <= (save.expansionBonusUntilSeason || 3)) {
+      picks.push({ team: my, round: 1, season, originalTeam: my });
+    }
   }
   save.draftPicks = picks;
 }
