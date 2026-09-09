@@ -1582,16 +1582,16 @@ RENDERERS.hub = function () {
     "  <div><b>" + fmtM(total) + '</b><span>总工资</span></div>' +
     "  <div><b>" + mine.length + '</b><span>球员</span></div>' +
     "</div>" +
-    '<div class="hub-nav"><button class="mc-btn" id="btn-standings">📊 联盟排名</button>' +
-    '<button class="mc-btn" id="btn-schedule">📅 赛程战报</button>' +
-    (save.playoffs ? '<button class="mc-btn" id="btn-playoff">🏀 季后赛对阵图</button>' : "") +
+    '<div class="hub-nav"><button class="mc-btn" id="btn-standings">联盟排名</button>' +
+    '<button class="mc-btn" id="btn-schedule">赛程战报</button>' +
+    (save.playoffs ? '<button class="mc-btn" id="btn-playoff">季后赛对阵图</button>' : "") +
     (save.tradeDeadlinePassed
-      ? '<button class="mc-btn disabled" disabled>🚫 交易截止</button>'
-      : '<button class="mc-btn" id="btn-trade">🔄 交易中心</button>') +
-    '<button class="mc-btn" id="btn-extend">📝 提前续约</button>' +
-    '<button class="mc-btn" id="btn-coach">🏋️ 教练战术</button>' +
-    '<button class="mc-btn" id="btn-scout">🔭 球探中心</button>' +
-    '<button class="mc-btn" id="btn-awards">🏆 奖项追踪</button></div>' +
+      ? '<button class="mc-btn disabled" disabled>交易截止</button>'
+      : '<button class="mc-btn" id="btn-trade">交易中心</button>') +
+    '<button class="mc-btn" id="btn-extend">提前续约</button>' +
+    '<button class="mc-btn" id="btn-coach">教练战术</button>' +
+    '<button class="mc-btn" id="btn-scout">球探中心</button>' +
+    '<button class="mc-btn" id="btn-awards">奖项追踪</button></div>' +
     gameHtml + leadersHtml +
     '<h3 class="section-h">球队阵容</h3>' +
     '<div class="roster-table" id="hub-roster">' +
@@ -2156,14 +2156,18 @@ RENDERERS.awards = function () {
   const sixthRows = ranks.sixthTop.length
     ? ranks.sixthTop.map((c, i) => rankRow(c, i, c.sixth, v => v.toFixed(1))).join("")
     : '<div class="empty-stats">暂无替补球员数据（需打 5 场以上）</div>';
+  const rookieRows = ranks.rookieTop.length
+    ? ranks.rookieTop.map((c, i) => rankRow(c, i, c.mvp, v => v.toFixed(1))).join("")
+    : '<div class="empty-stats">暂无新秀赛季数据</div>';
 
   $("#screen-awards").innerHTML =
-    '<h2 class="screen-title">🏆 奖项追踪</h2>' +
+    '<h2 class="screen-title">奖项追踪</h2>' +
     '<p class="screen-sub">第 ' + save.seasonNo + ' 赛季 · 已打 ' + gp + ' 场 · 实时排名</p>' +
     '<div class="aw-tabs" id="aw-tabs">' +
     '  <button class="aw-tab active" data-tab="mvp">MVP</button>' +
     '  <button class="aw-tab" data-tab="dpoy">DPOY</button>' +
     '  <button class="aw-tab" data-tab="6th">第六人</button>' +
+    '  <button class="aw-tab" data-tab="rookie">最佳新秀</button>' +
     '  <button class="aw-tab" data-tab="pts">得分王</button>' +
     '  <button class="aw-tab" data-tab="ast">助攻王</button>' +
     '  <button class="aw-tab" data-tab="reb">篮板王</button>' +
@@ -2172,11 +2176,12 @@ RENDERERS.awards = function () {
     '  <div class="aw-list">' + mvpRows + "</div>" +
     "</div>";
 
-  const panels = { mvp: mvpRows, dpoy: dpoyRows, "6th": sixthRows, pts: scoringRows, ast: assistRows, reb: reboundRows };
+  const panels = { mvp: mvpRows, dpoy: dpoyRows, "6th": sixthRows, rookie: rookieRows, pts: scoringRows, ast: assistRows, reb: reboundRows };
   const labels = {
     mvp: "MVP 候选（综合得分+篮板+助攻+胜率）",
     dpoy: "最佳防守（抢断+盖帽+防守属性）",
     "6th": "最佳第六人（替补得分+助攻）",
+    rookie: "最佳新秀（新秀球员综合分）",
     pts: "得分王（场均得分）",
     ast: "助攻王（场均助攻）",
     reb: "篮板王（场均篮板）"
@@ -2368,12 +2373,25 @@ RENDERERS["regular-end"] = function () {
   const scoring = awards.scoring;
   const assists = awards.assists;
   const rebounds = awards.rebounds;
+  const bestRookie = awards.bestRookie;
   const awardRow = (icon, c, highlight, statFmt) => {
     if (!c) return '<div class="aw-row"><span class="aw-rank">' + icon + '</span><div class="aw-name">暂无数据</div></div>';
     const statTxt = statFmt ? statFmt(c.st) : (c.st ? c.st.ppg.toFixed(1) + "分 " + c.st.rpg.toFixed(1) + "板 " + c.st.apg.toFixed(1) + "助" : (c.v ? c.v.toFixed(1) + "分/场" : ""));
     return '<div class="aw-row' + (highlight ? " me" : "") + '"><span class="aw-rank">' + icon + "</span>" +
       '<div class="aw-name">' + esc(c.p.nameCn) + '<span class="aw-team">' + esc(teamName(c.p.team)) + "</span></div>" +
       '<div class="aw-line">' + (statTxt || "") + "</div></div>";
+  };
+  const POS_LABEL = ["G", "G", "F", "F", "C"];
+  const teamCard = (title, members, badge) => {
+    if (!members || members.length === 0) return "";
+    const rows = members.map((m, i) =>
+      '<div class="tm-row' + (m.mine ? " me" : "") + '">' +
+      '<span class="tm-pos">' + POS_LABEL[i % POS_LABEL.length] + '</span>' +
+      '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
+      '<div class="tm-name">' + esc(m.p.nameCn) +
+      '<span class="tm-team">' + esc(teamName(m.p.team)) + '</span></div>' +
+      '</div>').join("");
+    return '<div class="se-card tm-group"><h3>' + (badge ? '<span class="tm-badge">' + badge + '</span> ' : '') + title + '</h3>' + rows + '</div>';
   };
   const dpoyFmt = st => st ? st.spg.toFixed(1) + "断 " + st.bpg.toFixed(1) + "帽" : "";
   const sixthFmt = st => st ? st.ppg.toFixed(1) + "分 " + st.rpg.toFixed(1) + "板 " + st.apg.toFixed(1) + "助" : "";
@@ -2384,14 +2402,25 @@ RENDERERS["regular-end"] = function () {
     '<div class="se-card' + (madePlayoffs ? " gold" : "") + '">' +
     '<div class="champ-line">' + (madePlayoffs ? "🏀 恭喜！你的球队进入季后赛！" : "赛季结束，你的球队未进入季后赛") + "</div>" +
     '<div class="ng-meta">' + esc(confLabel(conf)) + "排名：第 " + (myRank ? myRank.seed : "?") + " 位 · 胜率 " + (st.w + st.l ? ((st.w / (st.w + st.l)) * 100).toFixed(1) : "0") + "%</div></div>" +
-    '<div class="se-card"><h3>🏆 年度奖项</h3>' +
+    '<div class="se-card"><h3>年度个人奖项</h3>' +
     awardRow("MVP", mvp, true) +
     awardRow("DPOY", dpoy, false, dpoyFmt) +
+    awardRow("ROY", bestRookie, false) +
     awardRow("6MOY", sixth, false, sixthFmt) +
     awardRow("得分王", scoring) +
     awardRow("助攻王", assists) +
     awardRow("篮板王", rebounds) +
     "</div>" +
+    '<h3 class="section-h">最佳阵容</h3>' +
+    teamCard("最佳阵容 一阵", awards.allNBA1, "1") +
+    teamCard("最佳阵容 二阵", awards.allNBA2, "2") +
+    teamCard("最佳阵容 三阵", awards.allNBA3, "3") +
+    '<h3 class="section-h">最佳防守阵容</h3>' +
+    teamCard("最佳防守 一阵", awards.allDef1, "1") +
+    teamCard("最佳防守 二阵", awards.allDef2, "2") +
+    '<h3 class="section-h">最佳新秀阵容</h3>' +
+    teamCard("最佳新秀 一阵", awards.allRookie1, "1") +
+    teamCard("最佳新秀 二阵", awards.allRookie2, "2") +
     (madePlayoffs
       ? '<button class="btn btn-primary" id="btn-to-playoffs">进入季后赛</button>'
       : '<button class="btn btn-primary" id="btn-to-seasonend">查看赛季总结</button>') +
@@ -2422,6 +2451,7 @@ RENDERERS.seasonend = function () {
   const awardWinners = [
     { icon: "MVP", c: awards.mvp[0], highlight: true, fmt: null },
     { icon: "DPOY", c: awards.dpoy[0], fmt: st => st ? st.spg.toFixed(1) + "断 " + st.bpg.toFixed(1) + "帽" : "" },
+    { icon: "ROY", c: awards.bestRookie, fmt: null },
     { icon: "6MOY", c: awards.sixth, fmt: st => st ? st.ppg.toFixed(1) + "分 " + st.rpg.toFixed(1) + "板 " + st.apg.toFixed(1) + "助" : "" },
     { icon: "得分王", c: awards.scoring, fmt: null },
     { icon: "助攻王", c: awards.assists, fmt: null },
@@ -2434,6 +2464,19 @@ RENDERERS.seasonend = function () {
       '<div class="aw-name">' + esc(w.c.p.nameCn) + '<span class="aw-team">' + esc(teamName(w.c.p.team)) + "</span></div>" +
       '<div class="aw-line">' + (statTxt || "") + "</div></div>";
   }).join("");
+  /* 位置标签：2G 2F 1C */
+  const POS_LABEL = ["G", "G", "F", "F", "C"];
+  const teamCard = (title, members, badge) => {
+    if (!members || members.length === 0) return "";
+    const rows = members.map((m, i) =>
+      '<div class="tm-row' + (m.mine ? " me" : "") + '">' +
+      '<span class="tm-pos">' + POS_LABEL[i % POS_LABEL.length] + '</span>' +
+      '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
+      '<div class="tm-name">' + esc(m.p.nameCn) +
+      '<span class="tm-team">' + esc(teamName(m.p.team)) + '</span></div>' +
+      '</div>').join("");
+    return '<div class="se-card tm-group"><h3>' + (badge ? '<span class="tm-badge">' + badge + '</span> ' : '') + title + '</h3>' + rows + '</div>';
+  };
   $("#screen-seasonend").innerHTML =
     '<h2 class="screen-title">赛季总结</h2>' +
     '<p class="screen-sub">第 ' + save.seasonNo + " 赛季 · 常规赛 " + st.w + "-" + st.l +
@@ -2441,11 +2484,21 @@ RENDERERS.seasonend = function () {
     '<div class="se-card' + (iChamp ? " gold" : "") + '">' +
     '<div class="champ-line">' + (iChamp ? "🏆 恭喜！你夺得了总冠军" : "🏆 总冠军：" + esc(teamName(ps ? ps.champion : null))) + "</div>" +
     '<div class="ng-meta">你的季后赛结果：' + esc(ps ? (ps.userResult || "未进季后赛") : "未进季后赛") + "</div></div>" +
-    (awards.fmvp ? '<div class="se-card gold"><h3>🏀 总决赛 MVP</h3>' +
+    (awards.fmvp ? '<div class="se-card gold"><h3>FMVP · 总决赛 MVP</h3>' +
       '<div class="aw-row me"><span class="aw-rank">FMVP</span>' +
       '<div class="aw-name">' + esc(awards.fmvp.p.nameCn) + '<span class="aw-team">' + esc(teamName(awards.fmvp.p.team)) + "</span></div>" +
       '<div class="aw-line">' + awards.fmvp.st.ppg.toFixed(1) + "分 " + awards.fmvp.st.rpg.toFixed(1) + "板 " + awards.fmvp.st.apg.toFixed(1) + "助" + "</div></div></div>" : "") +
-    '<div class="se-card"><h3>🏆 年度奖项获奖人</h3>' + winnerRows + "</div>" +
+    '<div class="se-card"><h3>🏆 年度个人奖项</h3>' + winnerRows + "</div>" +
+    '<h3 class="section-h">最佳阵容</h3>' +
+    teamCard("最佳阵容 一阵", awards.allNBA1, "1") +
+    teamCard("最佳阵容 二阵", awards.allNBA2, "2") +
+    teamCard("最佳阵容 三阵", awards.allNBA3, "3") +
+    '<h3 class="section-h">最佳防守阵容</h3>' +
+    teamCard("最佳防守 一阵", awards.allDef1, "1") +
+    teamCard("最佳防守 二阵", awards.allDef2, "2") +
+    '<h3 class="section-h">最佳新秀阵容</h3>' +
+    teamCard("最佳新秀 一阵", awards.allRookie1, "1") +
+    teamCard("最佳新秀 二阵", awards.allRookie2, "2") +
     '<button class="btn btn-primary" id="btn-newseason">开启第 ' + (save.seasonNo + 1) + " 赛季</button>" +
     '<button class="btn btn-outline" id="se-hub">返回经理室</button>';
   $("#btn-newseason").onclick = () => {

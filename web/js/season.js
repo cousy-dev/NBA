@@ -149,8 +149,11 @@ function liveAwardRanks(save) {
   const assistTop = candidates.slice().sort((a, b) => b.st.apg - a.st.apg).slice(0, 10);
   /* 篮板王 */
   const reboundTop = candidates.slice().sort((a, b) => b.st.rpg - a.st.rpg).slice(0, 10);
+  /* 最佳新秀实时榜（expYears === 0） */
+  const rookieTop = candidates.filter(c => c.p.expYears === 0 || c.p.isRookie)
+    .sort((a, b) => b.mvp - a.mvp).slice(0, 10);
 
-  return { mvpTop, dpoyTop, sixthTop, scoringTop, assistTop, reboundTop, gp };
+  return { mvpTop, dpoyTop, sixthTop, scoringTop, assistTop, reboundTop, rookieTop, gp };
 }
 
 /* ===== 奖项：MVP / DPOY（联盟榜 + 用户真实数据覆盖） ===== */
@@ -198,6 +201,58 @@ function seasonAwards(save) {
   });
   const sixth = sixthCandidates.sort((a, b) => b.st.ppg - a.st.ppg)[0] || null;
 
+  /* ===== 最佳阵容：一二三阵，每阵 2G 2F 1C =====
+     评分用 mvp 综合分；不足人数时按分数 top 补 */
+  const pickByPos = (pools, counts) => {
+    const picked = [];
+    Object.keys(pools).forEach(pos => {
+      pools[pos].slice(0, counts[pos]).forEach(c => picked.push(c));
+    });
+    if (picked.length < Object.values(counts).reduce((a, b) => a + b, 0)) {
+      /* 位置不够，补未入选的高分者 */
+      candidates.slice().sort((a, b) => b.mvp - a.mvp).forEach(c => {
+        if (picked.length >= Object.values(counts).reduce((a, b) => a + b, 0)) return;
+        if (!picked.some(x => x.p.id === c.p.id)) picked.push(c);
+      });
+    }
+    return picked;
+  };
+  /* 位置分池：G/F/C 各按指定分数排序 */
+  const byCat = scoreKey => {
+    const g = candidates.filter(c => catOf(c.p.pos) === "G").sort((a, b) => b[scoreKey] - a[scoreKey]);
+    const f = candidates.filter(c => catOf(c.p.pos) === "F").sort((a, b) => b[scoreKey] - a[scoreKey]);
+    const c = candidates.filter(c => catOf(c.p.pos) === "C").sort((a, b) => b[scoreKey] - a[scoreKey]);
+    return { g, f, c };
+  };
+  const poolNBA = byCat("mvp");
+  const allNBA1 = pickByPos(poolNBA, { g: 2, f: 2, c: 1 });
+  const allNBA2 = pickByPos(
+    { g: poolNBA.g.slice(2), f: poolNBA.f.slice(2), c: poolNBA.c.slice(1) }, { g: 2, f: 2, c: 1 }
+  );
+  const allNBA3 = pickByPos(
+    { g: poolNBA.g.slice(4), f: poolNBA.f.slice(4), c: poolNBA.c.slice(2) }, { g: 2, f: 2, c: 1 }
+  );
+
+  /* 最佳防守：一二阵，每阵 2G 2F 1C */
+  const poolDef = byCat("dpoy");
+  const allDef1 = pickByPos(poolDef, { g: 2, f: 2, c: 1 });
+  const allDef2 = pickByPos(
+    { g: poolDef.g.slice(2), f: poolDef.f.slice(2), c: poolDef.c.slice(1) }, { g: 2, f: 2, c: 1 }
+  );
+
+  /* 最佳新秀 & 新秀一二阵：expYears === 0 */
+  const rookCands = candidates.filter(c => c.p.expYears === 0 || c.p.isRookie);
+  const rookPool = {
+    g: rookCands.filter(c => catOf(c.p.pos) === "G").sort((a, b) => b.mvp - a.mvp),
+    f: rookCands.filter(c => catOf(c.p.pos) === "F").sort((a, b) => b.mvp - a.mvp),
+    c: rookCands.filter(c => catOf(c.p.pos) === "C").sort((a, b) => b.mvp - a.mvp)
+  };
+  const allRookie1 = pickByPos(rookPool, { g: 2, f: 2, c: 1 });
+  const allRookie2 = pickByPos(
+    { g: rookPool.g.slice(2), f: rookPool.f.slice(2), c: rookPool.c.slice(1) }, { g: 2, f: 2, c: 1 }
+  );
+  const bestRookie = rookCands.slice().sort((a, b) => b.mvp - a.mvp)[0] || null;
+
   /* FMVP：总决赛最有价值球员，总冠军队中综合表现最佳者 */
   let fmvp = null;
   if (save.playoffs && save.playoffs.done && save.playoffs.champion) {
@@ -210,14 +265,14 @@ function seasonAwards(save) {
       const rs = real[id];
       const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : est.get(id);
       if (!st) return null;
-      /* FMVP 倾向：得分为主 + 篮板 + 助攻 + 防守贡献 */
       const score = st.ppg * 1.0 + st.rpg * 0.7 + st.apg * 0.8 + (st.spg + st.bpg) * 1.5;
       const mine = myIds.has(id);
       return { p, st, score, mine };
     }).filter(x => x).sort((a, b) => b.score - a.score)[0] || null;
   }
 
-  return { mvp, dpoy, sixth, scoring, assists, rebounds, fmvp };
+  return { mvp, dpoy, sixth, scoring, assists, rebounds, fmvp,
+    bestRookie, allNBA1, allNBA2, allNBA3, allDef1, allDef2, allRookie1, allRookie2 };
 }
 function avgPts(real, id) { const r = real[id]; return r && r.g ? r.pts / r.g : 0; }
 

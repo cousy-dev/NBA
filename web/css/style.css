@@ -899,3 +899,13 @@ body {
 .srr-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .sr-scouting { margin-top: 8px; font-size: 12.5px; color: var(--blue); font-weight: 700; }
 .scout-row .btn { margin-top: 8px; padding: 7px 12px; font-size: 12.5px; }
+
+/* ===== 阵容卡片（最佳阵容 / 最佳防守 / 新秀阵容） ===== */
+.tm-group h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.tm-badge { display: inline-block; font-size: 11px; font-weight: 900; background: var(--gold); color: #1a1a2e; border-radius: 50%; width: 18px; height: 18px; line-height: 18px; text-align: center; }
+.tm-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); margin-bottom: 5px; }
+.tm-row.me { border-color: var(--gold); background: rgba(255,215,0,.06); }
+.tm-pos { width: 26px; height: 26px; line-height: 26px; text-align: center; font-size: 12px; font-weight: 900; color: var(--text); background: var(--card2); border-radius: 8px; flex-shrink: 0; }
+.tm-row.me .tm-pos { color: var(--gold); }
+.tm-name { flex: 1; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-team { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 1px; }
