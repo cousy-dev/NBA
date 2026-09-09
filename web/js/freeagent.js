@@ -489,7 +489,7 @@ RENDERERS.freeagent = function () {
       '  <span class="aw-rank">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
       '  <div class="aw-name">' + esc(p.nameCn) +
-      '    <span class="aw-team"><span class="fa-cat ' + cat.toLowerCase() + '">' + cat + "</span> " + esc(p.pos) + " · " + f.age + "岁" + (f.originTeam && f.originTeam !== myAbr ? " · 母队 " + esc(f.originTeam) : "") + "</span></div>" +
+      '    <span class="aw-team"><span class="fa-cat ' + cat.toLowerCase() + '">' + cat + "</span> " + esc(posLabel(p)) + " · " + f.age + "岁" + (f.originTeam && f.originTeam !== myAbr ? " · 母队 " + esc(f.originTeam) : "") + "</span></div>" +
       '  <div class="fa-price">' + fmtM(price) + "/年</div>" +
       '  <button class="fa-sign" data-id="' + f.id + '">' + (isRFA ? "报价" : "签约") + "</button>" +
       "</div>";
@@ -507,7 +507,7 @@ RENDERERS.freeagent = function () {
       '  <span class="aw-rank">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
       '  <div class="aw-name">' + esc(p.nameCn) +
-      '    <span class="aw-team">' + birdTag(f) + " " + esc(p.pos) + " · " + f.age + "岁 · 上限 " + fmtM(maxSal) + "/年</span></div>" +
+      '    <span class="aw-team">' + birdTag(f) + " " + esc(posLabel(p)) + " · " + f.age + "岁 · 上限 " + fmtM(maxSal) + "/年</span></div>" +
       '  <div class="fa-renew">' +
       '    <select class="fa-years" data-id="' + f.id + '">' +
       Array.from({length: maxY - minY + 1}, (_, k) => '<option value="' + (minY + k) + '">' + (minY + k) + " 年</option>").join("") +

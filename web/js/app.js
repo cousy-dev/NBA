@@ -82,7 +82,7 @@ function ovrClass(ovr) {
   return ovr >= 95 ? "ovr-95" : ovr >= 90 ? "ovr-90" : ovr >= 85 ? "ovr-85"
     : ovr >= 80 ? "ovr-80" : ovr >= 75 ? "ovr-75" : ovr >= 70 ? "ovr-70" : "ovr-low";
 }
-function posClass(pos) { return pos.indexOf("G") === 0 ? "pos-g" : pos.indexOf("F") === 0 ? "pos-f" : "pos-c"; }
+/* posClass 已移至 positions.js，支持新旧位置值（PG/SG/SF/PF/C + G/G-F/F/F-C/C） */
 function estimateSalary(ovr, id) {
   for (const b of SALARY_BANDS) {
     if (ovr >= b[0] && ovr <= b[1]) {
@@ -379,7 +379,10 @@ function filteredPool() {
   const f = state.filter;
   const q = f.q.toLowerCase();
   let list = PLAYERS_RATED.players.filter(p => {
-    if (f.pos !== "all" && p.pos.indexOf(f.pos) === -1) return false;
+    if (f.pos !== "all") {
+      const r = getPos(p);
+      if (catOf(r.pos) !== f.pos && (!r.pos2 || catOf(r.pos2) !== f.pos)) return false;
+    }
     if (q && p.nameCn.toLowerCase().indexOf(q) < 0 && p.nameEn.toLowerCase().indexOf(q) < 0) return false;
     return true;
   });
@@ -406,7 +409,7 @@ function playerCardHtml(p) {
     '  <img class="p-avatar" src="' + esc(p.avatar || "") + '" loading="lazy" onerror="this.style.visibility=\'hidden\'">' +
     '  <div class="p-info">' +
     '    <div class="p-name">' + esc(p.nameCn) + "</div>" +
-    '    <div class="p-meta"><span class="pos-chip ' + posClass(p.pos) + '">' + esc(p.pos) + "</span>" +
+    '    <div class="p-meta"><span class="pos-chip ' + posClass(p.pos) + '">' + esc(posLabel(p)) + "</span>" +
     (p.age || "-") + "岁 · " + (p.heightCm || "-") + 'cm · ' + esc(p.team) + "</div>" +
     "  </div>" +
     '  <div class="p-right"><div class="p-salary">' + fmtM(sal) + '</div><div class="p-state">点击选择</div></div>' +
@@ -479,13 +482,13 @@ function confirmRoster() {
   if (n < 13) return toast("至少需要 13 名球员（当前 " + n + "）");
   const cnt = { G: 0, F: 0, C: 0 };
   state.roster.forEach(p => {
-    if (p.pos.indexOf("G") > -1) cnt.G++;
-    if (p.pos.indexOf("F") > -1) cnt.F++;
-    if (p.pos.indexOf("C") > -1) cnt.C++;
+    const r = getPos(p);
+    cnt[catOf(r.pos)]++;
+    if (r.pos2) cnt[catOf(r.pos2)]++;
   });
   if (usedTotal() > state.budget) return toast("总工资超出预算");
-  if (cnt.G < 2) return toast("至少需要 2 名后卫（含 G-F 双能位）");
-  if (cnt.F < 2) return toast("至少需要 2 名前锋（含 F-C 摇摆人）");
+  if (cnt.G < 2) return toast("至少需要 2 名后卫");
+  if (cnt.F < 2) return toast("至少需要 2 名前锋");
   if (cnt.C < 1) return toast("至少需要 1 名中锋");
   go("summary");
 }
@@ -551,7 +554,7 @@ RENDERERS.summary = function () {
       '  <span class="r-idx">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '  <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
-      '  <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(x.p.pos) + "</span> " + (x.p.age || "-") + "岁</div>" +
+      '  <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + "岁</div>" +
       '  <div class="r-salary">' + fmtM(x.sal) + "</div>" +
       "</div>"
     ).join("") +
@@ -610,7 +613,7 @@ RENDERERS.player = function () {
     '  <div class="pd-main">' +
     '    <div class="pd-name">' + esc(p.nameCn) + '<span class="pd-tag">#' + esc(p.num || "-") + "</span></div>" +
     '    <div class="pd-en">' + esc(p.nameEn) + "</div>" +
-    '    <div class="pd-meta"><span class="pos-chip ' + posClass(p.pos) + '">' + esc(p.pos) + "</span>" +
+    '    <div class="pd-meta"><span class="pos-chip ' + posClass(p.pos) + '">' + esc(posLabel(p)) + "</span>" +
     '      <span class="pd-tag">' + esc(p.team) + "</span>" +
     '      <span class="pd-tag ' + (p.ratingSource === "official" ? "gold" : "") + '">' + (p.ratingSource === "official" ? "2K27 官方" : "数据估算") + "</span></div>" +
     '    <div class="pd-meta">' +
@@ -1063,7 +1066,7 @@ RENDERERS.hub = function () {
         '  <span class="r-idx">' + (i + 1) + "</span>" +
         '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
         '  <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
-        '  <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(x.p.pos) + "</span> " + (x.p.age || "-") + '岁 <span class="morale-chip" style="color:' + moraleColor(m) + '">士气' + m + '</span></div>' +
+        '  <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + '岁 <span class="morale-chip" style="color:' + moraleColor(m) + '">士气' + m + '</span></div>' +
         '  <div class="r-salary">' + fmtM(x.sal) + " · " + (save.roster.find(rr => rr.id === x.p.id) || {}).years + "年</div>" +
         "</div>";
     }).join("") +
@@ -1983,7 +1986,7 @@ RENDERERS["trade-deal"] = function () {
       '<div class="trade-pick">' +
       '<div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '<div class="tp-name">' + esc(x.p.nameCn) + "</div>" +
-      '<div class="tp-meta">' + esc(x.p.pos) + " · " + (x.p.age || "-") + "岁 · " + fmtM(x.sal) + "</div>" +
+      '<div class="tp-meta">' + esc(posLabel(x.p)) + " · " + (x.p.age || "-") + "岁 · " + fmtM(x.sal) + "</div>" +
       '<div class="tp-val">' + valBadgeHtml(x.p, x.sal, x.ctx) + "</div>" +
       '<button class="tp-remove" data-side="' + side + '" data-id="' + x.p.id + '">✕</button></div>'
     ).join("") : "";
@@ -2024,7 +2027,7 @@ RENDERERS["trade-deal"] = function () {
       '<div class="tr-row' + (myPicks.find(p => p.p.id === x.p.id) ? " picked" : "") + '" data-id="' + x.p.id + '" data-side="my">' +
       '<div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '<div class="tr-name">' + esc(x.p.nameCn) + '</div>' +
-      '<div class="tr-meta">' + esc(x.p.pos) + " · " + fmtM(x.sal) + "</div>" +
+      '<div class="tr-meta">' + esc(posLabel(x.p)) + " · " + fmtM(x.sal) + "</div>" +
       '<div class="tr-val">' + valBadgeHtml(x.p, x.sal, x.ctx) + "</div></div>"
     ).join("") + "</div>" +
     '  <div class="tr-sec"><h3 class="tc-h">' + esc(aiT.nameCn) + ' 阵容</h3>' +
@@ -2032,7 +2035,7 @@ RENDERERS["trade-deal"] = function () {
       '<div class="tr-row' + (x.untouchable ? " untouchable" : "") + (aiPicks.find(p => p.p.id === x.p.id) ? " picked" : "") + '" data-id="' + x.p.id + '" data-side="ai">' +
       '<div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '<div class="tr-name">' + esc(x.p.nameCn) + (x.untouchable ? ' <span class="tr-lock">非卖品</span>' : "") + '</div>' +
-      '<div class="tr-meta">' + esc(x.p.pos) + " · " + fmtM(x.sal) + "</div>" +
+      '<div class="tr-meta">' + esc(posLabel(x.p)) + " · " + fmtM(x.sal) + "</div>" +
       '<div class="tr-val">' + (x.untouchable ? '<span class="val-badge t6">非卖品</span>' : valBadgeHtml(x.p, x.sal, x.ctx)) + "</div></div>"
     ).join("") + "</div>" +
     "</div>" +
@@ -2211,7 +2214,7 @@ RENDERERS.draft = function () {
       return '<div class="draft-row' + (isMyTurn ? " selectable" : " locked") + '" data-id="' + r.id + '">' +
       '  <span class="dr-rank">' + (i + 1) + "</span>" +
       '  <div class="dr-info">' +
-      '    <div class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(r.pos) + "</span>" +
+      '    <div class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r)) + "</span>" +
       '      <span class="dr-age">' + r.age + "岁 · " + (r.heightCm || 198) + "cm</span></div>" +
       '    <div class="dr-college">' + esc(cs.college || "大学") + "</div>" +
       '    <div class="dr-cstats">' +
@@ -2368,7 +2371,7 @@ RENDERERS.extend = function () {
           return '<div class="ext-row' + (isDVE ? " dve" : "") + '" data-id="' + x.p.id + '">' +
             '<div class="ext-head">' +
             '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + '</div>' +
-            '  <div class="ext-name">' + esc(x.p.nameCn) + ' <span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(x.p.pos) + '</span>' + (isDVE ? ' <span class="dve-badge">DVE</span>' : '') + '</div>' +
+            '  <div class="ext-name">' + esc(x.p.nameCn) + ' <span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + '</span>' + (isDVE ? ' <span class="dve-badge">DVE</span>' : '') + '</div>' +
             '  <div class="ext-cur">现 ' + fmtM(entry.salary) + '/年 · 剩 ' + (entry.years || 0) + '年 · ' + levelLabel +
             ' · 士气 <span class="ext-morale m' + (morale >= 80 ? "hi" : morale >= 50 ? "mid" : "lo") + '">' + morale + '</span></div>' +
             '</div>' +

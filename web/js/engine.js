@@ -1,9 +1,7 @@
 "use strict";
 /* 比赛模拟引擎 —— 回合制（逐进攻回合），纯逻辑无 DOM */
-
-/* 位置归类：G/G-F → G；F/F-C → F；C → C */
-function catOf(pos) { return pos.indexOf("G") === 0 ? "G" : pos === "C" ? "C" : "F"; }
-function evaluateFit(pos) { return catOf(pos) === "G" ? 0 : catOf(pos) === "F" ? 1 : 2; }
+/* 位置归类函数 catOf/evaluateFit 已移至 positions.js，支持新旧位置值
+   （G/G-F/F/F-C/C 旧版 + PG/SG/SF/PF/C 新版），engine.js 直接使用 */
 
 /* 挑选 10 人轮换 + 分钟目标 */
 function pickRotation(players) {

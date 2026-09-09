@@ -5,20 +5,25 @@
 const ROOKIE_FIRST = ["贾", "凯", "马", "德", "安", "布", "杰", "以", "塔", "卡", "洛", "塞", "奥", "尼", "阿", "扎", "贾", "迪", "韦", "坎"];
 const ROOKIE_LAST = ["威廉姆斯", "布朗", "约翰逊", "戴维斯", "托马斯", "杰克逊", "怀特", "哈里斯", "马丁", "汤普森", "刘易斯", "沃克", "罗宾逊", "格林", "伍德", "米勒", "卡特", "福斯特", "班克斯", "克鲁兹"];
 
-/* 位置模板属性 */
+/* 位置模板属性（具体位置 PG/SG/SF/PF/C） */
 const POS_TEMPLATES = {
-  G:  { ins: -4, out: 4, org: 4, def: 0, reb: -5, ath: 3 },
-  "G-F": { ins: -1, out: 2, org: 2, def: 1, reb: -2, ath: 2 },
-  F:  { ins: 2, out: 0, org: -1, def: 2, reb: 2, ath: 1 },
-  "F-C": { ins: 4, out: -2, org: -2, def: 3, reb: 4, ath: 0 },
+  PG: { ins: -5, out: 3, org: 6, def: -1, reb: -6, ath: 3 },
+  SG: { ins: -3, out: 5, org: 2, def: 0, reb: -4, ath: 3 },
+  SF: { ins: 1, out: 2, org: 0, def: 2, reb: 1, ath: 2 },
+  PF: { ins: 4, out: -1, org: -1, def: 2, reb: 4, ath: 1 },
   C:  { ins: 6, out: -4, org: -3, def: 4, reb: 6, ath: -1 }
+};
+/* 第二位置候选表（生成 pos2 时使用，约 20% 高 OVR 新秀会有第二位置） */
+const POS2_CANDIDATES = {
+  PG: ["SG"], SG: ["PG", "SF"], SF: ["SG", "PF"], PF: ["SF", "C"], C: ["PF"]
 };
 
 /* 生成一个新秀 */
 let ROOKIE_ID_COUNTER = 900000;
 function genRookie(pickOvrSeed) {
   /* pickOvrSeed: 0-1, 0=状元 1=末轮 */
-  const posList = ["G", "G", "G-F", "F", "F", "F-C", "C"];
+  /* 位置分布：后卫/前锋多，中锋少，更贴近真实 NBA */
+  const posList = ["PG", "SG", "SG", "SF", "SF", "PF", "PF", "C"];
   const pos = posList[Math.floor(Math.random() * posList.length)];
   /* OVR: 状元 76-80, 前5 72-77, 乐透 68-74, 首轮中段 63-70, 首轮末 60-66, 二轮 55-62 */
   let ovr;
@@ -73,10 +78,10 @@ function genRookie(pickOvrSeed) {
 
   /* 大学联赛数据：基于 OVR + 位置模板 + 随机波动，模拟真实大学赛况
      选秀界面只展示大学数据，隐藏 OVR/潜力，给玩家"盲盒选秀"体验 */
-  const posR = { G: 3.2, "G-F": 4.6, F: 5.8, "F-C": 7.4, C: 9.6 };
-  const posA = { G: 5.8, "G-F": 4.2, F: 2.6, "F-C": 1.8, C: 1.4 };
-  const posS = { G: 1.4, "G-F": 1.2, F: 0.9, "F-C": 0.7, C: 0.5 };
-  const posB = { G: 0.5, "G-F": 0.7, F: 0.9, "F-C": 1.3, C: 1.8 };
+  const posR = { PG: 3.0, SG: 3.6, SF: 5.2, PF: 7.0, C: 9.6 };
+  const posA = { PG: 6.0, SG: 3.8, SF: 2.8, PF: 2.0, C: 1.4 };
+  const posS = { PG: 1.3, SG: 1.2, SF: 1.0, PF: 0.8, C: 0.5 };
+  const posB = { PG: 0.5, SG: 0.6, SF: 0.8, PF: 1.2, C: 1.8 };
   const ovrFactor = Math.max(0.3, (ovr - 50) / 35); /* 0.3-1.0+ */
   const collegeJitter = (salt, range) => Math.round((hash01(id, salt) - 0.5) * 2 * range * 10) / 10;
   /* 得分：OVR 80+ 才能拿到 20+ 分；大学赛场比 NBA 容易，数据普遍偏高 */
@@ -96,15 +101,31 @@ function genRookie(pickOvrSeed) {
     spg: Math.max(0.1, Math.round(((posS[pos] || 0.8) * (0.5 + ovrFactor * 0.8) + collegeJitter(14, 0.4)) * 10) / 10),
     bpg: Math.max(0.1, Math.round(((posB[pos] || 0.8) * (0.5 + ovrFactor * 0.8) + collegeJitter(15, 0.5)) * 10) / 10),
     fgPct: Math.round((0.42 + ovrFactor * 0.08 + (hash01(id, 16) - 0.5) * 0.06) * 1000) / 10,
-    tpm: Math.round(Math.max(0.2, (pos === "G" || pos === "G-F" ? 1.8 : 0.6) * ovrFactor + collegeJitter(17, 0.8)) * 10) / 10,
+    tpm: Math.round(Math.max(0.2, (pos === "PG" || pos === "SG" ? 1.8 : pos === "SF" ? 1.2 : 0.6) * ovrFactor + collegeJitter(17, 0.8)) * 10) / 10,
     /* 三分出手数 = 命中数 / 命中率（命中率 28-42%） */
     tpPct: Math.round((0.28 + ovrFactor * 0.12 + (hash01(id, 18) - 0.5) * 0.08) * 1000) / 10
   };
 
+  /* 第二位置：约 20% 高 OVR 新秀会有第二位置（versatile 球员） */
+  let pos2 = null;
+  if (ovr >= 70 && Math.random() < 0.20) {
+    const opts = POS2_CANDIDATES[pos] || [];
+    if (opts.length) pos2 = opts[Math.floor(Math.random() * opts.length)];
+  }
+
+  /* 身高体重按具体位置生成 */
+  const heightCm = pos === "C" ? 211 + Math.floor(Math.random() * 8)
+    : pos === "PF" ? 206 + Math.floor(Math.random() * 8)
+    : pos === "SF" ? 201 + Math.floor(Math.random() * 6)
+    : pos === "SG" ? 193 + Math.floor(Math.random() * 8)
+    : 188 + Math.floor(Math.random() * 6);
+  const weightKg = pos === "C" ? 110 + Math.floor(Math.random() * 15)
+    : pos === "PF" ? 100 + Math.floor(Math.random() * 15)
+    : 90 + Math.floor(Math.random() * 15);
+
   return {
-    id, nameCn, nameEn: nameCn, team: "ROOKIE", pos, num: 0, age,
-    heightCm: pos === "C" ? 211 + Math.floor(Math.random() * 8) : pos === "F" || pos === "F-C" ? 201 + Math.floor(Math.random() * 8) : 190 + Math.floor(Math.random() * 8),
-    weightKg: pos === "C" ? 110 + Math.floor(Math.random() * 15) : 90 + Math.floor(Math.random() * 15),
+    id, nameCn, nameEn: nameCn, team: "ROOKIE", pos, pos2, num: 0, age,
+    heightCm, weightKg,
     expYears: 0, draftYear: 2026 + (typeof state !== "undefined" && state.save ? state.save.seasonNo : 1) - 1,
     avatar: null,
     ovr, ratingSource: "draft",

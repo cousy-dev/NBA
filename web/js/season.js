@@ -80,9 +80,11 @@ function confRanking(save, conf) {
 let LEAGUE_EST = null;
 function estStats(p) {
   const per = Math.max(0, (p.ovr - 55) / 42);
-  const posR = { G: 2.2, "G-F": 3.4, F: 5.2, "F-C": 7.2, C: 9.4 };
-  const posA = { G: 6.2, "G-F": 4.4, F: 2.8, "F-C": 2.0, C: 1.6 };
-  const isC = p.pos === "C" || p.pos === "F-C";
+  /* 按具体位置（PG/SG/SF/PF/C）的数据基线，兼容旧位置值经 getPos 派生 */
+  const dp = getPos(p).pos;
+  const posR = { PG: 2.2, SG: 3.0, SF: 5.2, PF: 7.2, C: 9.4 };
+  const posA = { PG: 6.2, SG: 4.4, SF: 2.8, PF: 2.0, C: 1.6 };
+  const isC = dp === "C";
   /* 得分：分档曲线，star 球员 25-30 分 */
   let ppg;
   if (p.ovr >= 93) ppg = 24 + (p.ovr - 93) * 1.5;
@@ -94,8 +96,8 @@ function estStats(p) {
   ppg *= (0.85 + hash01(p.id, 1) * 0.3);
   return {
     ppg: Math.max(1.5, ppg),
-    rpg: (posR[p.pos] || 5) * (0.7 + per * 0.6) * (0.85 + hash01(p.id, 2) * 0.3),
-    apg: (posA[p.pos] || 3) * (0.7 + per * 0.6) * (0.85 + hash01(p.id, 3) * 0.3),
+    rpg: (posR[dp] || 5) * (0.7 + per * 0.6) * (0.85 + hash01(p.id, 2) * 0.3),
+    apg: (posA[dp] || 3) * (0.7 + per * 0.6) * (0.85 + hash01(p.id, 3) * 0.3),
     spg: (0.5 + per * 1.3) * (0.8 + hash01(p.id, 4) * 0.4),
     bpg: (isC ? 0.3 + per * 1.8 : 0.1 + per * 0.6) * (0.8 + hash01(p.id, 5) * 0.4)
   };

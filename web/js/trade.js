@@ -18,9 +18,9 @@ function tradeValueDetail(p, salary, ctx) {
   else if (age <= 34) ageMod = -8;
   else ageMod = -15;
   v += ageMod; breakdown.age = ageMod;
-  /* 位置稀缺性：中锋和控卫更值钱 */
-  const pos = p.pos || "F";
-  const posMod = { C: 3, G: 2, "F-C": 1.5, "G-F": 1, F: 0 }[pos] || 0;
+  /* 位置稀缺性：中锋和控卫更值钱（按具体位置 PG/SG/SF/PF/C） */
+  const dp = getPos(p).pos;
+  const posMod = { C: 3, PG: 2.5, SG: 2, PF: 2, SF: 1.5 }[dp] || 0;
   v += posMod; breakdown.position = posMod;
   /* 合同性价比：工资 vs OVR 预期 */
   const exp = estimateSalary(ovr, p.id);
