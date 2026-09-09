@@ -15,7 +15,7 @@
 html { height: 100%; }
 body {
   min-height: 100%;
-  background: radial-gradient(1200px 600px at 50% -10%, #1a2142 0%, var(--bg) 60%);
+  background: var(--bg);
   color: var(--text);
   font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
   font-size: 15px;
