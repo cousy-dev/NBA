@@ -2325,16 +2325,19 @@ RENDERERS.extend = function () {
           const maxSal = level ? maxSalaryByBird(x.p.ovr, x.p.id, level) : 0;
           const defSal = Math.round(estimateSalary(x.p.ovr, x.p.id) * 10) / 10;
           const defYears = Math.min(maxY, Math.max(minY, 3));
+          const morale = moraleOf(save, x.p.id);
           return '<div class="ext-row' + (isDVE ? " dve" : "") + '" data-id="' + x.p.id + '">' +
             '<div class="ext-head">' +
             '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + '</div>' +
             '  <div class="ext-name">' + esc(x.p.nameCn) + ' <span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(x.p.pos) + '</span>' + (isDVE ? ' <span class="dve-badge">DVE</span>' : '') + '</div>' +
-            '  <div class="ext-cur">现 ' + fmtM(entry.salary) + '/年 · 剩 ' + (entry.years || 0) + '年 · ' + levelLabel + '</div>' +
+            '  <div class="ext-cur">现 ' + fmtM(entry.salary) + '/年 · 剩 ' + (entry.years || 0) + '年 · ' + levelLabel +
+            ' · 士气 <span class="ext-morale m' + (morale >= 80 ? "hi" : morale >= 50 ? "mid" : "lo") + '">' + morale + '</span></div>' +
             '</div>' +
             (level
               ? '<div class="ext-form">' +
                 '  <label>年限 <input type="number" class="ext-input ext-years" min="' + minY + '" max="' + maxY + '" value="' + defYears + '" /> 年 (' + minY + '-' + maxY + ')</label>' +
                 '  <label>薪资 <input type="number" class="ext-input ext-salary" step="0.1" min="0.5" max="' + maxSal + '" value="' + defSal + '" /> M (上限 ' + fmtM(maxSal) + ')</label>' +
+                '  <span class="ext-accept" id="ext-acc-' + x.p.id + '"></span>' +
                 '  <button class="btn btn-primary ext-submit" data-id="' + x.p.id + '">续约</button>' +
                 '</div>'
               : '<div class="ext-no-bird">无鸟权，不可提前续约（需本赛季末进入自由市场流程）</div>') +
@@ -2343,6 +2346,26 @@ RENDERERS.extend = function () {
       : '<div class="ext-empty">当前阵容无符合提前续约条件的球员（剩余合同均 > 2 年）</div>') +
     '<button class="btn btn-outline" id="ext-back">返回经理室</button>';
   $("#ext-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  /* 实时刷新接受度指示器 */
+  const refreshAccept = (row) => {
+    const id = Number(row.dataset.id);
+    const years = parseInt(row.querySelector(".ext-years").value, 10);
+    const salary = parseFloat(row.querySelector(".ext-salary").value);
+    const accEl = row.querySelector(".ext-accept");
+    if (!accEl || isNaN(years) || isNaN(salary)) { if (accEl) accEl.textContent = ""; return; }
+    const acc = extensionAcceptance(save, id, salary, years);
+    const cls = acc.accept ? "ok" : acc.chance >= 30 ? "maybe" : "no";
+    accEl.className = "ext-accept " + cls;
+    accEl.textContent = "接受度 " + acc.chance + "%";
+    accEl.title = acc.reason;
+  };
+  $$("#screen-extend .ext-row").forEach(row => {
+    const accEl = row.querySelector(".ext-accept");
+    if (!accEl) return;
+    row.querySelector(".ext-years").oninput = () => refreshAccept(row);
+    row.querySelector(".ext-salary").oninput = () => refreshAccept(row);
+    refreshAccept(row);  /* 初始化一次 */
+  });
   $$("#screen-extend .ext-submit").forEach(btn => {
     btn.onclick = () => {
       const row = btn.closest(".ext-row");

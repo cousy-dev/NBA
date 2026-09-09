@@ -749,6 +749,16 @@ body {
 .ext-empty { text-align: center; padding: 32px 12px; color: var(--muted); font-size: 13px; }
 .ext-row.dve { border-color: rgba(240, 177, 63, .5); background: linear-gradient(135deg, rgba(255,215,0,.06), var(--card)); }
 .dve-badge { font-size: 9px; font-weight: 800; color: #1a1a2e; background: var(--gold); padding: 1px 5px; border-radius: 6px; margin-left: 4px; vertical-align: middle; }
+/* 士气值显示 */
+.ext-morale { font-weight: 800; }
+.ext-morale.mhi { color: var(--green); }
+.ext-morale.mmid { color: var(--gold); }
+.ext-morale.mlo { color: var(--red); }
+/* 续约接受度指示器 */
+.ext-accept { font-size: 12px; font-weight: 800; padding: 4px 10px; border-radius: 12px; margin-left: auto; flex-shrink: 0; }
+.ext-accept.ok { background: rgba(76, 175, 80, .18); color: #4caf50; border: 1px solid rgba(76, 175, 80, .4); }
+.ext-accept.maybe { background: rgba(240, 177, 63, .15); color: var(--gold); border: 1px solid rgba(240, 177, 63, .4); }
+.ext-accept.no { background: rgba(214, 66, 75, .15); color: #ff9b9b; border: 1px solid rgba(214, 66, 75, .4); }
 @media (max-width: 480px) {
   .ext-form .btn { margin-left: 0; width: 100%; }
   .ext-input { width: 100%; flex: 1; }

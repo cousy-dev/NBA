@@ -236,6 +236,52 @@ function reSignPlayer(save, playerId, years, salary) {
   return true;
 }
 
+/* ===== 续约接受度评估 ===== */
+/* 基于：薪资 vs 市场预期、士气值、球星等级、合同年限 */
+/* 返回 { accept: bool, chance: 0-100, reason: string } */
+function extensionAcceptance(save, playerId, offeredSalary, years) {
+  const p = PLAYERS_RATED.players.find(x => x.id === playerId) || { ovr: 75, nameCn: "球员" };
+  const expected = estimateSalary(p.ovr, playerId);
+  const ratio = offeredSalary / Math.max(0.1, expected);
+  const morale = moraleOf(save, playerId);
+  /* 球星等级对应的最低可接受薪资比例（顶级球星更挑剔） */
+  let minRatio;
+  if (p.ovr >= 95) minRatio = 1.05;       /* 超级巨星：至少要市场价 105% */
+  else if (p.ovr >= 90) minRatio = 0.98;   /* 全明星：接近市场价 */
+  else if (p.ovr >= 85) minRatio = 0.88;    /* 首发主力：88% 市场价 */
+  else if (p.ovr >= 78) minRatio = 0.78;     /* 角色球员：78% 市场价 */
+  else minRatio = 0.65;                      /* 边缘球员：65% 市场价 */
+  /* 士气修正：士气高愿意降薪，士气低要求加价 */
+  let moraleMod = 0;
+  if (morale >= 90) moraleMod = -0.12;      /* 极高士气：可接受降薪 12% */
+  else if (morale >= 80) moraleMod = -0.06;
+  else if (morale < 40) moraleMod = +0.18;   /* 极低士气：要求加价 18% */
+  else if (morale < 60) moraleMod = +0.08;
+  /* 年限修正：长合同略加分（球员喜欢保障） */
+  const yearsMod = years >= 4 ? -0.04 : years <= 1 ? +0.05 : 0;
+  const effectiveMin = Math.max(0.3, minRatio + moraleMod + yearsMod);
+  /* 计算接受概率：薪资达到有效下限则开始可接受，超出部分提升概率 */
+  let chance;
+  if (ratio < effectiveMin - 0.15) {
+    chance = 0;
+  } else {
+    const overshoot = ratio - effectiveMin;
+    chance = Math.round(Math.max(0, Math.min(100, 50 + overshoot * 250 + (morale - 60) * 0.6)));
+  }
+  /* 决定是否接受 */
+  const accept = ratio >= effectiveMin && chance >= 50;
+  let reason;
+  if (!accept) {
+    if (ratio < effectiveMin - 0.15) reason = "薪资远低于预期，球员直接拒绝";
+    else if (ratio < effectiveMin) reason = "薪资低于球员底线（" + (effectiveMin * 100).toFixed(0) + "% 市场价）";
+    else if (morale < 40) reason = "士气过低（" + morale + "），球员不愿续约";
+    else reason = "报价缺乏吸引力，球员选择试水自由市场";
+  } else {
+    reason = "球员接受续约";
+  }
+  return { accept, chance, reason, ratio, effectiveMin, morale };
+}
+
 /* ===== 赛季中提前续约（在册球员，区别于休赛期 reSignPlayer 的 faPool 入口） ===== */
 /* 仅允许剩余年限 ≤ 2 的球员续约（避免任意合同无限重签） */
 function extendContract(save, playerId, newYears, newSalary) {
@@ -257,6 +303,12 @@ function extendContract(save, playerId, newYears, newSalary) {
   /* 年限校验 */
   const [minY, maxY] = birdYearsRange(level);
   if (newYears < minY || newYears > maxY) { toast("年限不合法（" + minY + "-" + maxY + "年）"); return false; }
+  /* 球员接受度校验 */
+  const acc = extensionAcceptance(save, playerId, newSalary, newYears);
+  if (!acc.accept) {
+    toast("❌ " + acc.reason + "（接受度 " + acc.chance + "%）");
+    return false;
+  }
   /* 工资帽校验：替换旧合同后的总薪资不得超过鸟权超帽上限 */
   const total = save.roster.reduce((s, r) => s + r.salary, 0) - entry.salary + newSalary;
   const cap = birdCapAbsolute(level);
@@ -271,7 +323,7 @@ function extendContract(save, playerId, newYears, newSalary) {
   entry.signedVia = "extension";
   maybeAssignOption(entry, p.ovr, playerId);
   writeSave(save);
-  toast("续约成功！" + newYears + " 年 " + fmtM(newSalary) + "/年（" + birdLabel(level) + "）");
+  toast("✅ 续约成功！" + p.nameCn + " · " + newYears + " 年 " + fmtM(newSalary) + "/年（" + birdLabel(level) + "）");
   return true;
 }
 
