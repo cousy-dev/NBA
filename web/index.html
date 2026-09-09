@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0b0e1a">
 <title>NBA 篮球经理</title>
-<link rel="stylesheet" href="css/style.css?v=22">
+<link rel="stylesheet" href="css/style.css?v=23">
 </head>
 <body>
 <div id="app">
@@ -41,6 +41,8 @@
     <section id="screen-draft-result" class="screen hidden"></section>
     <section id="screen-freeagent" class="screen hidden"></section>
     <section id="screen-extend" class="screen hidden"></section>
+    <section id="screen-coach" class="screen hidden"></section>
+    <section id="screen-scout" class="screen hidden"></section>
   </main>
   <div id="toast" class="hidden"></div>
 </div>
@@ -49,12 +51,12 @@
 <script src="data/players_rated.js?v=3"></script>
 <script src="data/salaries.js?v=1"></script>
 <script src="js/positions.js?v=1"></script>
-<script src="js/engine.js?v=14"></script>
+<script src="js/engine.js?v=15"></script>
 <script src="js/season.js?v=18"></script>
 <script src="js/trade.js?v=7"></script>
 <script src="js/draft.js?v=21"></script>
 <!-- app.js 必须先于 freeagent.js 加载：freeagent.js 顶层有 RENDERERS.freeagent 赋值，依赖 app.js 定义的 RENDERERS 对象，否则整脚本加载即报错、rookieContractYears/decrementContracts 等函数全部未定义 -->
-<script src="js/app.js?v=51"></script>
+<script src="js/app.js?v=52"></script>
 <script src="js/freeagent.js?v=11"></script>
 </body>
 </html>

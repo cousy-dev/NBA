@@ -81,14 +81,27 @@ class GameSim {
     this.q = 1; this.clock = Q_LEN; this.off = Math.random() < 0.5 ? 0 : 1;
     this.over = false; this.winner = -1;
     this.tactics = [
-      { def: "man", pace: "normal" },
-      { def: "man", pace: "normal" }
+      { def: "man", pace: "normal", focus: "balanced" },
+      { def: "man", pace: "normal", focus: "balanced" }
     ];
     this.momentum = { side: -1, streak: 0 };
   }
   _initSide(info, idx) {
     const all = info.players.slice();
-    const rot = pickRotation(all);
+    /* 教练轮换覆盖：{ rotationIds, starters, targetMin }，由 app.js 教练设置构建 */
+    let rot;
+    if (info.rotationOverride && info.rotationOverride.starters.length === 5) {
+      const ov = info.rotationOverride;
+      const byId = new Map(all.map(p => [p.id, p]));
+      const starters = ov.starters.filter(id => byId.has(id));
+      const rotationIds = ov.rotationIds.filter(id => byId.has(id));
+      const rotation = rotationIds.map(id => byId.get(id));
+      const targetMin = new Map();
+      rotationIds.forEach(id => { if (ov.targetMin[id] != null) targetMin.set(id, ov.targetMin[id]); });
+      rot = { rotation, starters, targetMin };
+    } else {
+      rot = pickRotation(all);
+    }
     const side = {
       idx, info, all,
       court: rot.starters.slice(),
@@ -209,6 +222,8 @@ class GameSim {
       : handler;
     let threeP = 0.35 + (this._attr(offT, shooter.id, "out") - 78) * 0.005;
     if (tac.pace === "slow") threeP *= 0.7;
+    if (tac.focus === "outside") threeP += 0.09;   /* 外线战术：更多三分出手 */
+    if (tac.focus === "inside") threeP -= 0.10;    /* 内线战术：优先攻框，三分大减 */
     if (defTac.def === "zone") threeP -= 0.02;
     const isThree = Math.random() < Math.max(0.08, threeP);
     const isRim = !isThree && Math.random() < 0.68;

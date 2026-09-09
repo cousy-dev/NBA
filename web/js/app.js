@@ -1489,7 +1489,9 @@ RENDERERS.hub = function () {
   /* 自愈：休赛期选秀未完成（如刷新/中途退出），回到经理室时自动引导回选秀大会 */
   if (save.pendingDraft) {
     if (!state.draft || !state.draft.class_) {
-      state.draft = { class_: genDraftClass(save), pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null };
+      /* 优先用赛季中球探考察的新秀池，没有才临时生成 */
+      const class_ = (save.upcomingDraft && save.upcomingDraft.length) ? save.upcomingDraft : genDraftClass(save);
+      state.draft = { class_, pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null };
     }
     toast("休赛期选秀尚未完成，请先完成选秀");
     RENDERERS.draft();
@@ -1497,6 +1499,8 @@ RENDERERS.hub = function () {
     activate("draft");
     return;
   }
+  /* 赛季中：确保下一届新秀池已生成（球探功能依赖） */
+  ensureUpcomingClass(save);
   const mine = loadMyPlayers(save);
   const top8 = mine.slice().sort((a, b) => b.p.ovr - a.p.ovr).slice(0, 8);
   const ovr = (top8.reduce((s, x) => s + x.p.ovr, 0) / top8.length).toFixed(1);
@@ -1585,6 +1589,8 @@ RENDERERS.hub = function () {
       ? '<button class="mc-btn disabled" disabled>🚫 交易截止</button>'
       : '<button class="mc-btn" id="btn-trade">🔄 交易中心</button>') +
     '<button class="mc-btn" id="btn-extend">📝 提前续约</button>' +
+    '<button class="mc-btn" id="btn-coach">🏋️ 教练战术</button>' +
+    '<button class="mc-btn" id="btn-scout">🔭 球探中心</button>' +
     '<button class="mc-btn" id="btn-awards">🏆 奖项追踪</button></div>' +
     gameHtml + leadersHtml +
     '<h3 class="section-h">球队阵容</h3>' +
@@ -1620,6 +1626,10 @@ RENDERERS.hub = function () {
   if (bpo) bpo.onclick = () => go("playoff");
   const ba = $("#btn-awards");
   if (ba) ba.onclick = () => go("awards");
+  const bco = $("#btn-coach");
+  if (bco) bco.onclick = () => go("coach");
+  const bsc2 = $("#btn-scout");
+  if (bsc2) bsc2.onclick = () => go("scout");
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
   $("#btn-quit").onclick = () => {
@@ -1639,6 +1649,7 @@ RENDERERS.hub = function () {
 /* ===== 比赛 ===== */
 const DEF_LABELS = { man: "人盯人", zone: "联防", double: "包夹", press: "紧逼" };
 const PACE_LABELS = { fast: "快攻", normal: "平衡", slow: "阵地" };
+const FOCUS_LABELS = { inside: "内线强攻", balanced: "内外均衡", outside: "外线三分" };
 state.match = { sim: null, timer: null, speed: 1, paused: true, over: false, feedCount: 0 };
 
 function buildSimFor(gi) {
@@ -1649,10 +1660,48 @@ function buildSimFor(gi) {
   const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));
   const byId = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
   const opp = oppRoster.map(id => { const p0 = customById.get(id) || byId.get(id); return p0 ? applyAdj(p0, save) : null; }).filter(Boolean);
-  return new GameSim(
-    { name: save.team.displayName, short: "", abbr: save.team.logoAbbr, players: mine },
+  const home = { name: save.team.displayName, short: "", abbr: save.team.logoAbbr, players: mine };
+  /* 教练设置：轮换覆盖 + 战术 */
+  const ov = buildCoachOverride(save, mine);
+  if (ov) home.rotationOverride = ov;
+  const sim = new GameSim(
+    home,
     { name: oppT.nameCn, short: "", abbr: gi.opp, players: opp }
   );
+  const c = save.coach || {};
+  if (c.pace) sim.setTactic(0, "pace", c.pace);
+  if (c.def) sim.setTactic(0, "def", c.def);
+  if (c.focus) sim.setTactic(0, "focus", c.focus);
+  return sim;
+}
+
+/* 教练轮换覆盖：由 save.coach.roles 构建 { rotationIds, starters, targetMin }，无有效设置返回 null */
+function buildCoachOverride(save, players) {
+  const c = save.coach;
+  if (!c || !c.roles) return null;
+  const ids = players.map(p => p.id);
+  const roleOf = id => c.roles[id] || "auto";
+  const starters = ids.filter(id => roleOf(id) === "starter");
+  if (starters.length !== 5) return null;   /* 首发必须恰好 5 人，否则交回引擎自动安排 */
+  const sixth = ids.filter(id => roleOf(id) === "sixth");
+  /* 其余按 OVR 排序作为轮换/板凳，弃用球员不进轮换 */
+  const benchPool = ids
+    .filter(id => !starters.includes(id) && roleOf(id) !== "dnp")
+    .sort((a, b) => {
+      const pa = players.find(p => p.id === a), pb = players.find(p => p.id === b.id);
+      return (pb ? pb.ovr : 0) - (pa ? pa.ovr : 0);
+    });
+  /* 第六人排板凳首位 */
+  const orderedBench = [];
+  if (sixth.length && benchPool.includes(sixth[0])) orderedBench.push(sixth[0]);
+  benchPool.forEach(id => { if (!orderedBench.includes(id)) orderedBench.push(id); });
+  const rotationIds = starters.concat(orderedBench.slice(0, 5));
+  /* 目标分钟：5 首发 33 分钟，第六人 27，其余 18/14/9/5（合计约 240 分钟） */
+  const benchMin = [27, 18, 14, 9, 5];
+  const targetMin = {};
+  starters.forEach(id => { targetMin[id] = 33; });
+  orderedBench.slice(0, 5).forEach((id, i) => { targetMin[id] = benchMin[i]; });
+  return { rotationIds, starters, targetMin };
 }
 function startMatch(quick) {
   const save = state.save;
@@ -1726,6 +1775,8 @@ function completeGame(sim, win) {
       state._regularJustEnded = true;
     }
   }
+  /* 球探考察随比赛推进 */
+  tickScouting(save);
   writeSave(save);
 }
 RENDERERS.match = function () {
@@ -2403,7 +2454,9 @@ RENDERERS.seasonend = function () {
     writeSave(save);
     if (save.pendingDraft) {
       save.pendingDraft = false;
-      state.draft = { class_: genDraftClass(save), pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null };
+      /* 使用赛季中球探考察的新秀池，缺失时临时生成 */
+      const class_ = (save.upcomingDraft && save.upcomingDraft.length) ? save.upcomingDraft : genDraftClass(save);
+      state.draft = { class_, pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null };
       go("draft");
     } else {
       toast("第 " + save.seasonNo + " 赛季开始！");
@@ -2680,6 +2733,206 @@ RENDERERS["trade-deal"] = function () {
   $("#btn-back-trade").onclick = () => back();
 };
 
+/* ===== 教练：轮换 + 战术 ===== */
+const COACH_ROLES = [
+  { key: "starter", label: "首发", max: 5 },
+  { key: "sixth", label: "第六人", max: 1 },
+  { key: "rotation", label: "轮换" },
+  { key: "dnp", label: "弃用" }
+];
+RENDERERS.coach = function () {
+  const save = state.save;
+  if (!save.coach) save.coach = { roles: {}, pace: "normal", focus: "balanced", def: "man" };
+  const c = save.coach;
+  const mine = loadMyPlayers(save).sort((a, b) => b.p.ovr - a.p.ovr);
+  const roleOf = id => c.roles[id] || "auto";
+  const count = k => mine.filter(x => roleOf(x.p.id) === k).length;
+
+  const sel = (labels, cur) => Object.keys(labels).map(k =>
+    '<option value="' + k + '"' + (cur === k ? " selected" : "") + ">" + labels[k] + "</option>").join("");
+
+  $("#screen-coach").innerHTML =
+    '<h2 class="screen-title">教练战术台</h2>' +
+    '<p class="screen-sub">设置轮换与战术，将直接影响每场比赛的结果（含快速模拟）</p>' +
+    '<div class="coach-tactics card-box">' +
+    '  <h3 class="section-h">比赛战术</h3>' +
+    '  <div class="ct-grid">' +
+    '    <label>进攻节奏<select id="ct-pace">' + sel(PACE_LABELS, c.pace) + "</select></label>" +
+    '    <label>进攻重心<select id="ct-focus">' + sel(FOCUS_LABELS, c.focus) + "</select></label>" +
+    '    <label>防守策略<select id="ct-def">' + sel(DEF_LABELS, c.def) + "</select></label>" +
+    "  </div>" +
+    '  <div class="ct-hint">快攻节奏更快回合多但失误略增；外线战术多投三分、内线战术强攻篮下；联防克制三分、包夹针对球星、紧逼造失误但漏篮板。</div>' +
+    "</div>" +
+    '<div class="card-box">' +
+    '  <h3 class="section-h">轮换设置 · 首发 <b id="ct-n-starter">' + count("starter") + '</b>/5 · 第六人 <b id="ct-n-sixth">' + count("sixth") + '</b>/1</h3>' +
+    '  <div class="roster-table" id="coach-roster">' +
+    mine.map(x => {
+      const role = roleOf(x.p.id);
+      return '<div class="r-row" data-id="' + x.p.id + '">' +
+        '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
+        '  <div class="r-main">' +
+        '    <div class="r-name">' + esc(x.p.nameCn) + "</div>" +
+        '    <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + "岁</div>" +
+        "  </div>" +
+        '  <div class="coach-roles">' +
+        COACH_ROLES.map(r =>
+          '<button class="cr-btn' + (role === r.key ? " active" : "") + '" data-id="' + x.p.id + '" data-role="' + r.key + '">' + r.label + "</button>"
+        ).join("") +
+        "  </div>" +
+        "</div>";
+    }).join("") +
+    "</div>" +
+    '<button class="btn btn-primary" id="btn-coach-save">保存教练设置</button>' +
+    ' <button class="btn btn-outline" id="btn-coach-auto">按能力自动安排</button>' +
+    "</div>";
+
+  /* 角色点击：首发/第六人有数量上限，超出则忽略并提示 */
+  $$("#screen-coach .cr-btn").forEach(btn => {
+    btn.onclick = () => {
+      const id = Number(btn.dataset.id);
+      const role = btn.dataset.role;
+      const cur = roleOf(id);
+      if (cur === role) { delete c.roles[id]; }
+      else {
+        if (role === "starter" && count("starter") >= 5 && cur !== "starter") { toast("首发最多 5 人"); return; }
+        if (role === "sixth" && count("sixth") >= 1 && cur !== "sixth") { toast("第六人最多 1 人"); return; }
+        c.roles[id] = role;
+      }
+      RENDERERS.coach(); activate("coach", true);
+    };
+  });
+  $("#btn-coach-save").onclick = () => {
+    if (count("starter") !== 5) { toast("请先安排恰好 5 名首发（当前 " + count("starter") + " 人）"); return; }
+    c.pace = $("#ct-pace").value;
+    c.focus = $("#ct-focus").value;
+    c.def = $("#ct-def").value;
+    writeSave(save);
+    toast("✓ 教练设置已保存，下一场比赛生效");
+  };
+  $("#btn-coach-auto").onclick = () => {
+    c.roles = {};
+    const sorted = loadMyPlayers(save).sort((a, b) => b.p.ovr - a.p.ovr);
+    sorted.slice(0, 5).forEach(x => { c.roles[x.p.id] = "starter"; });
+    if (sorted[5]) c.roles[sorted[5].p.id] = "sixth";
+    RENDERERS.coach(); activate("coach", true);
+    toast("已按能力值自动安排轮换");
+  };
+};
+
+/* ===== 球探系统 ===== */
+const SCOUT_CONCURRENT = 2;   /* 同时在外考察的球探人数 */
+const SCOUT_GAMES = 10;       /* 一份球探报告需要的比赛场次 */
+
+/* 确保新赛季的待选新秀池存在（选秀后清空，下赛季重新生成） */
+function ensureUpcomingClass(save) {
+  if (!save.upcomingDraft) {
+    save.upcomingDraft = genDraftClass(save);
+    writeSave(save);
+  }
+  if (!save.scouting) save.scouting = { active: [], done: {} };
+  return save.upcomingDraft;
+}
+
+/* 球探报告：基于真实能力加噪声，确定性（同一名新秀报告稳定） */
+function genScoutReport(r) {
+  const rnd1 = hash01(r.id, 707), rnd2 = hash01(r.id, 708);
+  const ovrEst = Math.round(r.ovr + (rnd1 - 0.5) * 8);
+  const potEst = Math.round((r.potential || r.ovr) + (rnd2 - 0.5) * 12);
+  const grade = v => v >= 93 ? "S" : v >= 87 ? "A" : v >= 79 ? "B" : v >= 68 ? "C" : "D";
+  const ATTR_CN = { ins: "内线终结", out: "外线投射", org: "组织策应", def: "防守", reb: "篮板", ath: "运动能力" };
+  const a = r.attrs || {};
+  const sorted = Object.keys(ATTR_CN).sort((x, y) => (a[y] || 0) - (a[x] || 0));
+  const strengths = sorted.slice(0, 2).map(k => ATTR_CN[k]);
+  const weak = ATTR_CN[sorted[sorted.length - 1]];
+  const slot = potEst >= 86 ? "乐透区" : potEst >= 76 ? "首轮行情" : potEst >= 66 ? "首轮末/次轮" : "次轮行情";
+  return {
+    ovrLow: Math.max(50, ovrEst - 3), ovrHigh: ovrEst + 3,
+    potGrade: grade(potEst), strengths, weak, slot
+  };
+}
+
+/* 每场比赛后推进球探考察进度（completeGame 中调用） */
+function tickScouting(save) {
+  const sc = save.scouting;
+  if (!sc) return;
+  let changed = false;
+  sc.active = sc.active.filter(job => {
+    job.gamesLeft -= 1;
+    if (job.gamesLeft <= 0) {
+      const r = save.upcomingDraft && save.upcomingDraft.find(x => x.id === job.id);
+      if (r) { sc.done[job.id] = genScoutReport(r); changed = true; }
+      return false;
+    }
+    changed = true;
+    return true;
+  });
+  if (changed) writeSave(save);
+}
+
+RENDERERS.scout = function () {
+  const save = state.save;
+  const cls = ensureUpcomingClass(save);
+  const sc = save.scouting;
+  const reportOf = id => sc.done[id] || null;
+  const activeOf = id => sc.active.find(j => j.id === id);
+
+  const rows = cls.map((r, i) => {
+    const rep = reportOf(r.id);
+    const job = activeOf(r.id);
+    const cs = r.collegeStats || {};
+    let status;
+    if (rep) {
+      status = '<div class="sr-report">' +
+        '  <div class="srr-grades"><span class="srr-pill">评分 ' + rep.ovrLow + "~" + rep.ovrHigh + '</span>' +
+        '  <span class="srr-pill pot">潜力 ' + rep.potGrade + '</span>' +
+        '  <span class="srr-pill">' + rep.slot + "</span></div>" +
+        '  <div class="srr-tags"><span class="srr-tag up">优势：' + rep.strengths.join("、") + '</span>' +
+        '  <span class="srr-tag down">短板：' + rep.weak + "</span></div>" +
+        "</div>";
+    } else if (job) {
+      status = '<div class="sr-scouting">🔭 考察中… 还需 <b>' + job.gamesLeft + "</b> 场比赛</div>";
+    } else {
+      status = '<button class="btn btn-outline srr-send" data-id="' + r.id + '"' +
+        (sc.active.length >= SCOUT_CONCURRENT ? " disabled" : "") + ">" +
+        (sc.active.length >= SCOUT_CONCURRENT ? "球探已满" : "派球探考察（" + SCOUT_GAMES + "场）") + "</button>";
+    }
+    return '<div class="scout-row' + (rep ? " reported" : "") + '">' +
+      '  <div class="scout-head">' +
+      '    <span class="dr-rank">' + (i + 1) + "</span>" +
+      '    <span class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r)) + "</span></span>" +
+      '    <span class="dr-age">' + r.age + "岁 · " + (r.heightCm || 198) + "cm · " + esc(cs.college || "") + "</span>" +
+      "  </div>" +
+      '  <div class="dr-cstats">' +
+      '    <span class="cs-stat"><b>' + (cs.ppg || 0).toFixed(1) + "</b><i>分</i></span>" +
+      '    <span class="cs-stat"><b>' + (cs.rpg || 0).toFixed(1) + "</b><i>板</i></span>" +
+      '    <span class="cs-stat"><b>' + (cs.apg || 0).toFixed(1) + "</b><i>助</i></span>" +
+      '    <span class="cs-stat"><b>' + (cs.tpPct || 0).toFixed(1) + "%</b><i>3P%</i></span>" +
+      "  </div>" + status +
+      "</div>";
+  }).join("");
+
+  $("#screen-scout").innerHTML =
+    '<h2 class="screen-title">球探中心</h2>' +
+    '<p class="screen-sub">下一届新秀正在大学/海外联赛征战 · 派球探实地考察可获得评分与潜力报告</p>' +
+    '<div class="fan-round">' +
+    '  <div class="er-pill">待选新秀 <b>' + cls.length + "</b> 人</div>" +
+    '  <div class="er-pill">球探在外 <b>' + sc.active.length + "</b> / " + SCOUT_CONCURRENT + "</div>" +
+    '  <div class="er-pill">已出报告 <b>' + Object.keys(sc.done).length + "</b> 份</div>" +
+    "</div>" +
+    '<div class="scout-list">' + rows + "</div>";
+
+  $$("#screen-scout .srr-send").forEach(btn => {
+    btn.onclick = () => {
+      const id = Number(btn.dataset.id);
+      if (sc.active.length >= SCOUT_CONCURRENT || sc.active.some(j => j.id === id) || sc.done[id]) return;
+      sc.active.push({ id, gamesLeft: SCOUT_GAMES });
+      writeSave(save);
+      toast("🔭 球探已出发，" + SCOUT_GAMES + " 场比赛后出报告");
+      RENDERERS.scout(); activate("scout", true);
+    };
+  });
+};
+
 /* ===== NBA 选秀 ===== */
 /* 回合制交互式选秀：用户在属于自己的每个选秀签位上各选一次新秀，
    其余 AI 签位可手动「AI 自动选人」逐支触发，也可「跳到我的下一顺位」自动模拟。
@@ -2689,7 +2942,7 @@ RENDERERS.draft = function () {
   const save = state.save;
   const d = state.draft;
   const my = myAbbr(save);
-  if (!d.class_) { d.class_ = genDraftClass(save); d.results = null; }
+  if (!d.class_) { d.class_ = (save.upcomingDraft && save.upcomingDraft.length) ? save.upcomingDraft : genDraftClass(save); d.results = null; }
   if (!d.pickOrder) {
     d.pickOrder = computePickOrder(save);
     d.currentIdx = 0;
@@ -2743,7 +2996,22 @@ RENDERERS.draft = function () {
     '<div class="draft-list">' +
     avail.slice(0, SHOW).map((r, i) => {
       const cs = r.collegeStats || {};
-      return '<div class="draft-row' + (isMyTurn ? " selectable" : " locked") + '" data-id="' + r.id + '">' +
+      /* 球探情报：赛季中考察的报告在选秀时展示 */
+      const rep = save.scouting && save.scouting.done[r.id];
+      const job = save.scouting && save.scouting.active.find(j => j.id === r.id);
+      let intel = "";
+      if (rep) {
+        intel = '<div class="dr-intel">' +
+          '<span class="srr-pill">评分 ' + rep.ovrLow + "~" + rep.ovrHigh + '</span>' +
+          '<span class="srr-pill pot">潜力 ' + rep.potGrade + '</span>' +
+          '<span class="srr-pill">' + rep.slot + "</span>" +
+          '<span class="srr-tag up">' + rep.strengths.join("·") + '</span>' +
+          '<span class="srr-tag down">短板:' + rep.weak + "</span>" +
+          "</div>";
+      } else if (job) {
+        intel = '<div class="dr-intel muted">🔭 考察未完成（差 ' + job.gamesLeft + ' 场）</div>';
+      }
+      return '<div class="draft-row' + (isMyTurn ? " selectable" : " locked") + (rep ? " has-intel" : "") + '" data-id="' + r.id + '">' +
       '  <span class="dr-rank">' + (i + 1) + "</span>" +
       '  <div class="dr-info">' +
       '    <div class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r)) + "</span>" +
@@ -2758,6 +3026,7 @@ RENDERERS.draft = function () {
       '      <span class="cs-stat"><b>' + (cs.fgPct || 0).toFixed(1) + "%</b><i>FG%</i></span>" +
       '      <span class="cs-stat"><b>' + (cs.tpPct || 0).toFixed(1) + "%</b><i>3P%</i></span>" +
       "    </div>" +
+      intel +
       "  </div>" +
       "</div>";
     }).join("") +
@@ -2827,6 +3096,9 @@ RENDERERS.draft = function () {
 function finishDraft(save, d) {
   save.draftResults = d.results;
   save.pendingDraft = false;
+  /* 新秀池已用完，清空球探状态；进入新赛季后 hub 会生成下一届新秀池 */
+  save.upcomingDraft = null;
+  save.scouting = null;
   writeSave(save);
   const my = myAbbr(save);
   const myRookie = (d.results || []).find(r => r.abbr === my);

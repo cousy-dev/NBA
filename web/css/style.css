@@ -865,3 +865,37 @@ body {
 .modal-close:hover { background: var(--card); color: var(--text); }
 .modal-body { padding: 14px 18px; overflow-y: auto; }
 .modal-body .roster-table { margin: 0; }
+
+/* ===== 教练战术台 ===== */
+.coach-tactics { margin-bottom: 14px; }
+.ct-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
+.ct-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.ct-grid select { background: var(--card2); border: 1px solid var(--line); color: var(--text); border-radius: 9px; padding: 9px 10px; font-size: 14px; font-weight: 700; }
+.ct-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.coach-roles { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+.cr-btn { border: 1px solid var(--line); background: var(--card2); color: var(--muted); font-size: 11.5px; font-weight: 700; padding: 6px 9px; border-radius: 8px; cursor: pointer; }
+.cr-btn.active { border-color: var(--gold); background: rgba(240,177,63,.16); color: var(--gold); }
+@media (max-width: 560px) {
+  .ct-grid { grid-template-columns: 1fr; }
+  .coach-roles { grid-column: 1 / -1; justify-content: flex-start; }
+  .r-row { flex-wrap: wrap; }
+}
+
+/* ===== 球探中心 / 选秀情报 ===== */
+.scout-list { display: flex; flex-direction: column; gap: 8px; }
+.scout-row { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.scout-row.reported { border-color: rgba(63,191,127,.45); }
+.scout-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dr-intel { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.dr-intel.muted { color: var(--muted); font-size: 12px; }
+.draft-row.has-intel { border-color: rgba(63,191,127,.4); }
+.srr-pill { font-size: 11px; font-weight: 800; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+.srr-pill.pot { border-color: var(--gold); color: var(--gold); }
+.srr-tag { font-size: 11px; border-radius: 6px; padding: 3px 8px; font-weight: 700; }
+.srr-tag.up { background: rgba(63,191,127,.14); color: var(--green); }
+.srr-tag.down { background: rgba(214,66,75,.14); color: var(--red); }
+.sr-report { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.srr-grades { display: flex; gap: 6px; flex-wrap: wrap; }
+.srr-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.sr-scouting { margin-top: 8px; font-size: 12.5px; color: var(--blue); font-weight: 700; }
+.scout-row .btn { margin-top: 8px; padding: 7px 12px; font-size: 12.5px; }
