@@ -444,6 +444,12 @@ function newSeason(save) {
   save.record = { w: 0, l: 0 };
   save.tradeDeadlinePassed = false;  /* 重置交易截止日标志 */
   save.schedule = makeSchedule(save);
+  /* 重置战绩前先快照最终排名：选秀顺位在新赛季开启后才计算，必须依据上赛季真实战绩，
+     否则所有队战绩被清零（胜率 0.5）会导致垫底队拿不到高顺位 */
+  save.lastStandings = {};
+  Object.keys(save.standings).forEach(a => {
+    save.lastStandings[a] = { w: save.standings[a].w, l: save.standings[a].l };
+  });
   save.standings = initStandings(save);
   save.playerStats = {};
   /* 保存季后赛结果供选秀顺位计算 */

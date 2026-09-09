@@ -1045,6 +1045,20 @@ function migrateSave(save) {
   if (!save.draftPicks || !save.draftPicks.length) {
     initDraftPicks(save);
   }
+  /* 旧档兼容：休赛期选秀进行中却没有上赛季战绩快照（旧版 newSeason 未做快照、战绩已清零）时，
+     按当前球队实力合成一份近似战绩（越弱战绩越差），使垫底队能拿到符合战绩的高顺位 */
+  if (save.pendingDraft && !save.lastStandings) {
+    const abbrs = TEAMS.map(t => t.abbr);
+    const myAb = myAbbr(save);
+    if (abbrs.indexOf(myAb) < 0) abbrs.push(myAb);
+    const rows = abbrs.map(a => ({ a, str: strengthOf(save, a) })).sort((x, y) => x.str - y.str);
+    const snap = {};
+    rows.forEach((r, i) => {
+      const w = Math.round(14 + i * (46 / Math.max(1, rows.length - 1)));
+      snap[r.a] = { w, l: 82 - w };
+    });
+    save.lastStandings = snap;
+  }
   /* 恢复自定义球员（新秀等）到运行时全局库 */
   if (save.customPlayers) {
     save.customPlayers.forEach(p => {

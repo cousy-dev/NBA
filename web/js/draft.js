@@ -137,10 +137,10 @@ function genRookie(pickOvrSeed) {
   };
 }
 
-/* 生成选秀班底（30 队 60 人；含自建队 31 队时 62 人，多生成 2 人保证末轮签也能选到人） */
+/* 生成选秀班底（31 队两轮 62 人；扩张队补偿签等额外首轮签最多 +1，多生成 2 人保证末轮签也能选到人） */
 function genDraftClass(save) {
   const class_ = [];
-  const n = 62;
+  const n = 64;
   for (let i = 0; i < n; i++) {
     const seed = i / n;
     class_.push(genRookie(seed));
@@ -327,19 +327,22 @@ function initDraftPicks(save) {
 function computePickOrder(save) {
   const season = save.seasonNo; /* 当前赛季结束后选秀 */
   const my = myAbbr(save);
+  /* 顺位依据上赛季最终战绩（newSeason 重置战绩前的快照）；快照缺失时退回当前战绩 */
+  const stSrc = save.lastStandings || save.standings || {};
   /* 所有 30 支真实球队按战绩排序；自建球队（CUS）作为第 31 队一并纳入 */
   const ranked = TEAMS.map(t => {
-    const s = save.standings[t.abbr] || { w: 0, l: 0 };
+    const s = stSrc[t.abbr] || { w: 0, l: 0 };
     const gp = s.w + s.l;
     const winPct = gp ? s.w / gp : 0.5;
     return { abbr: t.abbr, winPct, w: s.w, l: s.l, str: teamStrength(t.abbr) };
   });
   if (!TEAMS.some(t => t.abbr === my)) {
-    const s = save.standings[my] || { w: 0, l: 0 };
+    const s = stSrc[my] || { w: 0, l: 0 };
     const gp = s.w + s.l;
     ranked.push({ abbr: my, winPct: gp ? s.w / gp : 0.5, w: s.w, l: s.l, str: strengthOf(save, my) });
   }
-  const sorted = ranked.slice().sort((a, b) => a.winPct - b.winPct || b.str - a.str);
+  /* 战绩越差顺位越靠前；战绩相同时实力弱的排前（弱队优先，符合选秀逻辑） */
+  const sorted = ranked.slice().sort((a, b) => a.winPct - b.winPct || a.str - b.str);
 
   /* 从 lastPlayoffs 提取季后赛成绩，确定哪些队进了季后赛及走多远 */
   const lp = save.lastPlayoffs;
@@ -393,19 +396,33 @@ function computePickOrder(save) {
 
   /* 从 save.draftPicks 中找出该赛季的所有选秀权 */
   const allPicks = (save.draftPicks || []).filter(p => p.season === season);
-  /* 按顺位分配 */
   const result = [];
-  /* 首轮 */
+  /* 首轮：按战绩顺位给每队分配一个签位；一队持有的额外首轮签（扩张补偿签、交易多签）
+     先收集，按原队顺位顺序排在首轮末段，避免额外签被丢弃 */
+  const extraRound1 = [];
   firstRoundOrder.forEach((t, i) => {
-    /* 找到持有该队首轮签的队伍 */
-    const pick = allPicks.find(p => p.originalTeam === t.abbr && p.round === 1);
-    if (pick) result.push({ team: pick.team, round: 1, pick: i + 1, season, originalTeam: t.abbr });
+    const picks = allPicks.filter(p => p.originalTeam === t.abbr && p.round === 1);
+    if (picks.length) {
+      result.push({ team: picks[0].team, round: 1, pick: i + 1, season, originalTeam: t.abbr });
+      picks.slice(1).forEach(p => extraRound1.push(p));
+    }
   });
-  /* 次轮：紧接首轮顺位编号 */
-  const secondRoundStart = firstRoundOrder.length + 1;
-  secondRoundOrder.forEach((t, i) => {
-    const pick = allPicks.find(p => p.originalTeam === t.abbr && p.round === 2);
-    if (pick) result.push({ team: pick.team, round: 2, pick: i + secondRoundStart, season, originalTeam: t.abbr });
+  let nextPickNo = firstRoundOrder.length + 1;
+  extraRound1.forEach(p => {
+    result.push({ team: p.team, round: 1, pick: nextPickNo++, season, originalTeam: p.originalTeam });
+  });
+  /* 次轮：紧接首轮顺位编号，额外次轮签（交易等）排在次轮末段，最后统一顺延编号 */
+  const round2 = [];
+  const extraRound2 = [];
+  secondRoundOrder.forEach(t => {
+    const picks = allPicks.filter(p => p.originalTeam === t.abbr && p.round === 2);
+    if (picks.length) {
+      round2.push(picks[0]);
+      picks.slice(1).forEach(p => extraRound2.push(p));
+    }
+  });
+  round2.concat(extraRound2).forEach(p => {
+    result.push({ team: p.team, round: 2, pick: nextPickNo++, season, originalTeam: p.originalTeam });
   });
   return result;
 }
