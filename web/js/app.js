@@ -647,6 +647,20 @@ RENDERERS.fantasy = function () {
     return r % 2 === 1 ? idx : (31 - idx);
   };
 
+  /* 我的已选球员列表 */
+  const myPicks = f.picks.filter(pk => pk.team === f.userTeam);
+  const myPlayersHtml = myPicks
+    .map(pk => {
+      const p = PLAYERS_RATED.players.find(x => x.id === pk.playerId);
+      if (!p) return "";
+      return '<div class="r-row"><span class="r-idx">' + pk.round + "</span>" +
+        '<div class="ovr-badge ' + ovrClass(p.ovr) + '">' + p.ovr + "</div>" +
+        '<div class="r-main"><div class="r-name">' + esc(p.nameCn) + '</div>' +
+        '<div class="r-meta"><span class="pos-chip ' + posClass(p.pos) + '">' + esc(posLabel(p)) + "</span> " + (p.age || "-") + "岁</div></div>" +
+        '<div class="r-salary">R' + pk.round + "·" + pk.pickNo + "</div></div>";
+    })
+    .join("") || '<div class="empty-stats">还没有选择球员</div>';
+
   /* 选秀历史（最近 12 条） */
   const recent = f.picks.slice(-12).reverse();
   const historyHtml = recent.map(pk => {
@@ -667,11 +681,14 @@ RENDERERS.fantasy = function () {
 
   let body;
   if (f.done) {
-    const mine = f.picks.filter(p => p.team === f.userTeam).length;
+    const mine = myPicks.length;
     body = '<div class="fan-done">' +
       '<h3>选秀完成！</h3>' +
       '<p>你的球队 <b>' + esc(teamNameOf(f.userTeam)) + "</b> 共选得 <b>" + mine + "</b> 名球员。</p>" +
-      '<button class="btn btn-primary" id="btn-fan-confirm">确认阵容 · 开启生涯</button>' +
+      '<div class="fan-actions">' +
+      '  <button class="btn" id="btn-fan-mine">我的阵容 (' + mine + ")</button>" +
+      '  <button class="btn btn-primary" id="btn-fan-confirm">确认阵容 · 开启生涯</button>' +
+      "</div>" +
       "</div>";
   } else if (isUserTurn) {
     const pickInRound = ((f.pickNo - 1) % 30) + 1;
@@ -688,6 +705,7 @@ RENDERERS.fantasy = function () {
     body = '<div class="fan-turn">' +
       '  <div class="fan-turn-hd"><b>轮到你了！</b> 第 ' + f.round + " 轮 · 第 " + pickInRound + " 顺位（总第 " + f.pickNo + " 签）</div>" +
       '  <div class="fan-actions">' +
+      '    <button class="btn" id="btn-fan-mine">我的阵容 (' + myPicks.length + ")</button>" +
       '    <button class="btn" id="btn-fan-ai">AI 帮我选</button>' +
       '    <button class="btn" id="btn-fan-sim-rest">模拟剩余全部</button>' +
       "  </div>" +
@@ -699,6 +717,7 @@ RENDERERS.fantasy = function () {
     body = '<div class="fan-turn">' +
       '  <div class="fan-turn-hd">等待 <b>' + esc(teamNameOf(team)) + "</b> 选择 · 第 " + f.round + " 轮 · 第 " + pickInRound + " 顺位</div>" +
       '  <div class="fan-actions">' +
+      '    <button class="btn" id="btn-fan-mine">我的阵容 (' + myPicks.length + ")</button>" +
       '    <button class="btn btn-primary" id="btn-fan-sim-user">模拟到我的回合</button>' +
       '    <button class="btn" id="btn-fan-sim-rest">模拟剩余全部</button>' +
       "  </div>" +
@@ -718,9 +737,19 @@ RENDERERS.fantasy = function () {
     '<div class="fan-body">' +
     '  <div class="fan-main">' + body + "</div>" +
     '  <div class="fan-history"><h4>选秀记录</h4><div class="fan-history-list">' + historyHtml + "</div></div>" +
-    "</div>";
+    "</div>" +
+    (f.showMine ? '<div class="modal-overlay" id="fan-mine-overlay"><div class="modal-box">' +
+      '<div class="modal-hd"><span>我的阵容（' + myPicks.length + "人）</span><button class='modal-close' id='btn-fan-mine-close'>✕</button></div>" +
+      '<div class="modal-body"><div class="roster-table">' + myPlayersHtml + "</div></div>" +
+      "</div></div>" : "");
 
   /* 事件绑定 */
+  const mineBtn = $("#btn-fan-mine");
+  if (mineBtn) mineBtn.onclick = () => { f.showMine = true; RENDERERS.fantasy(); activate("fantasy", true); };
+  if (f.showMine) {
+    $("#btn-fan-mine-close").onclick = () => { f.showMine = false; RENDERERS.fantasy(); activate("fantasy", true); };
+    $("#fan-mine-overlay").onclick = e => { if (e.target.id === "fan-mine-overlay") { f.showMine = false; RENDERERS.fantasy(); activate("fantasy", true); } };
+  }
   if (isUserTurn) {
     $$("#screen-fantasy .exp-card").forEach(c => {
       c.onclick = () => {
