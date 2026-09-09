@@ -902,13 +902,13 @@ body {
 
 /* ===== 阵容卡片（最佳阵容 / 最佳防守 / 新秀阵容） ===== */
 .tm-group h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.tm-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); margin-bottom: 5px; }
+.tm-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); margin-bottom: 5px; }
 .tm-row.me { border-color: var(--gold); background: rgba(168,31,46,.06); }
-.tm-group .tm-row.me { border-color: var(--line); background: var(--card); }  /* 阵容卡片里不高亮自己球员 */
+.tm-group .tm-row.me { border-color: var(--line); background: var(--card); }
 .tm-group .tm-row.me .tm-pos { color: var(--text); }
-.tm-pos { width: 26px; height: 26px; line-height: 26px; text-align: center; font-size: 12px; font-weight: 900; color: var(--text); background: var(--card2); border-radius: 8px; flex-shrink: 0; }
-.tm-row .ovr-badge { width: 34px; height: 34px; border-radius: 9px; font-size: 14px; flex: none; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.tm-pos { width: 24px; height: 24px; line-height: 24px; text-align: center; font-size: 11.5px; font-weight: 900; color: var(--text); background: var(--card2); border-radius: 7px; flex-shrink: 0; }
+.tm-row .ovr-badge { width: 30px; height: 30px; border-radius: 8px; font-size: 13px; flex: none; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
 .tm-row.me .tm-pos { color: var(--gold); }
-.tm-name { flex: 1; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tm-team { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 1px; }
-.tm-stats { font-size: 11px; color: var(--muted); white-space: nowrap; text-align: right; flex-shrink: 0; min-width: 130px; }
+.tm-name { flex: 1 1 0; font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tm-team { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
+.tm-stats { font-size: 10.5px; color: var(--muted); white-space: nowrap; text-align: right; flex: 0 1 auto; min-width: 0; }
