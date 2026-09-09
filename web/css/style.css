@@ -904,6 +904,8 @@ body {
 .tm-group h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .tm-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); margin-bottom: 5px; }
 .tm-row.me { border-color: var(--gold); background: rgba(255,215,0,.06); }
+.tm-group .tm-row.me { border-color: var(--line); background: var(--card); }  /* 阵容卡片里不高亮自己球员 */
+.tm-group .tm-row.me .tm-pos { color: var(--text); }
 .tm-pos { width: 26px; height: 26px; line-height: 26px; text-align: center; font-size: 12px; font-weight: 900; color: var(--text); background: var(--card2); border-radius: 8px; flex-shrink: 0; }
 .tm-row.me .tm-pos { color: var(--gold); }
 .tm-name { flex: 1; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
