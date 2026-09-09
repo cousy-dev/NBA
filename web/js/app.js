@@ -2302,30 +2302,33 @@ RENDERERS.extend = function () {
   const save = state.save;
   const my = myAbbr(save);
   const mine = loadMyPlayers(save);
-  /* 资格：剩余年限 ≤ 2 年 */
+  /* 资格：普通球员剩余年限 ≤ 2；球星（OVR ≥ 88）适用指定老将条款，剩余 ≤ 3 年也可续约 */
   const eligible = mine.filter(x => {
     const entry = save.roster.find(r => r.id === x.p.id);
-    return entry && entry.years <= 2;
+    if (!entry) return false;
+    const maxYears = x.p.ovr >= 88 ? 3 : 2;
+    return entry.years <= maxYears;
   }).sort((a, b) => b.p.ovr - a.p.ovr);
   /* 计算总薪资用于工资帽提示 */
   const total = Math.round(save.roster.reduce((s, r) => s + r.salary, 0) * 10) / 10;
 
   $("#screen-extend").innerHTML =
     '<h2 class="screen-title">提前续约</h2>' +
-    '<p class="screen-sub">赛季中可提前续约剩余合同 ≤ 2 年的在册球员 · 当前薪资总额 ' + fmtM(total) + '</p>' +
+    '<p class="screen-sub">提前续约剩余 ≤ 2 年球员（球星 OVR ≥ 88 可 ≤ 3 年 · 指定老将条款） · 当前薪资总额 ' + fmtM(total) + '</p>' +
     (eligible.length
       ? '<div class="ext-list">' + eligible.map(x => {
           const entry = save.roster.find(r => r.id === x.p.id) || {};
           const level = birdRightsLevel(entry.birdYears || 0);
           const levelLabel = level ? birdLabel(level) : "无鸟权";
+          const isDVE = x.p.ovr >= 88 && (entry.years || 0) === 3;  /* 指定老将条款标记 */
           const [minY, maxY] = level ? birdYearsRange(level) : [1, 5];
           const maxSal = level ? maxSalaryByBird(x.p.ovr, x.p.id, level) : 0;
           const defSal = Math.round(estimateSalary(x.p.ovr, x.p.id) * 10) / 10;
           const defYears = Math.min(maxY, Math.max(minY, 3));
-          return '<div class="ext-row" data-id="' + x.p.id + '">' +
+          return '<div class="ext-row' + (isDVE ? " dve" : "") + '" data-id="' + x.p.id + '">' +
             '<div class="ext-head">' +
             '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + '</div>' +
-            '  <div class="ext-name">' + esc(x.p.nameCn) + ' <span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(x.p.pos) + '</span></div>' +
+            '  <div class="ext-name">' + esc(x.p.nameCn) + ' <span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(x.p.pos) + '</span>' + (isDVE ? ' <span class="dve-badge">DVE</span>' : '') + '</div>' +
             '  <div class="ext-cur">现 ' + fmtM(entry.salary) + '/年 · 剩 ' + (entry.years || 0) + '年 · ' + levelLabel + '</div>' +
             '</div>' +
             (level

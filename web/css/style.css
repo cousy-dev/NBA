@@ -747,6 +747,8 @@ body {
 .ext-form .btn { margin-left: auto; }
 .ext-no-bird { font-size: 12px; color: var(--muted); margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); font-style: italic; }
 .ext-empty { text-align: center; padding: 32px 12px; color: var(--muted); font-size: 13px; }
+.ext-row.dve { border-color: rgba(240, 177, 63, .5); background: linear-gradient(135deg, rgba(255,215,0,.06), var(--card)); }
+.dve-badge { font-size: 9px; font-weight: 800; color: #1a1a2e; background: var(--gold); padding: 1px 5px; border-radius: 6px; margin-left: 4px; vertical-align: middle; }
 @media (max-width: 480px) {
   .ext-form .btn { margin-left: 0; width: 100%; }
   .ext-input { width: 100%; flex: 1; }

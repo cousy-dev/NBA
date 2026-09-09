@@ -241,13 +241,17 @@ function reSignPlayer(save, playerId, years, salary) {
 function extendContract(save, playerId, newYears, newSalary) {
   const entry = save.roster.find(r => r.id === playerId);
   if (!entry) { toast("球员不在阵容中"); return false; }
-  /* 资格门槛：剩余年限 ≤ 2 */
-  if (entry.years > 2) { toast("剩余 " + entry.years + " 年合同，不符合提前续约条件（需 ≤ 2 年）"); return false; }
+  /* 资格门槛：普通球员剩余年限 ≤ 2；球星（OVR ≥ 88）可享受指定老将条款，剩余 ≤ 3 年也可续约 */
+  const p = PLAYERS_RATED.players.find(x => x.id === playerId) || { ovr: 75 };
+  const maxRemainingYears = p.ovr >= 88 ? 3 : 2;
+  if (entry.years > maxRemainingYears) {
+    toast("剩余 " + entry.years + " 年合同，不符合提前续约条件（需 ≤ " + maxRemainingYears + " 年" + (p.ovr >= 88 ? " · 指定老将条款" : "") + "）");
+    return false;
+  }
   /* 鸟权等级：复用现有规则。无鸟权（birdYears < 1）→ 非鸟权，按非鸟权顶薪续约 */
   const level = birdRightsLevel(entry.birdYears || 0);
   if (!level) { toast("该球员无鸟权，无法提前续约"); return false; }
   /* 顶薪校验 */
-  const p = PLAYERS_RATED.players.find(x => x.id === playerId) || { ovr: 75 };
   const maxSal = maxSalaryByBird(p.ovr, playerId, level);
   if (newSalary > maxSal + 0.01) { toast("超过鸟权顶薪上限 " + fmtM(maxSal)); return false; }
   /* 年限校验 */
