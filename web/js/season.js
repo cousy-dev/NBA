@@ -71,6 +71,7 @@ function winProb(strA, strB, homeA) {
 function simLeagueRound(save) {
   const others = TEAMS.map(t => t.abbr).filter(a => a !== myAbbr(save));
   shuffleArr(others);
+  const playedPairs = [];
   for (let i = 0; i + 1 < others.length; i += 2) {
     const A = others[i], B = others[i + 1];
     const p = winProb(strengthOf(save, A), strengthOf(save, B), true);
@@ -81,13 +82,16 @@ function simLeagueRound(save) {
     applyStreak(save, B, !aWon);
     updateAIMorale(save, A, aWon);
     updateAIMorale(save, B, !aWon);
+    playedPairs.push([A, B]);
   }
   /* AI 球员伤病恢复 */
   tickInjuries(save);
-  /* AI 球员随机伤病：只处理本轮出场的两队 */
-  [A, B].forEach(abbr => {
-    const ids = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
-    rollInjuries(save, ids);
+  /* AI 球员随机伤病：处理本轮出场的队 */
+  playedPairs.forEach(([a, b]) => {
+    [a, b].forEach(abbr => {
+      const ids = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
+      rollInjuries(save, ids);
+    });
   });
 }
 
