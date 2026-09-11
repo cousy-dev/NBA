@@ -2924,7 +2924,7 @@ RENDERERS["trade-deal"] = function () {
 };
 
 /* ===== 交易搜索器 ===== */
-state.tradeSearch = { offers: [], filter: "all" };
+state.tradeSearch = { offers: [], filter: "all", openPlayer: null };
 RENDERERS["trade-search"] = function () {
   const save = state.save;
   if (save.tradeDeadlinePassed) {
@@ -2939,6 +2939,20 @@ RENDERERS["trade-search"] = function () {
   const offers = state.tradeSearch.offers;
   const filter = state.tradeSearch.filter;
   const filtered = filter === "all" ? offers : offers.filter(o => o.rating === filter);
+  /* 按用户球员分组 */
+  const byPlayer = {};
+  filtered.forEach(o => {
+    const k = o.myPlayer.id;
+    (byPlayer[k] = byPlayer[k] || []).push(o);
+  });
+  const playerIds = Object.keys(byPlayer).map(Number);
+  /* 按该球员的最佳报价评级排序 */
+  playerIds.sort((a, b) => {
+    const ra = byPlayer[a][0].rating === "steal" ? 0 : byPlayer[a][0].rating === "good" ? 1 : 2;
+    const rb = byPlayer[b][0].rating === "steal" ? 0 : byPlayer[b][0].rating === "good" ? 1 : 2;
+    return ra - rb;
+  });
+  const openId = state.tradeSearch.openPlayer;
   $("#screen-trade-search").innerHTML =
     '<h2 class="screen-title">交易搜索器</h2>' +
     '<p class="screen-sub">扫描全联盟 29 队，找到 AI 会接受的 1v1 交易方案</p>' +
@@ -2948,32 +2962,49 @@ RENDERERS["trade-search"] = function () {
     '  <button class="ts-tab' + (filter === "good" ? " active" : "") + '" data-f="good">公道 (' + offers.filter(o => o.rating === "good").length + ')</button>' +
     '  <button class="ts-tab' + (filter === "fair" ? " active" : "") + '" data-f="fair">可接受 (' + offers.filter(o => o.rating === "fair").length + ')</button>' +
     '</div>' +
-    (filtered.length === 0
+    (playerIds.length === 0
       ? '<div class="empty-stats">暂无符合的交易方案</div>'
-      : '<div class="ts-list">' + filtered.slice(0, 60).map(o => {
-        const myT = valueTier(o.myVal);
-        const aiT = valueTier(o.aiVal);
-        return '<div class="ts-offer ts-' + o.rating + '" data-my="' + o.myPlayer.id + '" data-ai="' + o.aiPlayer.id + '" data-team="' + o.aiTeam + '">' +
-          '<div class="ts-side ts-mine">' +
-          '  <div class="ovr-badge ' + ovrClass(o.myPlayer.ovr) + '">' + o.myPlayer.ovr + '</div>' +
-          '  <div class="ts-name">' + esc(o.myPlayer.nameCn) + '</div>' +
-          '  <div class="ts-val ' + myT.color + '">★' + myT.stars + ' (' + o.myVal + ')</div>' +
+      : playerIds.map(pid => {
+        const list = byPlayer[pid];
+        const p = list[0].myPlayer;
+        const isOpen = openId === pid;
+        const stealN = list.filter(o => o.rating === "steal").length;
+        const goodN = list.filter(o => o.rating === "good").length;
+        const tags = [];
+        if (stealN) tags.push('<span class="ts-count ts-tag-steal">超值' + stealN + '</span>');
+        if (goodN) tags.push('<span class="ts-count ts-tag-good">公道' + goodN + '</span>');
+        if (list.length - stealN - goodN > 0) tags.push('<span class="ts-count ts-tag-fair">其他' + (list.length - stealN - goodN) + '</span>');
+        return '<div class="ts-player-group' + (isOpen ? " open" : "") + '">' +
+          '<div class="ts-player-header" data-pid="' + pid + '">' +
+          '  <div class="ovr-badge ' + ovrClass(p.ovr) + '">' + p.ovr + '</div>' +
+          '  <div class="ts-player-name">' + esc(p.nameCn) + '</div>' +
+          '  <div class="ts-player-count">' + list.length + ' 条报价</div>' +
+          '  <div class="ts-player-tags">' + tags.join("") + '</div>' +
+          '  <span class="ts-chevron">' + (isOpen ? "▾" : "▸") + '</span>' +
           '</div>' +
-          '<div class="ts-arrow">⇄</div>' +
-          '<div class="ts-side ts-theirs">' +
-          '  <div class="ovr-badge ' + ovrClass(o.aiPlayer.ovr) + '">' + o.aiPlayer.ovr + '</div>' +
-          '  <div class="ts-name">' + esc(o.aiPlayer.nameCn) + '</div>' +
-          '  <div class="ts-val ' + aiT.color + '">★' + aiT.stars + ' (' + o.aiVal + ')</div>' +
-          '  <div class="ts-team">' + esc(teamName(o.aiTeam)) + '</div>' +
-          '</div>' +
-          '<div class="ts-tag ts-tag-' + o.rating + '">' + o.ratingLabel + '</div>' +
+          (isOpen
+            ? '<div class="ts-offer-list">' + list.map(o => {
+              const myT = valueTier(o.myVal);
+              const aiT = valueTier(o.aiVal);
+              return '<div class="ts-offer ts-' + o.rating + '" data-my="' + o.myPlayer.id + '" data-ai="' + o.aiPlayer.id + '" data-team="' + o.aiTeam + '">' +
+                '<div class="ts-side ts-theirs">' +
+                '  <div class="ovr-badge ' + ovrClass(o.aiPlayer.ovr) + '">' + o.aiPlayer.ovr + '</div>' +
+                '  <div class="ts-name">' + esc(o.aiPlayer.nameCn) + '</div>' +
+                '  <div class="ts-val ' + aiT.color + '">★' + aiT.stars + ' (' + o.aiVal + ')</div>' +
+                '  <div class="ts-team">' + esc(teamName(o.aiTeam)) + '</div>' +
+                '</div>' +
+                '<div class="ts-tag ts-tag-' + o.rating + '">' + o.ratingLabel + '</div>' +
+                '</div>';
+            }).join("") + '</div>'
+            : "") +
           '</div>';
-      }).join("") + '</div>') +
+      }).join("")) +
     '<button class="btn btn-outline" id="ts-refresh">🔄 刷新搜索</button>' +
     '<button class="btn btn-outline" id="ts-back">返回经理室</button>';
   $("#ts-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
   $("#ts-refresh").onclick = () => {
     state.tradeSearch.offers = [];
+    state.tradeSearch.openPlayer = null;
     toast("正在扫描全联盟...");
     state.tradeSearch.offers = searchTradeOffers(save);
     RENDERERS["trade-search"]();
@@ -2981,6 +3012,14 @@ RENDERERS["trade-search"] = function () {
   $$("#screen-trade-search .ts-tab").forEach(tab => {
     tab.onclick = () => {
       state.tradeSearch.filter = tab.dataset.f;
+      state.tradeSearch.openPlayer = null;
+      RENDERERS["trade-search"]();
+    };
+  });
+  $$("#screen-trade-search .ts-player-header").forEach(header => {
+    header.onclick = () => {
+      const pid = Number(header.dataset.pid);
+      state.tradeSearch.openPlayer = (state.tradeSearch.openPlayer === pid) ? null : pid;
       RENDERERS["trade-search"]();
     };
   });

@@ -312,6 +312,19 @@ body {
 .ts-tag-fair { background: var(--card2); color: var(--muted); border: 1px solid var(--line); }
 .ts-offer.ts-steal { border-color: #2d8a5a; }
 .ts-offer.ts-good { border-color: #4f8ef7; }
+/* 球员分组下拉 */
+.ts-player-group { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; overflow: hidden; }
+.ts-player-group.open { border-color: var(--gold); }
+.ts-player-header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; }
+.ts-player-header:active { background: var(--card2); }
+.ts-player-header .ovr-badge { width: 28px; height: 28px; font-size: 12px; flex: none; }
+.ts-player-name { font-weight: 700; font-size: 13px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-player-count { font-size: 11px; color: var(--muted); flex: none; }
+.ts-player-tags { display: flex; gap: 3px; flex: none; }
+.ts-count { font-size: 9px; border-radius: 3px; padding: 1px 4px; font-weight: 700; white-space: nowrap; }
+.ts-chevron { font-size: 14px; color: var(--muted); flex: none; }
+.ts-offer-list { border-top: 1px solid var(--line); padding: 4px; display: flex; flex-direction: column; gap: 4px; background: var(--card2); }
+.ts-offer-list .ts-offer { background: var(--card); }
 
 /* ===== 球员详情 ===== */
 .pd-hero {
