@@ -296,6 +296,7 @@ body {
 .ts-tabs { display: flex; gap: 6px; margin-bottom: 10px; overflow-x: auto; }
 .ts-pos-tabs { margin-bottom: 8px; }
 .ts-pos-tabs .ts-tab { font-size: 11px; }
+.draft-pos-tabs { margin-bottom: 8px; }
 .ts-tab { font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--muted); cursor: pointer; white-space: nowrap; flex: none; }
 .ts-tab.active { background: var(--gold); color: #fff; border-color: var(--gold); }
 .ts-list { display: flex; flex-direction: column; gap: 6px; }

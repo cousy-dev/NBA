@@ -3302,6 +3302,11 @@ RENDERERS.draft = function () {
   const cur = po[d.currentIdx];
   const isMyTurn = cur.team === my;
   const avail = d.class_.filter(r => !d.pickedIds.has(r.id));
+  /* 位置筛选 */
+  d.posFilter = d.posFilter || "all";
+  const posCount = { G: 0, F: 0, C: 0 };
+  avail.forEach(r => { const c = catOf(r.pos); if (c) posCount[c]++; });
+  const availFiltered = d.posFilter === "all" ? avail : avail.filter(r => catOf(r.pos) === d.posFilter);
   const logRows = d.draftLog.slice(-10).reverse();
   const SHOW = 30;
 
@@ -3327,8 +3332,14 @@ RENDERERS.draft = function () {
           '<button class="btn btn-outline" id="btn-ai-skip-me">⏩ 跳到我的下一顺位</button>' +
           '<button class="btn btn-outline" id="btn-ai-skip-all">⏭ 跳过剩余选秀</button>' +
         "</div>") +
+    '<div class="ts-tabs draft-pos-tabs">' +
+    '  <button class="ts-tab' + (d.posFilter === "all" ? " active" : "") + '" data-dpf="all">全部 (' + avail.length + ')</button>' +
+    '  <button class="ts-tab' + (d.posFilter === "G" ? " active" : "") + '" data-dpf="G">后卫 (' + posCount.G + ')</button>' +
+    '  <button class="ts-tab' + (d.posFilter === "F" ? " active" : "") + '" data-dpf="F">前锋 (' + posCount.F + ')</button>' +
+    '  <button class="ts-tab' + (d.posFilter === "C" ? " active" : "") + '" data-dpf="C">中锋 (' + posCount.C + ')</button>' +
+    '</div>' +
     '<div class="draft-list">' +
-    avail.slice(0, SHOW).map((r, i) => {
+    availFiltered.slice(0, SHOW).map((r, i) => {
       const cs = r.collegeStats || {};
       /* 球探情报：赛季中考察的报告在选秀时展示 */
       const rep = save.scouting && save.scouting.done[r.id];
@@ -3364,7 +3375,7 @@ RENDERERS.draft = function () {
       "  </div>" +
       "</div>";
     }).join("") +
-    (avail.length > SHOW ? '<div class="draft-more-hint">…还有 ' + (avail.length - SHOW) + " 名新秀（潜力更低）</div>" : "") +
+    (availFiltered.length > SHOW ? '<div class="draft-more-hint">…还有 ' + (availFiltered.length - SHOW) + " 名新秀（潜力更低）</div>" : "") +
     "</div>" +
     (logRows.length ? '<div class="draft-log"><h3>📋 选秀动态</h3>' +
       logRows.map(l =>
@@ -3376,6 +3387,9 @@ RENDERERS.draft = function () {
 
   /* 用户回合：点击新秀选人 */
   if (isMyTurn) {
+    $$("#screen-draft .ts-tab[data-dpf]").forEach(tab => {
+      tab.onclick = () => { d.posFilter = tab.dataset.dpf; RENDERERS.draft(); };
+    });
     $$("#screen-draft .draft-row.selectable").forEach(row => {
       row.onclick = () => {
         const id = Number(row.dataset.id);
@@ -3392,6 +3406,10 @@ RENDERERS.draft = function () {
     });
     return;
   }
+  /* AI 回合：位置筛选仍可用 */
+  $$("#screen-draft .ts-tab[data-dpf]").forEach(tab => {
+    tab.onclick = () => { d.posFilter = tab.dataset.dpf; RENDERERS.draft(); };
+  });
   /* AI 回合：单次自动选人 */
   const bAi = $("#btn-ai-pick");
   if (bAi) bAi.onclick = () => {
