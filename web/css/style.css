@@ -274,6 +274,24 @@ body {
 .r-row.r-injured { opacity: .65; }
 .inj-chip { font-size: 10px; background: #fff0f0; color: #c0392b; border: 1px solid #e74c3c; border-radius: 5px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; font-weight: 600; white-space: nowrap; }
 
+/* ===== 退役球员 / 名人堂 ===== */
+.r-acc { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.acc-badge { font-size: 9.5px; border-radius: 4px; padding: 1px 5px; font-weight: 700; white-space: nowrap; }
+.acc-mvp { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
+.acc-fmvp { background: #fff0f6; color: #a81f2e; border: 1px solid #e74c3c; }
+.acc-champ { background: #fffbe6; color: #996600; border: 1px solid #daa520; }
+.acc-allnba { background: #e8f4fd; color: #1a5da0; border: 1px solid #4f8ef7; }
+.acc-dpoy { background: #e8f8f0; color: #1a6b3a; border: 1px solid #2d8a5a; }
+.acc-none { font-size: 10px; color: var(--muted); }
+.r-hof-score { font-size: 11px; color: var(--gold); font-weight: 700; white-space: nowrap; flex: none; align-self: center; }
+.r-row.r-hof { border-color: var(--gold); background: rgba(168,31,46,.03); }
+.hof-status { font-size: 9.5px; border-radius: 4px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; font-weight: 700; white-space: nowrap; }
+.hof-in { background: rgba(168,31,46,.1); color: var(--gold); border: 1px solid var(--gold); }
+.hof-out { background: var(--card2); color: var(--muted); border: 1px solid var(--line); }
+.hof-pending { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
+.hof-wait { background: #e8f4fd; color: #4f8ef7; border: 1px solid #4f8ef7; }
+.hof-year { font-size: 10px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+
 /* ===== 球员详情 ===== */
 .pd-hero {
   display: flex; gap: 14px; align-items: flex-start;

@@ -279,6 +279,8 @@ function currentStep() {
     case "hub": return ["经理室", 1, 1];
     case "match": return ["比赛日", 1, 1];
     case "awards": return ["奖项追踪", 1, 1];
+    case "retired": return ["退役球员", 1, 1];
+    case "hof": return ["名人堂", 1, 1];
     case "freeagent": return ["自由市场", 1, 1];
     case "standings": return ["联盟排名", 1, 1];
     case "schedule": return ["赛程战报", 1, 1];
@@ -1591,7 +1593,9 @@ RENDERERS.hub = function () {
     '<button class="mc-btn" id="btn-extend">提前续约</button>' +
     '<button class="mc-btn" id="btn-coach">教练战术</button>' +
     '<button class="mc-btn" id="btn-scout">球探中心</button>' +
-    '<button class="mc-btn" id="btn-awards">奖项追踪</button></div>' +
+    '<button class="mc-btn" id="btn-awards">奖项追踪</button>' +
+    '<button class="mc-btn" id="btn-retired">退役球员</button>' +
+    '<button class="mc-btn" id="btn-hof">名人堂</button></div>' +
     gameHtml + leadersHtml +
     '<h3 class="section-h">球队阵容</h3>' +
     '<div class="roster-table" id="hub-roster">' +
@@ -1632,6 +1636,10 @@ RENDERERS.hub = function () {
   if (bco) bco.onclick = () => go("coach");
   const bsc2 = $("#btn-scout");
   if (bsc2) bsc2.onclick = () => go("scout");
+  const br = $("#btn-retired");
+  if (br) br.onclick = () => go("retired");
+  const bh = $("#btn-hof");
+  if (bh) bh.onclick = () => go("hof");
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
   $("#btn-quit").onclick = () => {
@@ -2214,6 +2222,79 @@ RENDERERS.awards = function () {
   $$("#screen-awards .aw-row[data-id]").forEach(row => { row.onclick = () => openPlayer(Number(row.dataset.id)); });
 };
 
+/* ===== 退役球员 ===== */
+RENDERERS.retired = function () {
+  const save = state.save;
+  if (!save) { back(); return; }
+  const retired = getRetiredPlayers(save);
+  const hofCount = (save.hof || []).length;
+  $("#screen-retired").innerHTML =
+    '<h2 class="screen-title">退役球员</h2>' +
+    '<p class="screen-sub">共 ' + retired.length + ' 人退役 · 名人堂 ' + hofCount + ' 人</p>' +
+    (retired.length === 0
+      ? '<div class="empty-stats">暂无退役球员</div>'
+      : '<div class="roster-table">' + retired.map(r => {
+        const accBadges = [];
+        if (r.acc.mvp) accBadges.push('<span class="acc-badge acc-mvp">MVP×' + r.acc.mvp + '</span>');
+        if (r.acc.fmvp) accBadges.push('<span class="acc-badge acc-fmvp">FMVP×' + r.acc.fmvp + '</span>');
+        if (r.acc.champ) accBadges.push('<span class="acc-badge acc-champ">总冠军×' + r.acc.champ + '</span>');
+        if (r.acc.allNBA) accBadges.push('<span class="acc-badge acc-allnba">最佳阵容×' + r.acc.allNBA + '</span>');
+        if (r.acc.dpoy) accBadges.push('<span class="acc-badge acc-dpoy">DPOY×' + r.acc.dpoy + '</span>');
+        const status = r.inHOF
+          ? '<span class="hof-status hof-in">名人堂</span>'
+          : r.isRejected
+            ? '<span class="hof-status hof-out">未入选</span>'
+            : r.eligible
+              ? '<span class="hof-status hof-pending">候选中</span>'
+              : '<span class="hof-status hof-wait">等待资格</span>';
+        return '<div class="r-row' + (r.inHOF ? " r-hof" : "") + '" data-id="' + r.id + '">' +
+          '  <span class="r-idx">' + r.peakOvr + '</span>' +
+          '  <div class="r-main">' +
+          '    <div class="r-name">' + esc(r.name) + status + '</div>' +
+          '    <div class="r-meta"><span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r.p)) + '</span> ' + r.age + '岁 · ' + r.expYears + '年球龄 · ' + esc(teamName(r.team)) + '</div>' +
+          '    <div class="r-acc">' + (accBadges.length ? accBadges.join("") : '<span class="acc-none">无重大荣誉</span>') + '</div>' +
+          '  </div>' +
+          '  <div class="r-hof-score">评分 ' + r.score + '</div>' +
+          '</div>';
+      }).join("") + '</div>') +
+    '<button class="btn btn-outline" id="ret-back">返回经理室</button>';
+  $("#ret-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  $$("#screen-retired .r-row[data-id]").forEach(row => { row.onclick = () => openPlayer(Number(row.dataset.id)); });
+};
+
+/* ===== 名人堂 ===== */
+RENDERERS.hof = function () {
+  const save = state.save;
+  if (!save) { back(); return; }
+  const hof = (save.hof || []).slice().sort((a, b) => b.score - a.score);
+  $("#screen-hof").innerHTML =
+    '<h2 class="screen-title">名人堂</h2>' +
+    '<p class="screen-sub">共 ' + hof.length + ' 位入选者</p>' +
+    (hof.length === 0
+      ? '<div class="empty-stats">暂无名人堂球员</div>'
+      : '<div class="roster-table">' + hof.map((h, i) => {
+        const accBadges = [];
+        if (h.acc.mvp) accBadges.push('<span class="acc-badge acc-mvp">MVP×' + h.acc.mvp + '</span>');
+        if (h.acc.fmvp) accBadges.push('<span class="acc-badge acc-fmvp">FMVP×' + h.acc.fmvp + '</span>');
+        if (h.acc.champ) accBadges.push('<span class="acc-badge acc-champ">总冠军×' + h.acc.champ + '</span>');
+        if (h.acc.allNBA) accBadges.push('<span class="acc-badge acc-allnba">最佳阵容×' + h.acc.allNBA + '</span>');
+        if (h.acc.dpoy) accBadges.push('<span class="acc-badge acc-dpoy">DPOY×' + h.acc.dpoy + '</span>');
+        return '<div class="r-row r-hof" data-id="' + h.id + '">' +
+          '  <span class="r-idx">' + (i + 1) + '</span>' +
+          '  <div class="ovr-badge ' + ovrClass(h.peakOvr) + '">' + h.peakOvr + '</div>' +
+          '  <div class="r-main">' +
+          '    <div class="r-name">' + esc(h.name) + ' <span class="hof-year">' + h.seasonNo + '赛季入选</span></div>' +
+          '    <div class="r-meta"><span class="pos-chip ' + posClass(h.pos) + '">' + esc(h.pos) + '</span> ' + h.age + '岁 · ' + esc(teamName(h.team)) + '</div>' +
+          '    <div class="r-acc">' + (accBadges.length ? accBadges.join("") : '<span class="acc-none">无重大荣誉</span>') + '</div>' +
+          '  </div>' +
+          '  <div class="r-hof-score">评分 ' + h.score + '</div>' +
+          '</div>';
+      }).join("") + '</div>') +
+    '<button class="btn btn-outline" id="hof-back">返回经理室</button>';
+  $("#hof-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  $$("#screen-hof .r-row[data-id]").forEach(row => { row.onclick = () => openPlayer(Number(row.dataset.id)); });
+};
+
 /* ===== 季后赛树状对阵图 ===== */
 RENDERERS.playoff = function () {
   const save = state.save;
@@ -2543,6 +2624,11 @@ RENDERERS.seasonend = function () {
     if (save.retireLog && save.retireLog.length) {
       const names = save.retireLog.map(r => r.name + "(" + r.age + "岁/" + r.ovr + ")").join("、");
       toast("👋 退役：" + names);
+    }
+    /* 名人堂入选提示 */
+    if (save.hofNewInductees && save.hofNewInductees.length) {
+      const names = save.hofNewInductees.map(h => h.name).join("、");
+      toast("名人堂入选：" + names);
     }
     if (save.pendingDraft) {
       save.pendingDraft = false;

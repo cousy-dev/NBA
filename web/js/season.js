@@ -558,6 +558,25 @@ function newSeason(save) {
     fmvp: aw.fmvp ? { id: aw.fmvp.p.id, name: aw.fmvp.p.nameCn, team: aw.fmvp.p.team } : null,
     mvp: aw.mvp && aw.mvp[0] ? { id: aw.mvp[0].p.id, name: aw.mvp[0].p.nameCn, team: aw.mvp[0].p.team } : null
   });
+  /* 累计球员个人荣誉 */
+  save.playerAccolades = save.playerAccolades || {};
+  const _acc = (id, key) => {
+    save.playerAccolades[id] = save.playerAccolades[id] || { mvp: 0, fmvp: 0, champ: 0, allNBA: 0, allDef: 0, dpoy: 0, scoring: 0, assists: 0, rebounds: 0, allRookie: 0 };
+    save.playerAccolades[id][key]++;
+  };
+  if (aw.mvp && aw.mvp[0]) _acc(aw.mvp[0].p.id, "mvp");
+  if (aw.fmvp) _acc(aw.fmvp.p.id, "fmvp");
+  if (save.playoffs && save.playoffs.champion) {
+    const champIds = ((save.aiRosters && save.aiRosters[save.playoffs.champion]) || playersByTeam(save.playoffs.champion).map(p => p.id));
+    champIds.forEach(id => _acc(id, "champ"));
+  }
+  if (aw.dpoy && aw.dpoy[0]) _acc(aw.dpoy[0].p.id, "dpoy");
+  if (aw.scoring) _acc(aw.scoring.p.id, "scoring");
+  if (aw.assists) _acc(aw.assists.p.id, "assists");
+  if (aw.rebounds) _acc(aw.rebounds.p.id, "rebounds");
+  (aw.allNBA1 || []).concat(aw.allNBA2 || [], aw.allNBA3 || []).forEach(c => _acc(c.p.id, "allNBA"));
+  (aw.allDef1 || []).concat(aw.allDef2 || []).forEach(c => _acc(c.p.id, "allDef"));
+  (aw.allRookie1 || []).concat(aw.allRookie2 || []).forEach(c => _acc(c.p.id, "allRookie"));
   doAging(save);
   save.seasonNo++;
   save.gameNo = 0;
@@ -565,6 +584,8 @@ function newSeason(save) {
   save.tradeDeadlinePassed = false;  /* 重置交易截止日标志 */
   save.injuries = {};  /* 新赛季伤病清零 */
   save.injuryLog = [];
+  /* 名人堂选举 */
+  save.hofNewInductees = electHOF(save);
   save.schedule = makeSchedule(save);
   /* 重置战绩前先快照最终排名：选秀顺位在新赛季开启后才计算，必须依据上赛季真实战绩，
      否则所有队战绩被清零（胜率 0.5）会导致垫底队拿不到高顺位 */
@@ -767,4 +788,97 @@ function updateAIMorale(save, abbr, won) {
   const streakFactor = Math.max(-1.8, Math.min(2.0, 0.4 * streak));
   const winFactor = won ? 0.4 : -0.4;
   top.forEach(p => setMorale(save, p.id, moraleOf(save, p.id) + winFactor + streakFactor));
+}
+
+/* ===== 名人堂系统 ===== */
+/* save.hof = [{ id, name, team, pos, peakOvr, age, seasonNo, acc, score }]
+   save.retired = { id: seasonNo }
+   save.playerAccolades = { id: { mvp, fmvp, champ, allNBA, allDef, dpoy, scoring, assists, rebounds, allRookie } } */
+
+/* 计算球员的名人堂评分 */
+function hofScore(save, id) {
+  const p = findPlayerById(save, id);
+  if (!p) return 0;
+  const peakOvr = (p.ovr || 70) + Math.max(0, (save.ovrAdj && save.ovrAdj[id]) || 0);
+  const expYears = getExpYears(p, save.seasonNo);
+  const acc = (save.playerAccolades && save.playerAccolades[id]) || {};
+  let score = 0;
+  /* 能力值：巅峰 OVR 权重最高 */
+  score += peakOvr * 1.5;
+  if (peakOvr >= 95) score += 10;
+  if (peakOvr >= 90) score += 5;
+  /* 球龄：长生涯加分 */
+  score += Math.min(15, expYears);
+  /* 核心荣誉 */
+  score += (acc.mvp || 0) * 12;
+  score += (acc.fmvp || 0) * 10;
+  score += (acc.champ || 0) * 6;
+  score += (acc.dpoy || 0) * 6;
+  /* 阵容入选 */
+  score += (acc.allNBA || 0) * 4;
+  score += (acc.allDef || 0) * 2;
+  score += (acc.allRookie || 0) * 1;
+  /* 数据王 */
+  score += (acc.scoring || 0) * 3;
+  score += (acc.assists || 0) * 3;
+  score += (acc.rebounds || 0) * 3;
+  return Math.round(score);
+}
+
+/* 名人堂选举：退役后满 1 赛季可入选，评分 >= 50 自动入选 */
+function electHOF(save) {
+  save.hof = save.hof || [];
+  save.hofRejected = save.hofRejected || [];
+  const alreadyIn = new Set(save.hof.map(h => h.id));
+  const rejected = new Set(save.hofRejected);
+  const newInductees = [];
+  const eligible = Object.keys(save.retired)
+    .map(Number)
+    .filter(id => !alreadyIn.has(id) && !rejected.has(id))
+    .filter(id => save.seasonNo - save.retired[id] >= 1); /* 退役满 1 赛季 */
+  eligible.forEach(id => {
+    const p = findPlayerById(save, id);
+    if (!p) return;
+    const score = hofScore(save, id);
+    /* 评分阈值 50，或拥有 MVP+总冠军直接入选 */
+    const acc = (save.playerAccolades && save.playerAccolades[id]) || {};
+    const autoIn = (acc.mvp || 0) > 0 && (acc.champ || 0) > 0;
+    if (score >= 50 || autoIn) {
+      const peakOvr = (p.ovr || 70) + Math.max(0, (save.ovrAdj && save.ovrAdj[id]) || 0);
+      save.hof.push({
+        id, name: p.nameCn, team: p.team, pos: p.pos,
+        peakOvr, age: (p.age || 24) + (save.ageAdj[id] || 0),
+        seasonNo: save.seasonNo, score,
+        acc: save.playerAccolades[id] || {}
+      });
+      alreadyIn.add(id);
+      newInductees.push({ id, name: p.nameCn, team: p.team, score });
+    } else if (score < 25) {
+      /* 评分太低，永久落选 */
+      save.hofRejected.push(id);
+    }
+    /* 评分 25-49 的球员继续保留资格，等未来赛季重新评估 */
+  });
+  return newInductees;
+}
+
+/* 获取退役球员完整列表（含荣誉和评分） */
+function getRetiredPlayers(save) {
+  save.retired = save.retired || {};
+  save.hof = save.hof || [];
+  const hofIds = new Set(save.hof.map(h => h.id));
+  const rejected = new Set(save.hofRejected || []);
+  return Object.keys(save.retired).map(Number).map(id => {
+    const p = findPlayerById(save, id);
+    if (!p) return null;
+    const peakOvr = (p.ovr || 70) + Math.max(0, (save.ovrAdj && save.ovrAdj[id]) || 0);
+    const adjAge = (p.age || 24) + (save.ageAdj[id] || 0);
+    const expYears = getExpYears(p, save.seasonNo);
+    const acc = (save.playerAccolades && save.playerAccolades[id]) || {};
+    const score = hofScore(save, id);
+    const inHOF = hofIds.has(id);
+    const isRejected = rejected.has(id);
+    const eligible = save.seasonNo - save.retired[id] >= 1;
+    return { id, p, name: p.nameCn, team: p.team, pos: p.pos, peakOvr, age: adjAge, expYears, acc, score, inHOF, isRejected, eligible };
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
