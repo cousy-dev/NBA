@@ -2552,6 +2552,11 @@ RENDERERS["regular-end"] = function () {
 /* ===== 赛季总结 ===== */
 RENDERERS.seasonend = function () {
   const save = state.save;
+  /* 休赛期：重置交易截止日，允许休赛期交易 */
+  if (save.tradeDeadlinePassed) {
+    save.tradeDeadlinePassed = false;
+    writeSave(save);
+  }
   const ps = save.playoffs;
   const my = myAbbr(save);
   const st = save.standings[my] || { w: 0, l: 0 };
@@ -2619,6 +2624,7 @@ RENDERERS.seasonend = function () {
     teamCard("最佳新秀 一阵", awards.allRookie1, "1") +
     teamCard("最佳新秀 二阵", awards.allRookie2, "2") +
     '<button class="btn btn-primary" id="btn-newseason">开启第 ' + (save.seasonNo + 1) + " 赛季</button>" +
+    '<button class="btn btn-outline" id="btn-se-trade">休赛期交易</button>' +
     '<button class="btn btn-outline" id="se-hub">返回经理室</button>';
   $("#btn-newseason").onclick = () => {
     newSeason(save);
@@ -2646,6 +2652,8 @@ RENDERERS.seasonend = function () {
     }
   };
   $("#se-hub").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  const seTrade = $("#btn-se-trade");
+  if (seTrade) seTrade.onclick = () => go("trade");
 };
 
 /* ===== 交易中心 ===== */
