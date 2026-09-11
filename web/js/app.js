@@ -286,6 +286,7 @@ function currentStep() {
     case "schedule": return ["赛程战报", 1, 1];
     case "seasonend": return ["赛季总结", 1, 1];
     case "trade": return ["交易中心", 1, 1];
+    case "trade-search": return ["交易搜索", 1, 1];
     case "trade-deal": return ["交易谈判", 1, 1];
     case "extend": return ["提前续约", 1, 1];
     case "draft": return ["NBA 选秀", 1, 1];
@@ -1589,7 +1590,8 @@ RENDERERS.hub = function () {
     (save.playoffs ? '<button class="mc-btn" id="btn-playoff">季后赛对阵图</button>' : "") +
     (save.tradeDeadlinePassed
       ? '<button class="mc-btn disabled" disabled>交易截止</button>'
-      : '<button class="mc-btn" id="btn-trade">交易中心</button>') +
+      : '<button class="mc-btn" id="btn-trade">交易中心</button>' +
+    '<button class="mc-btn" id="btn-trade-search">交易搜索</button>') +
     '<button class="mc-btn" id="btn-extend">提前续约</button>' +
     '<button class="mc-btn" id="btn-coach">教练战术</button>' +
     '<button class="mc-btn" id="btn-scout">球探中心</button>' +
@@ -1626,6 +1628,8 @@ RENDERERS.hub = function () {
   if (bsc) bsc.onclick = () => go("schedule");
   const bt = $("#btn-trade");
   if (bt) bt.onclick = () => go("trade");
+  const bts = $("#btn-trade-search");
+  if (bts) bts.onclick = () => go("trade-search");
   const be = $("#btn-extend");
   if (be) be.onclick = () => go("extend");
   const bpo = $("#btn-playoff");
@@ -2909,6 +2913,91 @@ RENDERERS["trade-deal"] = function () {
     RENDERERS.hub(); activate("hub");
   };
   $("#btn-back-trade").onclick = () => back();
+};
+
+/* ===== 交易搜索器 ===== */
+state.tradeSearch = { offers: [], filter: "all" };
+RENDERERS["trade-search"] = function () {
+  const save = state.save;
+  if (save.tradeDeadlinePassed) {
+    toast("交易截止日已过");
+    RENDERERS.hub(); state.stack = []; activate("hub");
+    return;
+  }
+  /* 搜索或使用缓存 */
+  if (!state.tradeSearch.offers.length) {
+    state.tradeSearch.offers = searchTradeOffers(save);
+  }
+  const offers = state.tradeSearch.offers;
+  const filter = state.tradeSearch.filter;
+  const filtered = filter === "all" ? offers : offers.filter(o => o.rating === filter);
+  $("#screen-trade-search").innerHTML =
+    '<h2 class="screen-title">交易搜索器</h2>' +
+    '<p class="screen-sub">扫描全联盟 29 队，找到 AI 会接受的 1v1 交易方案</p>' +
+    '<div class="ts-tabs">' +
+    '  <button class="ts-tab' + (filter === "all" ? " active" : "") + '" data-f="all">全部 (' + offers.length + ')</button>' +
+    '  <button class="ts-tab' + (filter === "steal" ? " active" : "") + '" data-f="steal">超值 (' + offers.filter(o => o.rating === "steal").length + ')</button>' +
+    '  <button class="ts-tab' + (filter === "good" ? " active" : "") + '" data-f="good">公道 (' + offers.filter(o => o.rating === "good").length + ')</button>' +
+    '  <button class="ts-tab' + (filter === "fair" ? " active" : "") + '" data-f="fair">可接受 (' + offers.filter(o => o.rating === "fair").length + ')</button>' +
+    '</div>' +
+    (filtered.length === 0
+      ? '<div class="empty-stats">暂无符合的交易方案</div>'
+      : '<div class="ts-list">' + filtered.slice(0, 60).map(o => {
+        const myT = valueTier(o.myVal);
+        const aiT = valueTier(o.aiVal);
+        return '<div class="ts-offer ts-' + o.rating + '" data-my="' + o.myPlayer.id + '" data-ai="' + o.aiPlayer.id + '" data-team="' + o.aiTeam + '">' +
+          '<div class="ts-side ts-mine">' +
+          '  <div class="ovr-badge ' + ovrClass(o.myPlayer.ovr) + '">' + o.myPlayer.ovr + '</div>' +
+          '  <div class="ts-name">' + esc(o.myPlayer.nameCn) + '</div>' +
+          '  <div class="ts-val ' + myT.color + '">★' + myT.stars + ' (' + o.myVal + ')</div>' +
+          '</div>' +
+          '<div class="ts-arrow">⇄</div>' +
+          '<div class="ts-side ts-theirs">' +
+          '  <div class="ovr-badge ' + ovrClass(o.aiPlayer.ovr) + '">' + o.aiPlayer.ovr + '</div>' +
+          '  <div class="ts-name">' + esc(o.aiPlayer.nameCn) + '</div>' +
+          '  <div class="ts-val ' + aiT.color + '">★' + aiT.stars + ' (' + o.aiVal + ')</div>' +
+          '  <div class="ts-team">' + esc(teamName(o.aiTeam)) + '</div>' +
+          '</div>' +
+          '<div class="ts-tag ts-tag-' + o.rating + '">' + o.ratingLabel + '</div>' +
+          '</div>';
+      }).join("") + '</div>') +
+    '<button class="btn btn-outline" id="ts-refresh">🔄 刷新搜索</button>' +
+    '<button class="btn btn-outline" id="ts-back">返回经理室</button>';
+  $("#ts-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  $("#ts-refresh").onclick = () => {
+    state.tradeSearch.offers = [];
+    toast("正在扫描全联盟...");
+    state.tradeSearch.offers = searchTradeOffers(save);
+    RENDERERS["trade-search"]();
+  };
+  $$("#screen-trade-search .ts-tab").forEach(tab => {
+    tab.onclick = () => {
+      state.tradeSearch.filter = tab.dataset.f;
+      RENDERERS["trade-search"]();
+    };
+  });
+  $$("#screen-trade-search .ts-offer").forEach(card => {
+    card.onclick = () => {
+      const myId = Number(card.dataset.my);
+      const aiId = Number(card.dataset.ai);
+      const aiTeam = card.dataset.team;
+      /* 跳转到交易谈判页，预填球员 */
+      state.trade.aiTeam = aiTeam;
+      state.trade.myPicks = [];
+      state.trade.aiPicks = [];
+      state.trade.myDraftPicks = [];
+      state.trade.aiDraftPicks = [];
+      state.trade.result = null;
+      /* 预选 */
+      const mine = loadMyPlayers(save);
+      const mp = mine.find(x => x.p.id === myId);
+      if (mp) state.trade.myPicks.push(mp);
+      const aiPlayers = getTradable(aiTeam);
+      const ap = aiPlayers.find(x => x.p.id === aiId);
+      if (ap) state.trade.aiPicks.push(ap);
+      go("trade-deal");
+    };
+  });
 };
 
 /* ===== 教练：轮换 + 战术 ===== */

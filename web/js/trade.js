@@ -220,3 +220,57 @@ function getTradable(aiTeamAbbr) {
     .map(p => ({ p, untouchable: p.ovr >= 90 }))
     .sort((a, b) => b.p.ovr - a.p.ovr);
 }
+
+/* ===== 交易搜索器 ===== */
+/* 遍历用户球员 × AI 球员，找出 AI 会接受的所有 1v1 交易方案
+   返回 [{ myPlayer, aiPlayer, aiTeam, myVal, aiVal, rating, ratingLabel }]
+   rating: 'fair' | 'good' | 'steal'  —— 从用户视角评估 */
+function searchTradeOffers(save) {
+  const my = myAbbr(save);
+  const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));
+  const byId = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+  /* 用户球员（排除伤病） */
+  const myPlayers = save.roster
+    .map(r => { const p0 = customById.get(r.id) || byId.get(r.id); return p0 ? { p: applyAdj(p0, save), sal: r.salary, years: r.years } : null; })
+    .filter(Boolean)
+    .filter(x => !isInjured(save, x.p.id));
+  /* 所有 AI 队 */
+  const aiAbbrs = TEAMS.filter(t => t.abbr !== my).map(t => t.abbr);
+  const offers = [];
+  myPlayers.forEach(mine => {
+    aiAbbrs.forEach(abbr => {
+      const aiRoster = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
+      aiRoster.forEach(id => {
+        if (isInjured(save, id)) return;
+        const p0 = customById.get(id) || byId.get(id);
+        if (!p0) return;
+        const aiP = applyAdj(p0, save);
+        if (aiP.ovr >= 93) return; /* 超级巨星不交易 */
+        const aiSal = estimateSalary(aiP.ovr, aiP.id);
+        const aiYears = realYearsForId(aiP.id) || 2;
+        /* 模拟 AI 评估 */
+        const result = aiEvaluateTrade(save, abbr,
+          [{ p: mine.p, sal: mine.sal, ctx: { years: mine.years, morale: moraleOf(save, mine.p.id) } }],
+          [{ p: aiP, sal: aiSal, ctx: { years: aiYears, morale: moraleOf(save, aiP.id) } }],
+          [], []);
+        if (!result.accept) return;
+        /* 计算用户视角评级 */
+        const myVal = tradeValue(mine.p, mine.sal);
+        const aiVal = tradeValue(aiP, aiSal);
+        const diff = aiVal - myVal;
+        let rating, ratingLabel;
+        if (diff >= 5) { rating = "steal"; ratingLabel = "超值"; }
+        else if (diff >= -2) { rating = "good"; ratingLabel = "公道"; }
+        else { rating = "fair"; ratingLabel = "可接受"; }
+        offers.push({
+          myPlayer: mine.p, mySalary: mine.sal, myVal,
+          aiPlayer: aiP, aiSalary: aiSal, aiVal, aiTeam: abbr,
+          rating, ratingLabel
+        });
+      });
+    });
+  });
+  /* 按价值差降序：最有利的交易排前面 */
+  offers.sort((a, b) => (b.aiVal - b.myVal) - (a.aiVal - a.myVal));
+  return offers;
+}
