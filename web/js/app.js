@@ -2924,7 +2924,7 @@ RENDERERS["trade-deal"] = function () {
 };
 
 /* ===== 交易搜索器 ===== */
-state.tradeSearch = { offers: [], filter: "all", openPlayer: null };
+state.tradeSearch = { offers: [], filter: "all", posFilter: "all", openPlayer: null };
 RENDERERS["trade-search"] = function () {
   const save = state.save;
   if (save.tradeDeadlinePassed) {
@@ -2938,7 +2938,14 @@ RENDERERS["trade-search"] = function () {
   }
   const offers = state.tradeSearch.offers;
   const filter = state.tradeSearch.filter;
-  const filtered = filter === "all" ? offers : offers.filter(o => o.rating === filter);
+  const posFilter = state.tradeSearch.posFilter;
+  let filtered = filter === "all" ? offers : offers.filter(o => o.rating === filter);
+  /* 位置筛选：按 AI 球员位置过滤 */
+  const posCount = { G: 0, F: 0, C: 0 };
+  offers.forEach(o => { const c = catOf(o.aiPlayer.pos); if (c) posCount[c]++; });
+  if (posFilter !== "all") {
+    filtered = filtered.filter(o => catOf(o.aiPlayer.pos) === posFilter);
+  }
   /* 按用户球员分组 */
   const byPlayer = {};
   filtered.forEach(o => {
@@ -2961,6 +2968,12 @@ RENDERERS["trade-search"] = function () {
     '  <button class="ts-tab' + (filter === "steal" ? " active" : "") + '" data-f="steal">超值 (' + offers.filter(o => o.rating === "steal").length + ')</button>' +
     '  <button class="ts-tab' + (filter === "good" ? " active" : "") + '" data-f="good">公道 (' + offers.filter(o => o.rating === "good").length + ')</button>' +
     '  <button class="ts-tab' + (filter === "fair" ? " active" : "") + '" data-f="fair">可接受 (' + offers.filter(o => o.rating === "fair").length + ')</button>' +
+    '</div>' +
+    '<div class="ts-tabs ts-pos-tabs">' +
+    '  <button class="ts-tab' + (posFilter === "all" ? " active" : "") + '" data-pf="all">全部位置</button>' +
+    '  <button class="ts-tab' + (posFilter === "G" ? " active" : "") + '" data-pf="G">后卫 (' + posCount.G + ')</button>' +
+    '  <button class="ts-tab' + (posFilter === "F" ? " active" : "") + '" data-pf="F">前锋 (' + posCount.F + ')</button>' +
+    '  <button class="ts-tab' + (posFilter === "C" ? " active" : "") + '" data-pf="C">中锋 (' + posCount.C + ')</button>' +
     '</div>' +
     (playerIds.length === 0
       ? '<div class="empty-stats">暂无符合的交易方案</div>'
@@ -3009,9 +3022,16 @@ RENDERERS["trade-search"] = function () {
     state.tradeSearch.offers = searchTradeOffers(save);
     RENDERERS["trade-search"]();
   };
-  $$("#screen-trade-search .ts-tab").forEach(tab => {
+  $$("#screen-trade-search .ts-tab[data-f]").forEach(tab => {
     tab.onclick = () => {
       state.tradeSearch.filter = tab.dataset.f;
+      state.tradeSearch.openPlayer = null;
+      RENDERERS["trade-search"]();
+    };
+  });
+  $$("#screen-trade-search .ts-tab[data-pf]").forEach(tab => {
+    tab.onclick = () => {
+      state.tradeSearch.posFilter = tab.dataset.pf;
       state.tradeSearch.openPlayer = null;
       RENDERERS["trade-search"]();
     };
