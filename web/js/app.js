@@ -1597,11 +1597,13 @@ RENDERERS.hub = function () {
     '<div class="roster-table" id="hub-roster">' +
     mine.sort((a, b) => b.p.ovr - a.p.ovr).map((x, i) => {
       const m = moraleOf(save, x.p.id);
-      return '<div class="r-row" data-id="' + x.p.id + '">' +
+      const inj = save.injuries && save.injuries[x.p.id];
+      const injTag = inj ? '<span class="inj-chip">🩹' + inj.name + ' ' + inj.gamesLeft + '场</span>' : "";
+      return '<div class="r-row' + (inj ? " r-injured" : "") + '" data-id="' + x.p.id + '">' +
         '  <span class="r-idx">' + (i + 1) + "</span>" +
         '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
         '  <div class="r-main">' +
-        '    <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
+        '    <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + injTag + "</div>" +
         '    <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + '岁 <span class="morale-chip" style="color:' + moraleColor(m) + '">士气' + m + '</span></div>' +
         "  </div>" +
         '  <div class="r-salary">' + fmtM(x.sal) + " · " + (save.roster.find(rr => rr.id === x.p.id) || {}).years + "年</div>" +
@@ -1654,12 +1656,15 @@ state.match = { sim: null, timer: null, speed: 1, paused: true, over: false, fee
 
 function buildSimFor(gi) {
   const save = state.save;
-  const mine = loadMyPlayers(save).map(x => x.p);
+  /* 伤停球员不参赛 */
+  const mine = loadMyPlayers(save).filter(x => !isInjured(save, x.p.id)).map(x => x.p);
   const oppT = TEAMS.find(x => x.abbr === gi.opp);
   const oppRoster = (save.aiRosters && save.aiRosters[gi.opp]) || playersByTeam(gi.opp).map(p => p.id);
   const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));
   const byId = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
-  const opp = oppRoster.map(id => { const p0 = customById.get(id) || byId.get(id); return p0 ? applyAdj(p0, save) : null; }).filter(Boolean);
+  const opp = oppRoster
+    .filter(id => !isInjured(save, id))
+    .map(id => { const p0 = customById.get(id) || byId.get(id); return p0 ? applyAdj(p0, save) : null; }).filter(Boolean);
   const home = { name: save.team.displayName, short: "", abbr: save.team.logoAbbr, players: mine };
   /* 教练设置：轮换覆盖 + 战术 */
   const ov = buildCoachOverride(save, mine);
@@ -1745,7 +1750,7 @@ function quickSimGame() {
   if (save.playoffs && save.playoffs.done) { go("seasonend"); return; }
   RENDERERS.hub(); activate("hub");
 }
-/* 完场结算：数据累计 + 战绩/排名 + 联盟轮次 + 季后赛推进 */
+/* 完场结算：数据累计 + 战绩/排名 + 联盟轮次 + 季后赛推进 + 伤病 */
 function completeGame(sim, win) {
   const save = state.save;
   const my = myAbbr(save);
@@ -1755,6 +1760,17 @@ function completeGame(sim, win) {
     ps.fgm += b.fgm; ps.fga += b.fga; ps.tpm += b.tpm; ps.tpa += b.tpa; ps.ftm += b.ftm; ps.fta += b.fta;
   });
   updateMoraleAfterGame(save, sim, win);
+  /* 伤病：先恢复已有伤病，再随机新伤病 */
+  const recovered = tickInjuries(save);
+  const playedIds = [];
+  sim.teams.forEach(t => t.box.forEach((_, id) => playedIds.push(id)));
+  rollInjuries(save, playedIds);
+  /* 提示伤病信息 */
+  if (save.injuryLog && save.injuryLog.length) {
+    const last = save.injuryLog[save.injuryLog.length - 1];
+    toast("🩹 " + last.name + " " + last.injury + "，预计缺阵 " + last.games + " 场");
+  }
+  recovered.forEach(r => toast("✓ " + r.name + " 伤愈复出"));
   if (save.playoffs && !save.playoffs.done) {
     const ser = save.playoffs.userSeries;
     if (ser) { if (win) ser.wa++; else ser.wb++; }
@@ -2523,6 +2539,11 @@ RENDERERS.seasonend = function () {
     newSeason(save);
     initDraftPicks(save);  /* 生成新赛季选秀权 */
     writeSave(save);
+    /* 退役提示 */
+    if (save.retireLog && save.retireLog.length) {
+      const names = save.retireLog.map(r => r.name + "(" + r.age + "岁/" + r.ovr + ")").join("、");
+      toast("👋 退役：" + names);
+    }
     if (save.pendingDraft) {
       save.pendingDraft = false;
       /* 使用赛季中球探考察的新秀池，缺失时临时生成 */

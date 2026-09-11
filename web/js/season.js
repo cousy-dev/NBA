@@ -1,5 +1,5 @@
 "use strict";
-/* 赛季系统 —— 赛程 / 联盟AI模拟 / 排名 / 季后赛 / 奖项 / 老化（纯逻辑，无 DOM） */
+/* 赛季系统 —— 赛程 / 联盟AI模拟 / 排名 / 季后赛 / 奖项 / 老化 / 伤病（纯逻辑，无 DOM） */
 
 /* ===== 东西部（静态映射，自定义队归西部） ===== */
 const CONF_EAST = ["ATL", "BKN", "BOS", "CHA", "CHI", "CLE", "DET", "IND", "MIA", "MIL", "NYK", "ORL", "PHI", "TOR", "WAS"];
@@ -82,6 +82,13 @@ function simLeagueRound(save) {
     updateAIMorale(save, A, aWon);
     updateAIMorale(save, B, !aWon);
   }
+  /* AI 球员伤病恢复 */
+  tickInjuries(save);
+  /* AI 球员随机伤病：只处理本轮出场的两队 */
+  [A, B].forEach(abbr => {
+    const ids = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
+    rollInjuries(save, ids);
+  });
 }
 
 /* ===== 排名榜：分部排序（胜率→战力），含种子序号 ===== */
@@ -455,6 +462,40 @@ function doAging(save) {
       save.morale[id] = Math.round(m + (DEFAULT_MORALE - m) * 0.1);
     });
   }
+  /* 退役判定 */
+  save.retired = save.retired || {};
+  save.retireLog = [];
+  const allIds = new Set();
+  save.roster.forEach(r => allIds.add(r.id));
+  if (save.aiRosters) Object.values(save.aiRosters).forEach(arr => (arr || []).forEach(id => allIds.add(id)));
+  TEAMS.forEach(t => {
+    if (save.aiRosters && save.aiRosters[t.abbr]) return;
+    playersByTeam(t.abbr).forEach(p => allIds.add(p.id));
+  });
+  allIds.forEach(id => {
+    if (save.retired[id]) return;
+    const p = findPlayer(id);
+    if (!p) return;
+    const adjAge = (p.age || 24) + (save.ageAdj[id] || 0);
+    const currentOvr = (p.ovr || 70) + (save.ovrAdj[id] || 0);
+    let chance = 0;
+    if (adjAge >= 42) chance = 0.70;
+    else if (adjAge >= 40) chance = 0.45;
+    else if (adjAge >= 38) chance = 0.22;
+    else if (adjAge >= 36) chance = 0.08;
+    if (currentOvr < 60) chance += 0.15;
+    if (currentOvr < 50) chance += 0.20;
+    if (chance > 0 && Math.random() < chance) {
+      save.retired[id] = save.seasonNo;
+      save.retireLog.push({ id, name: p.nameCn, team: p.team, age: adjAge, ovr: currentOvr });
+      save.roster = save.roster.filter(r => r.id !== id);
+      if (save.aiRosters) {
+        Object.keys(save.aiRosters).forEach(abbr => {
+          save.aiRosters[abbr] = save.aiRosters[abbr].filter(x => x !== id);
+        });
+      }
+    }
+  });
 }
 
 /* 单个球员成长/衰退 */
@@ -518,6 +559,8 @@ function newSeason(save) {
   save.gameNo = 0;
   save.record = { w: 0, l: 0 };
   save.tradeDeadlinePassed = false;  /* 重置交易截止日标志 */
+  save.injuries = {};  /* 新赛季伤病清零 */
+  save.injuryLog = [];
   save.schedule = makeSchedule(save);
   /* 重置战绩前先快照最终排名：选秀顺位在新赛季开启后才计算，必须依据上赛季真实战绩，
      否则所有队战绩被清零（胜率 0.5）会导致垫底队拿不到高顺位 */
@@ -567,6 +610,67 @@ function moraleOvrDelta(morale) {
   if (morale >= 40) return -1;
   if (morale >= 20) return -2;
   return -4;
+}
+
+/* ===== 伤病系统 ===== */
+/* save.injuries[id] = { gamesLeft, type, name } —— type 决定恢复速度 */
+const INJURY_TYPES = [
+  { type: "ankle",    name: "脚踝扭伤",   min: 1, max: 5,  weight: 30 },
+  { type: "knee",     name: "膝盖挫伤",   min: 3, max: 10, weight: 22 },
+  { type: "hamstring",name: "腿筋拉伤",   min: 5, max: 15, weight: 18 },
+  { type: "concussion",name:"脑震荡",     min: 3, max: 8,  weight: 12 },
+  { type: "wrist",    name: "手腕挫伤",   min: 2, max: 7,  weight: 10 },
+  { type: "back",     name: "背部痉挛",   min: 3, max: 12, weight: 5 },
+  { type: "fracture", name: "骨折",       min: 15, max: 40, weight: 3 }
+];
+function _pickInjuryType() {
+  const total = INJURY_TYPES.reduce((s, t) => s + t.weight, 0);
+  let r = Math.random() * total;
+  for (const t of INJURY_TYPES) { r -= t.weight; if (r <= 0) return t; }
+  return INJURY_TYPES[0];
+}
+/* 检查球员是否伤停中 */
+function isInjured(save, id) {
+  return save.injuries && save.injuries[id] && save.injuries[id].gamesLeft > 0;
+}
+/* 比赛后随机伤病判定：遍历参赛球员，小概率受伤 */
+function rollInjuries(save, playerIds) {
+  save.injuries = save.injuries || {};
+  save.injuryLog = save.injuryLog || [];
+  playerIds.forEach(id => {
+    if (isInjured(save, id)) return;
+    if (save.retired && save.retired[id]) return;
+    const p = (save.customPlayers || []).find(c => c.id === id) || PLAYERS_RATED.players.find(p => p.id === id);
+    if (!p) return;
+    const adjAge = (p.age || 24) + (save.ageAdj && save.ageAdj[id] || 0);
+    const ovr = (p.ovr || 70) + (save.ovrAdj && save.ovrAdj[id] || 0);
+    /* 基础概率 1.5%，老将 +1%/岁(35+)，低 OVR 球员出场少概率低 */
+    let chance = 0.015;
+    if (adjAge >= 35) chance += (adjAge - 34) * 0.004;
+    if (ovr >= 90) chance += 0.008;  /* 明星球员出场多，受伤概率略高 */
+    if (Math.random() < chance) {
+      const t = _pickInjuryType();
+      const games = t.min + Math.floor(Math.random() * (t.max - t.min + 1));
+      save.injuries[id] = { gamesLeft: games, type: t.type, name: t.name };
+      save.injuryLog.push({ id, name: p.nameCn, team: p.team, injury: t.name, games });
+    }
+  });
+}
+/* 每场比赛后恢复：gamesLeft -1，归零则清除 */
+function tickInjuries(save) {
+  if (!save.injuries) return [];
+  const recovered = [];
+  Object.keys(save.injuries).forEach(id => {
+    const inj = save.injuries[id];
+    if (!inj || inj.gamesLeft <= 0) { delete save.injuries[id]; return; }
+    inj.gamesLeft--;
+    if (inj.gamesLeft <= 0) {
+      const p = (save.customPlayers || []).find(c => c.id === Number(id)) || PLAYERS_RATED.players.find(p => p.id === Number(id));
+      recovered.push({ id: Number(id), name: p ? p.nameCn : "球员", injury: inj.name });
+      delete save.injuries[id];
+    }
+  });
+  return recovered;
 }
 function expectedMinutes(ovr) {
   if (ovr >= 93) return 36;

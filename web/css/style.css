@@ -271,6 +271,8 @@ body {
 .r-meta .pos-chip { font-size: 10px; padding: 1px 5px; flex: none; }
 .r-meta .morale-chip { font-size: 10.5px; margin-left: 0; flex: none; }
 .r-salary { color: var(--gold); font-weight: 700; text-align: right; flex: none; white-space: nowrap; font-size: 12.5px; line-height: 1.2; }
+.r-row.r-injured { opacity: .65; }
+.inj-chip { font-size: 10px; background: #fff0f0; color: #c0392b; border: 1px solid #e74c3c; border-radius: 5px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; font-weight: 600; white-space: nowrap; }
 
 /* ===== 球员详情 ===== */
 .pd-hero {
