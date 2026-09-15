@@ -41,24 +41,44 @@ function makeSchedule(save) {
   return shuffleArr(list);
 }
 
-/* ===== 日期系统 ===== */
-/* 每个赛季从 10月22日 开始，82 场比赛 ≈ 175 天到 4月中旬 */
-/* 日期数组按赛季存储：save.seasonDates[seasonNo] = ["10月22日", "10月24日", ...] */
-/* 每队每 2-3 天一场，加随机波动让日期更真实 */
+/* ===== 日期系统（真实 NBA 节奏） ===== */
+/* NBA 常规赛每队 82 场 ≈ 175 天（10月22日 → 4月15日）
+   真实休息间隔分布：
+   - 背靠背（1 天休息）：~5% ≈ 4 次/赛季
+   - 2 天休息：~60% ≈ 49 次
+   - 3 天休息：~25% ≈ 20 次
+   - 4-7 天休息：~10% ≈ 9 次（含全明星周末 7 天）
+   全明星周末固定在第 40-44 场之间，强制 7 天 gap */
 function buildSeasonDates(save) {
   if (save.seasonDates && save.seasonDates[save.seasonNo]) return save.seasonDates[save.seasonNo];
-  const dates = [];
-  /* 赛季起始月日（10月22日 开始，持续到 4月中旬） */
+  const N = save.schedule.length;
+  /* 第 1 场日期固定 10月22日 */
   let month = 10, day = 22;
-  for (let i = 0; i < save.schedule.length; i++) {
-    dates.push(formatDate(month, day));
-    /* 1-4 天后下一场，平均约 2 天 */
-    const gap = 1 + Math.floor(Math.random() * 3); /* 1/2/3 天 */
+  const dates = [formatDate(month, day)];
+  /* 先生成 N-1 个 gap */
+  const gaps = [];
+  /* 全明星周末：第 42 场之后 = gap[41]（0-indexed 第 41 个 gap，即第 42→43 场之间） */
+  const ASB = 41; /* 在这位置强制 7 天休息 */
+  /* 计划：4 次背靠背 + 49 次 2 天 + 20 次 3 天 + 8 次 4-7 天 = 81 gap */
+  const plan = [];
+  /* 背靠背（gap=1）：4 次 */
+  for (let i = 0; i < 4; i++) plan.push(1);
+  /* 2 天：49 次 */
+  for (let i = 0; i < 49; i++) plan.push(2);
+  /* 3 天：20 次 */
+  for (let i = 0; i < 20; i++) plan.push(3);
+  /* 4-6 天：7 次（随机） */
+  for (let i = 0; i < 7; i++) plan.push(4 + Math.floor(Math.random() * 3));
+  /* 洗牌打乱分布 */
+  shuffleArr(plan);
+  /* 把全明星 7 天 gap 放到 ASB 位置（如果 plan 长度不够就补） */
+  while (plan.length < N - 1) plan.push(2);
+  plan[ASB] = 7; /* 全明星周 */
+  /* 生成所有日期 */
+  for (let i = 0; i < N - 1; i++) {
+    const gap = plan[i];
     [month, day] = addDays(month, day, gap);
-    /* 如果跑到 4月下旬还没走完——强制用最小间隔 1 天 */
-    if (month > 4 && day > 10) {
-      [month, day] = addDays(month, day, 1);
-    }
+    dates.push(formatDate(month, day));
   }
   save.seasonDates = save.seasonDates || {};
   save.seasonDates[save.seasonNo] = dates;
