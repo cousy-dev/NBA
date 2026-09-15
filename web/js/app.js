@@ -1513,7 +1513,7 @@ RENDERERS.hub = function () {
   const st = save.standings[my] || { w: 0, l: 0 };
   const myRank = confRanking(save, conf).find(r => r.abbr === my);
 
-  /* 下一场比赛卡片 */
+  /* 时间线视图：日期头 + 近期赛果 + 即将开赛 */
   const gi = currentGame(save);
   let gameHtml;
   if (save.playoffs && save.playoffs.done) {
@@ -1524,9 +1524,10 @@ RENDERERS.hub = function () {
       '<button class="btn btn-primary" id="btn-seasonend">查看赛季总结</button></div>';
   } else if (!gi) {
     gameHtml = '<div class="next-game"><div class="ng-label">暂无比赛安排</div></div>';
-  } else {
+  } else if (gi.playoff) {
+    /* 季后赛保持原样式 */
     const oppStr = teamStrength(gi.opp).toFixed(1);
-    const seriesTag = gi.playoff ? '<div class="ng-meta series-tag">系列赛 <b>' + gi.seriesScore[0] + " - " + gi.seriesScore[1] + "</b>（4 胜晋级）</div>" : "";
+    const seriesTag = '<div class="ng-meta series-tag">系列赛 <b>' + gi.seriesScore[0] + " - " + gi.seriesScore[1] + "</b>（4 胜晋级）</div>";
     gameHtml = '<div class="next-game" id="hub-next">' +
       '<div class="ng-label">' + esc(gi.label) + " · " + (gi.home ? "主场" : "客场") + "</div>" +
       '<div class="ng-row">' +
@@ -1538,6 +1539,53 @@ RENDERERS.hub = function () {
       '<div class="ng-btns"><button class="btn btn-primary" id="btn-play">开始比赛</button>' +
       '<button class="btn btn-outline" id="btn-quick">快速模拟</button></div>' +
       "</div>";
+  } else {
+    /* 常规赛：时间线视图 */
+    const curDate = currentGameDate(save);
+    const dates = buildSeasonDates(save);
+    const total = save.schedule.length;
+    const doneN = save.gameNo;
+    /* 最近 5 场已完场 */
+    const RECENT = 5;
+    const recentStart = Math.max(0, doneN - RECENT);
+    const recentHtml = [];
+    for (let i = recentStart; i < doneN; i++) {
+      const g = save.schedule[i];
+      const d = dates[i] || "";
+      if (!g || !g.result) continue;
+      const win = g.result === "W";
+      const [mySc, oppSc] = g.score || [0, 0];
+      recentHtml.push(
+        '<div class="tl-result ' + (win ? "win" : "loss") + '">' +
+        '  <span class="tl-date">' + esc(d) + '</span>' +
+        '  <span class="tl-tag">' + (win ? "胜" : "负") + '</span>' +
+        '  <span class="tl-opp">' + (g.home ? "" : "@") + esc(teamName(g.opp)) + '</span>' +
+        '  <span class="tl-score">' + mySc + ' - ' + oppSc + '</span>' +
+        '</div>'
+      );
+    }
+    /* 下一场预告 */
+    const oppStr = teamStrength(gi.opp).toFixed(1);
+    const nextDate = dates[save.gameNo] || "";
+    gameHtml =
+      '<div class="tl-banner">' +
+      '  <div class="tl-banner-date">' + esc(nextDate) + '</div>' +
+      '  <div class="tl-banner-label">第 ' + (doneN + 1) + ' 场 / ' + total + ' · ' + (gi.home ? "主场" : "客场") + ' vs ' + esc(teamName(gi.opp)) + '</div>' +
+      '</div>' +
+      (recentHtml.length ? '<div class="tl-recent">' + recentHtml.join("") + '</div>' : "") +
+      '<div class="next-game" id="hub-next">' +
+      '  <div class="ng-row">' +
+      '    <div class="ng-team">' + (save.team.logoAbbr ? teamLogoHtml(save.team.logoAbbr) : '<div class="th-fb ng-fb">🏀</div>') + "<span>" + esc(save.team.displayName) + "</span></div>" +
+      '    <div class="ng-vs">VS</div>' +
+      '    <div class="ng-team">' + teamLogoHtml(gi.opp) + "<span>" + esc(teamName(gi.opp)) + "</span></div>" +
+      '  </div>' +
+      '  <div class="ng-meta">对手实力 ' + oppStr + " · " + "★".repeat(stars(parseFloat(oppStr))) + "</div>" +
+      '  <div class="ng-btns">' +
+      '    <button class="btn btn-primary" id="btn-play">开始比赛</button>' +
+      '    <button class="btn btn-outline" id="btn-quick">快速模拟</button>' +
+      '    <button class="btn btn-outline" id="btn-quick-5">连模拟5场</button>' +
+      '  </div>' +
+      '</div>';
   }
 
   /* 队内得分领袖 */
@@ -1622,6 +1670,8 @@ RENDERERS.hub = function () {
   if (bp) bp.onclick = () => startMatch(false);
   const bq = $("#btn-quick");
   if (bq) bq.onclick = quickSimGame;
+  const bq5 = $("#btn-quick-5");
+  if (bq5) bq5.onclick = () => quickSimBatch(5);
   const bs = $("#btn-standings");
   if (bs) bs.onclick = () => go("standings");
   const bsc = $("#btn-schedule");
@@ -1752,6 +1802,37 @@ function quickSimGame() {
   const win = sc[0] > sc[1];
   completeGame(sim, win);
   toast((win ? "✓ 胜 " : "✗ 负 ") + sc[0] + " - " + sc[1] + " " + teamName(gi.opp));
+  if (state._regularJustEnded) {
+    state._regularJustEnded = false;
+    RENDERERS["regular-end"]();
+    state.stack = [];
+    activate("regular-end");
+    return;
+  }
+  if (save.playoffs && save.playoffs.done) { go("seasonend"); return; }
+  RENDERERS.hub(); activate("hub");
+}
+/* 连模拟 N 场（最快速度，无 toast） */
+function quickSimBatch(n) {
+  const save = state.save;
+  let played = 0, lastWin = null;
+  for (let i = 0; i < n; i++) {
+    const gi = currentGame(save);
+    if (!gi) break;
+    if (gi.playoff) break; /* 季后赛不用连模拟 */
+    const sim = buildSimFor(gi);
+    sim.skipToEnd();
+    const sc = sim.score();
+    const win = sc[0] > sc[1];
+    completeGame(sim, win);
+    lastWin = win;
+    played++;
+    if (state._regularJustEnded) break;
+    if (save.playoffs && save.playoffs.done) break;
+  }
+  if (played === 0) return;
+  /* 汇总提示 */
+  toast("快速模拟 " + played + " 场完成");
   if (state._regularJustEnded) {
     state._regularJustEnded = false;
     RENDERERS["regular-end"]();

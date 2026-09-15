@@ -41,6 +41,54 @@ function makeSchedule(save) {
   return shuffleArr(list);
 }
 
+/* ===== 日期系统 ===== */
+/* 每个赛季从 10月22日 开始，82 场比赛 ≈ 175 天到 4月中旬 */
+/* 日期数组按赛季存储：save.seasonDates[seasonNo] = ["10月22日", "10月24日", ...] */
+/* 每队每 2-3 天一场，加随机波动让日期更真实 */
+function buildSeasonDates(save) {
+  if (save.seasonDates && save.seasonDates[save.seasonNo]) return save.seasonDates[save.seasonNo];
+  const dates = [];
+  /* 赛季起始月日（10月22日 开始，持续到 4月中旬） */
+  let month = 10, day = 22;
+  for (let i = 0; i < save.schedule.length; i++) {
+    dates.push(formatDate(month, day));
+    /* 1-4 天后下一场，平均约 2 天 */
+    const gap = 1 + Math.floor(Math.random() * 3); /* 1/2/3 天 */
+    [month, day] = addDays(month, day, gap);
+    /* 如果跑到 4月下旬还没走完——强制用最小间隔 1 天 */
+    if (month > 4 && day > 10) {
+      [month, day] = addDays(month, day, 1);
+    }
+  }
+  save.seasonDates = save.seasonDates || {};
+  save.seasonDates[save.seasonNo] = dates;
+  return dates;
+}
+function addDays(m, d, n) {
+  const daysIn = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  for (let i = 0; i < n; i++) {
+    d++;
+    if (d > daysIn[m - 1]) { d = 1; m = (m % 12) + 1; }
+  }
+  return [m, d];
+}
+function formatDate(m, d) {
+  return m + "月" + d + "日";
+}
+/* 当前比赛日期（save.gameNo 是第几场，0-indexed） */
+function currentGameDate(save) {
+  if (save.playoffs && save.playoffs.games) return null; /* 季后赛不用 */
+  const dates = buildSeasonDates(save);
+  return dates[save.gameNo] || dates[dates.length - 1] || null;
+}
+/* 已完场的日期 + 即将开赛的日期 */
+function recentGameDates(save, count) {
+  const dates = buildSeasonDates(save);
+  const done = dates.slice(Math.max(0, save.gameNo - count), save.gameNo);
+  const upcoming = dates.slice(save.gameNo, save.gameNo + count);
+  return { done, upcoming };
+}
+
 /* ===== 排名初始化（30 队，自定义队占西部一席） ===== */
 function initStandings(save) {
   const st = {};
