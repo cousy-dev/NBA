@@ -2496,9 +2496,10 @@ RENDERERS["regular-end"] = function () {
       return '<div class="tm-row' + (m.mine ? " me" : "") + '">' +
         '<span class="tm-pos">' + POS_LABEL[i % POS_LABEL.length] + '</span>' +
         '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
-        '<div class="tm-name">' + esc(m.p.nameCn) +
-        '<span class="tm-team">' + esc(teamName(m.p.team)) + '</span></div>' +
-        statLine +
+        '<div class="tm-main">' +
+        '<div class="tm-name">' + esc(m.p.nameCn) + '</div>' +
+        '<div class="tm-sub"><span class="tm-team">' + esc(teamName(m.p.team)) + '</span>' + statLine + '</div>' +
+        '</div>' +
         '</div>';
     }).join("");
     return '<div class="se-card tm-group"><h3>' + title + '</h3>' + rows + '</div>';
