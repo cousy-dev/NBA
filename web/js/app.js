@@ -1540,52 +1540,87 @@ RENDERERS.hub = function () {
       '<button class="btn btn-outline" id="btn-quick">快速模拟</button></div>' +
       "</div>";
   } else {
-    /* 常规赛：时间线视图 */
-    const curDate = currentGameDate(save);
+    /* 常规赛：日历视图 + 下一场卡片 */
     const dates = buildSeasonDates(save);
     const total = save.schedule.length;
     const doneN = save.gameNo;
-    /* 最近 5 场已完场 */
-    const RECENT = 5;
-    const recentStart = Math.max(0, doneN - RECENT);
-    const recentHtml = [];
-    for (let i = recentStart; i < doneN; i++) {
-      const g = save.schedule[i];
-      const d = dates[i] || "";
-      if (!g || !g.result) continue;
-      const win = g.result === "W";
-      const [mySc, oppSc] = g.score || [0, 0];
-      recentHtml.push(
-        '<div class="tl-result ' + (win ? "win" : "loss") + '">' +
-        '  <span class="tl-date">' + esc(d) + '</span>' +
-        '  <span class="tl-tag">' + (win ? "胜" : "负") + '</span>' +
-        '  <span class="tl-opp">' + (g.home ? "" : "@") + esc(teamName(g.opp)) + '</span>' +
-        '  <span class="tl-score">' + mySc + ' - ' + oppSc + '</span>' +
-        '</div>'
-      );
+    /* 按 M-D 建比赛索引 */
+    const gameByDate = {};
+    dates.forEach((d, i) => {
+      const pd = parseSeasonDate(d);
+      if (!pd) return;
+      const key = pd.month + "-" + pd.day;
+      (gameByDate[key] = gameByDate[key] || []).push(i);
+    });
+    const curPD = parseSeasonDate(dates[doneN] || "");
+    let viewYear, viewMonth;
+    if (hubCalView) {
+      viewYear = hubCalView.year;
+      viewMonth = hubCalView.month;
+    } else if (curPD) {
+      viewMonth = curPD.month;
+      viewYear = seasonYearForMonth(save, curPD.month);
+    } else {
+      viewMonth = 10;
+      viewYear = SEASON_START_YEAR + save.seasonNo - 1;
     }
-    /* 下一场预告 */
+    const firstDow = new Date(viewYear, viewMonth - 1, 1).getDay(); /* 0=周日 */
+    const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
+    const WEEKS = ["日", "一", "二", "三", "四", "五", "六"];
+    let cells = "";
+    for (let i = 0; i < firstDow; i++) cells += '<div class="hcal-cell hcal-empty"></div>';
+    for (let day = 1; day <= daysInMonth; day++) {
+      const key = viewMonth + "-" + day;
+      const gameIdxs = gameByDate[key] || [];
+      let cellGame = "";
+      gameIdxs.forEach(gi => {
+        const g = save.schedule[gi];
+        if (!g) return;
+        let cls = "hcal-game";
+        const prefix = g.home ? "vs" : "@";
+        if (g.result) {
+          cls += g.result === "W" ? " win" : " loss";
+          cellGame += '<div class="' + cls + '" data-idx="' + gi + '">' +
+            prefix + " " + esc(teamName(g.opp)) + " " + g.score[0] + "-" + g.score[1] + "</div>";
+        } else if (gi === doneN) {
+          cls += " next";
+          cellGame += '<div class="' + cls + '" data-idx="' + gi + '">▶ ' + prefix + " " + esc(teamName(g.opp)) + "</div>";
+        } else {
+          cls += " future";
+          cellGame += '<div class="' + cls + '" data-idx="' + gi + '">' + prefix + " " + esc(teamName(g.opp)) + "</div>";
+        }
+      });
+      const isToday = curPD && curPD.month === viewMonth && curPD.day === day;
+      cells += '<div class="hcal-cell' + (isToday ? " today" : "") + '">' +
+        '<div class="hcal-day">' + day + "</div>" + cellGame + "</div>";
+    }
+    /* 下一场预告卡片 */
     const oppStr = teamStrength(gi.opp).toFixed(1);
     const nextDate = dates[save.gameNo] || "";
     gameHtml =
-      '<div class="tl-banner">' +
-      '  <div class="tl-banner-date">' + esc(nextDate) + '</div>' +
-      '  <div class="tl-banner-label">第 ' + (doneN + 1) + ' 场 / ' + total + ' · ' + (gi.home ? "主场" : "客场") + ' vs ' + esc(teamName(gi.opp)) + '</div>' +
-      '</div>' +
-      (recentHtml.length ? '<div class="tl-recent">' + recentHtml.join("") + '</div>' : "") +
+      '<div class="hcal">' +
+      '  <div class="hcal-nav">' +
+      '    <button class="hcal-nav-btn" id="hcal-prev" aria-label="上个月">‹</button>' +
+      '    <div class="hcal-title">' + viewYear + " 年 " + viewMonth + " 月</div>" +
+      '    <button class="hcal-nav-btn" id="hcal-next" aria-label="下个月">›</button>' +
+      '  </div>' +
+      '  <div class="hcal-weekdays">' + WEEKS.map(w => '<div>' + w + '</div>').join("") + "</div>" +
+      '  <div class="hcal-grid">' + cells + "</div>" +
+      "</div>" +
       '<div class="next-game" id="hub-next">' +
+      '  <div class="ng-label">' + esc(nextDate) + " · 第 " + (doneN + 1) + " 场 / " + total + " · " + (gi.home ? "主场" : "客场") + "</div>" +
       '  <div class="ng-row">' +
       '    <div class="ng-team">' + (save.team.logoAbbr ? teamLogoHtml(save.team.logoAbbr) : '<div class="th-fb ng-fb">🏀</div>') + "<span>" + esc(save.team.displayName) + "</span></div>" +
       '    <div class="ng-vs">VS</div>' +
       '    <div class="ng-team">' + teamLogoHtml(gi.opp) + "<span>" + esc(teamName(gi.opp)) + "</span></div>" +
-      '  </div>' +
+      "  </div>" +
       '  <div class="ng-meta">对手实力 ' + oppStr + " · " + "★".repeat(stars(parseFloat(oppStr))) + "</div>" +
       '  <div class="ng-btns">' +
       '    <button class="btn btn-primary" id="btn-play">开始比赛</button>' +
       '    <button class="btn btn-outline" id="btn-quick">快速模拟</button>' +
       '    <button class="btn btn-outline" id="btn-quick-5">连模拟5场</button>' +
-      '  </div>' +
-      '</div>';
+      "  </div>" +
+      "</div>";
   }
 
   /* 队内得分领袖 */
@@ -1672,6 +1707,37 @@ RENDERERS.hub = function () {
   if (bq) bq.onclick = quickSimGame;
   const bq5 = $("#btn-quick-5");
   if (bq5) bq5.onclick = () => quickSimBatch(5);
+  /* 主控台日历月份导航 */
+  const hprev = $("#hcal-prev");
+  if (hprev) hprev.onclick = () => {
+    let y, m;
+    if (hubCalView) { y = hubCalView.year; m = hubCalView.month; }
+    else {
+      const pd = parseSeasonDate(currentGameDate(save) || "");
+      m = pd ? pd.month : 10;
+      y = seasonYearForMonth(save, m);
+    }
+    m--; if (m < 1) { m = 12; y--; }
+    hubCalView = { year: y, month: m };
+    RENDERERS.hub();
+  };
+  const hnext = $("#hcal-next");
+  if (hnext) hnext.onclick = () => {
+    let y, m;
+    if (hubCalView) { y = hubCalView.year; m = hubCalView.month; }
+    else {
+      const pd = parseSeasonDate(currentGameDate(save) || "");
+      m = pd ? pd.month : 10;
+      y = seasonYearForMonth(save, m);
+    }
+    m++; if (m > 12) { m = 1; y++; }
+    hubCalView = { year: y, month: m };
+    RENDERERS.hub();
+  };
+  /* 点击日历中的比赛 → 详情弹窗 */
+  $$("#screen-hub .hcal-game[data-idx]").forEach(el => {
+    el.onclick = () => openScheduleModal(Number(el.dataset.idx));
+  });
   const bs = $("#btn-standings");
   if (bs) bs.onclick = () => go("standings");
   const bsc = $("#btn-schedule");
@@ -2401,6 +2467,8 @@ function openScheduleModal(i) {
 
 /* 赛程日历当前查看的月份（跨渲染保留） */
 let scheduleCalView = null;
+/* 主控台日历当前查看的月份（跨渲染保留） */
+let hubCalView = null;
 
 /* ===== 奖项追踪排行 ===== */
 RENDERERS.awards = function () {
