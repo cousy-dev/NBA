@@ -1870,7 +1870,11 @@ function completeGame(sim, win) {
     playoffProgress(save);
   } else if (!save.playoffs) {
     const g = save.schedule[save.gameNo];
-    if (g) { g.result = win ? "W" : "L"; g.score = sim.score().slice(); }
+    if (g) {
+      g.result = win ? "W" : "L"; g.score = sim.score().slice();
+      /* 存储每节累计比分，用于赛程点阵详情 */
+      g.quarters = (sim.quarterScores || []).map(s => s.slice());
+    }
     if (win) { save.record.w++; save.standings[my].w++; } else { save.record.l++; save.standings[my].l++; }
     save.gameNo++;
     /* 交易截止日：第 53 场结束后禁用交易（约赛季 65%，对齐 NBA 现实 2 月中旬） */
@@ -2196,6 +2200,7 @@ RENDERERS.standings = function () {
 /* ===== 赛程战报 ===== */
 RENDERERS.schedule = function () {
   const save = state.save;
+  const my = myAbbr(save);
   let poHtml = "";
   if (save.playoffs) {
     const ps = save.playoffs;
@@ -2204,8 +2209,8 @@ RENDERERS.schedule = function () {
       const rd = ps.rounds[r];
       poHtml += '<div class="po-round">' + esc(rd.name) + "</div>";
       rd.E.concat(rd.W).forEach(s => {
-        const myInv = s.a === myAbbr(save) || s.b === myAbbr(save);
-        poHtml += '<div class="po-ser' + (myInv ? " me" : "") + (s.done && s.winner === myAbbr(save) ? " won" : "") + '">' +
+        const myInv = s.a === my || s.b === my;
+        poHtml += '<div class="po-ser' + (myInv ? " me" : "") + (s.done && s.winner === my ? " won" : "") + '">' +
           esc(teamName(s.a)) + " <b>" + s.wa + " - " + s.wb + "</b> " + esc(teamName(s.b)) +
           (s.done ? '<span class="po-adv">' + esc(teamName(s.winner)) + " 晋级</span>" : "") +
           (myInv && !s.done ? '<span class="po-adv">你的系列赛</span>' : "") + "</div>";
@@ -2213,32 +2218,103 @@ RENDERERS.schedule = function () {
     }
     if (ps.done) poHtml += '<div class="champ-line">🏆 总冠军：' + esc(teamName(ps.champion)) + "</div>";
   }
+  /* 常规赛点阵 + 战绩摘要 */
+  const st = save.standings[my] || { w: 0, l: 0 };
+  const gp = st.w + st.l;
+  const pct = gp ? ((st.w / gp) * 100).toFixed(1) : "0.0";
+  /* 连胜/连败 */
+  let streak = 0, streakType = null;
+  for (let i = save.gameNo - 1; i >= 0; i--) {
+    const g = save.schedule[i];
+    if (!g || !g.result) break;
+    const t = g.result === "W" ? "W" : "L";
+    if (streakType === null) streakType = t;
+    if (t === streakType) streak++; else break;
+  }
+  const streakText = streak ? (streakType === "W" ? "连胜 " + streak : "连败 " + streak) : "-";
+
+  const dots = save.schedule.map((g, i) => {
+    let cls = "sch-dot";
+    let title = "第 " + (i + 1) + " 场 · " + (g.home ? "主" : "客") + " vs " + teamName(g.opp);
+    if (g.result) {
+      cls += g.result === "W" ? " win" : " loss";
+      title += " · " + g.score[0] + " - " + g.score[1];
+    } else if (i === save.gameNo) {
+      cls += " next";
+    } else {
+      cls += " future";
+    }
+    return '<div class="' + cls + '" data-idx="' + i + '" title="' + esc(title) + '">' + (i + 1) + "</div>";
+  }).join("");
+
   $("#screen-schedule").innerHTML =
     '<h2 class="screen-title">赛程战报</h2>' +
     '<p class="screen-sub">第 ' + save.seasonNo + " 赛季 · 常规赛 " + GAMES_PER_SEASON + " 场</p>" +
     poHtml +
-    '<h3 class="section-h">常规赛</h3>' +
-    '<div class="sch-list">' +
-    save.schedule.map((g, i) => {
-      const logo = '<img src="https://res.nba.cn/media/img/teams/logos/' + g.opp + '_logo.png" loading="lazy" onerror="this.style.visibility=\'hidden\'">';
-      if (g.result) {
-        const win = g.result === "W";
-        return '<div class="sch-row ' + (win ? "win" : "lose") + '">' +
-          '<span class="sch-idx">' + (i + 1) + "</span>" +
-          '<span class="sch-team">' + logo + esc(teamName(g.opp)) + "</span>" +
-          '<span class="sch-home">' + (g.home ? "主" : "客") + "</span>" +
-          '<span class="sch-score">' + (g.score ? g.score[0] + " - " + g.score[1] : "") + "</span>" +
-          '<span class="sch-badge ' + (win ? "b-win" : "b-lose") + '">' + (win ? "胜" : "负") + "</span></div>";
+    '<div class="sch-summary">' +
+    '  <div class="sch-sum-item"><b>' + st.w + '-' + st.l + '</b><span>战绩</span></div>' +
+    '  <div class="sch-sum-item"><b>' + pct + '%</b><span>胜率</span></div>' +
+    '  <div class="sch-sum-item"><b>' + gp + '/' + save.schedule.length + '</b><span>已赛</span></div>' +
+    '  <div class="sch-sum-item"><b>' + streakText + '</b><span>近期</span></div>' +
+    '</div>' +
+    '<div class="sch-legend">' +
+    '  <span class="sch-legend-item"><i class="sch-dot win"></i>胜</span>' +
+    '  <span class="sch-legend-item"><i class="sch-dot loss"></i>负</span>' +
+    '  <span class="sch-legend-item"><i class="sch-dot next"></i>下一场</span>' +
+    '  <span class="sch-legend-item"><i class="sch-dot future"></i>未赛</span>' +
+    '</div>' +
+    '<div class="sch-grid">' + dots + '</div>' +
+    '<div id="sch-modal" class="sch-modal" style="display:none">' +
+    '  <div class="sch-modal-mask"></div>' +
+    '  <div class="sch-modal-body" id="sch-modal-body"></div>' +
+    '</div>';
+
+  /* 绑定点阵点击 */
+  $$("#screen-schedule .sch-dot[data-idx]").forEach(dot => {
+    dot.onclick = () => {
+      const i = Number(dot.dataset.idx);
+      const g = save.schedule[i];
+      if (!g) return;
+      const dates = save.seasonDates && save.seasonDates[save.seasonNo];
+      const d = dates ? dates[i] : "";
+      const win = g.result === "W";
+      /* 计算每节单节得分 */
+      let qRows = "";
+      if (g.quarters && g.quarters.length) {
+        const qLabels = ["Q1", "Q2", "Q3", "Q4"];
+        let prev = [0, 0];
+        qRows = g.quarters.map((qs, qi) => {
+          const single = [qs[0] - prev[0], qs[1] - prev[1]];
+          prev = qs.slice();
+          return '<tr><td class="sch-q-label">' + qLabels[qi] + '</td><td>' + single[0] + '</td><td>' + single[1] + '</td></tr>';
+        }).join("");
       }
-      const isNext = i === save.gameNo;
-      return '<div class="sch-row future' + (isNext ? " next" : "") + '">' +
-        '<span class="sch-idx">' + (i + 1) + "</span>" +
-        '<span class="sch-team">' + logo + esc(teamName(g.opp)) + "</span>" +
-        '<span class="sch-home">' + (g.home ? "主" : "客") + "</span>" +
-        '<span class="sch-score"></span>' +
-        '<span class="sch-badge">' + (isNext ? "下一场" : "未赛") + "</span></div>";
-    }).join("") +
-    "</div>";
+      const body = document.getElementById("sch-modal-body");
+      body.innerHTML =
+        '<div class="sch-modal-head">' +
+        '  <div class="sch-modal-date">' + esc(d) + '</div>' +
+        '  <div class="sch-modal-game">第 ' + (i + 1) + ' 场 · ' + (g.home ? "主场" : "客场") + '</div>' +
+        '</div>' +
+        '<div class="sch-modal-teams">' +
+        '  <div class="sch-modal-team">' +
+        '    <div class="sch-modal-name">' + esc(save.team.displayName) + '</div>' +
+        '    <div class="sch-modal-score' + (win ? " win" : " loss") + '">' + (g.score ? g.score[0] : "-") + '</div>' +
+        '  </div>' +
+        '  <div class="sch-modal-vs">VS</div>' +
+        '  <div class="sch-modal-team">' +
+        '    <div class="sch-modal-name">' + esc(teamName(g.opp)) + '</div>' +
+        '    <div class="sch-modal-score' + (win ? " loss" : " win") + '">' + (g.score ? g.score[1] : "-") + '</div>' +
+        '  </div>' +
+        '</div>' +
+        (qRows ? '<table class="sch-q-table"><thead><tr><th></th><th>我</th><th>对手</th></tr></thead><tbody>' + qRows +
+          '<tr class="sch-q-total"><td>合计</td><td><b>' + (g.score ? g.score[0] : "-") + '</b></td><td><b>' + (g.score ? g.score[1] : "-") + '</b></td></tr></tbody></table>' : "") +
+        '<div class="sch-modal-result ' + (win ? "win" : "loss") + '">' + (win ? "🎉 胜利" : "😞 失利") + '</div>' +
+        '<button class="btn btn-outline" id="sch-modal-close">关闭</button>';
+      document.getElementById("sch-modal").style.display = "flex";
+      $("#sch-modal-close").onclick = () => { document.getElementById("sch-modal").style.display = "none"; };
+      document.querySelector("#sch-modal .sch-modal-mask").onclick = () => { document.getElementById("sch-modal").style.display = "none"; };
+    };
+  });
 };
 
 /* ===== 奖项追踪排行 ===== */

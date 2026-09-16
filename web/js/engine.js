@@ -368,7 +368,13 @@ class GameSim {
   }
   skipToEnd() {
     let guard = 0;
-    while (!this.over && guard++ < 5000) this.next();
+    this.quarterScores = []; /* 每节结束时的累计比分 [q1Score, q2Score, ...] */
+    while (!this.over && guard++ < 5000) {
+      const r = this.next();
+      r.events.forEach(e => {
+        if (e.t === "period" && e.text.includes("结束")) this.quarterScores.push(e.score.slice());
+      });
+    }
     return this.over;
   }
   mvp() {

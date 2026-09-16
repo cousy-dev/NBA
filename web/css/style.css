@@ -541,21 +541,45 @@ body {
 .st-logo img { width: 100%; height: 100%; object-fit: contain; }
 
 /* 赛程战报 */
-.sch-list { display: flex; flex-direction: column; gap: 6px; padding-bottom: 20px; }
-.sch-row { display: flex; align-items: center; gap: 9px; background: var(--card); border: 1px solid var(--line); border-radius: 11px; padding: 9px 12px; font-size: 13.5px; }
-.sch-row.win { border-color: rgba(63, 191, 127, .45); }
-.sch-row.lose { border-color: rgba(168,31,46, .4); }
-.sch-row.next { border-color: var(--gold); }
-.sch-idx { color: var(--muted); width: 24px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.sch-team { flex: 1; display: flex; align-items: center; gap: 7px; font-weight: 800; min-width: 0; }
-.sch-team img { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
-.sch-home { color: var(--muted); width: 22px; flex-shrink: 0; }
-.sch-score { font-variant-numeric: tabular-nums; font-weight: 700; width: 64px; text-align: center; flex-shrink: 0; }
-.sch-badge { width: 44px; text-align: center; font-size: 12px; font-weight: 800; border-radius: 8px; padding: 3px 0; background: var(--card2); color: var(--muted); flex-shrink: 0; }
-.sch-badge.b-win { background: rgba(63, 191, 127, .16); color: #3fbf7f; }
-.sch-badge.b-lose { background: rgba(168,31,46, .14); color: #a81f2e; }
-.sch-row.future .sch-team, .sch-row.future .sch-idx, .sch-row.future .sch-home { opacity: .55; }
-.sch-row.future.next .sch-team { opacity: 1; color: var(--gold); }
+/* 赛程点阵 */
+.sch-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+.sch-sum-item { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px; text-align: center; }
+.sch-sum-item b { display: block; font-size: 16px; font-weight: 800; color: var(--gold); }
+.sch-sum-item span { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.sch-legend { display: flex; gap: 14px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
+.sch-legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.sch-legend-item i.sch-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; cursor: default; font-size: 0; }
+.sch-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; padding-bottom: 20px; }
+.sch-dot { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; border-radius: 7px; cursor: pointer; transition: transform .12s; background: var(--card); border: 1.5px solid var(--line); color: var(--muted); }
+.sch-dot:hover { transform: scale(1.08); }
+.sch-dot.win { background: #2d8a5a; border-color: #2d8a5a; color: #fff; }
+.sch-dot.loss { background: #c0392b; border-color: #c0392b; color: #fff; }
+.sch-dot.next { background: var(--gold); border-color: var(--gold); color: #fff; animation: sch-pulse 1.2s ease-in-out infinite; }
+.sch-dot.future { background: transparent; border: 1.5px dashed var(--line); }
+@keyframes sch-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+/* 赛程详情弹窗 */
+.sch-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.sch-modal-mask { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+.sch-modal-body { position: relative; background: var(--card); border-radius: 16px; padding: 20px; width: 100%; max-width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+.sch-modal-head { text-align: center; margin-bottom: 16px; }
+.sch-modal-date { font-size: 18px; font-weight: 800; color: var(--gold); }
+.sch-modal-game { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.sch-modal-teams { display: flex; align-items: center; justify-content: space-around; margin-bottom: 16px; }
+.sch-modal-team { text-align: center; }
+.sch-modal-name { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.sch-modal-score { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sch-modal-score.win { color: #2d8a5a; }
+.sch-modal-score.loss { color: #c0392b; }
+.sch-modal-vs { font-size: 14px; color: var(--muted); font-weight: 800; }
+.sch-q-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 13px; }
+.sch-q-table th, .sch-q-table td { padding: 6px; text-align: center; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.sch-q-table th { color: var(--muted); font-size: 11px; }
+.sch-q-label { color: var(--muted); }
+.sch-q-total td { font-size: 15px; border-bottom: none; }
+.sch-modal-result { text-align: center; font-size: 16px; font-weight: 800; margin-bottom: 14px; }
+.sch-modal-result.win { color: #2d8a5a; }
+.sch-modal-result.loss { color: #c0392b; }
+.sch-modal .btn { width: 100%; }
 .po-round { color: var(--gold); font-size: 12.5px; font-weight: 800; margin: 12px 0 7px; letter-spacing: 1px; }
 .po-ser { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; }
 .po-ser.me { border-color: var(--gold); }
