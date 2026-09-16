@@ -1572,27 +1572,28 @@ RENDERERS.hub = function () {
     for (let day = 1; day <= daysInMonth; day++) {
       const key = viewMonth + "-" + day;
       const gameIdxs = gameByDate[key] || [];
-      let cellGame = "";
-      gameIdxs.forEach(gi => {
-        const g = save.schedule[gi];
-        if (!g) return;
-        let cls = "hcal-game";
-        const prefix = g.home ? "vs" : "@";
-        if (g.result) {
-          cls += g.result === "W" ? " win" : " loss";
-          cellGame += '<div class="' + cls + '" data-idx="' + gi + '">' +
-            prefix + " " + esc(teamName(g.opp)) + " " + g.score[0] + "-" + g.score[1] + "</div>";
+      const g0 = gameIdxs.length ? save.schedule[gameIdxs[0]] : null;
+      let cellCls = "hcal-cell";
+      let cellContent = '<div class="hcal-toprow"><span class="hcal-day">' + day + "</span>" +
+        (g0 && !g0.home ? '<span class="hcal-away">客</span>' : "") + "</div>";
+      if (g0) {
+        const oppName = teamName(g0.opp);
+        const gi = gameIdxs[0];
+        if (g0.result) {
+          const win = g0.result === "W";
+          cellCls += win ? " win" : " loss";
+          cellContent += '<div class="hcal-opp">' + esc(oppName) + "</div>" +
+            '<div class="hcal-score">' + g0.score[0] + "-" + g0.score[1] + "</div>";
         } else if (gi === doneN) {
-          cls += " next";
-          cellGame += '<div class="' + cls + '" data-idx="' + gi + '">▶ ' + prefix + " " + esc(teamName(g.opp)) + "</div>";
+          cellCls += " next";
+          cellContent += '<div class="hcal-opp">▶ ' + esc(oppName) + "</div>";
         } else {
-          cls += " future";
-          cellGame += '<div class="' + cls + '" data-idx="' + gi + '">' + prefix + " " + esc(teamName(g.opp)) + "</div>";
+          cellContent += '<div class="hcal-opp hcal-future">' + esc(oppName) + "</div>";
         }
-      });
+      }
       const isToday = curPD && curPD.month === viewMonth && curPD.day === day;
-      cells += '<div class="hcal-cell' + (isToday ? " today" : "") + '">' +
-        '<div class="hcal-day">' + day + "</div>" + cellGame + "</div>";
+      cells += '<div class="' + cellCls + (isToday ? " today" : "") + '"' +
+        (g0 ? ' data-idx="' + gameIdxs[0] + '"' : "") + ">" + cellContent + "</div>";
     }
     /* 下一场预告卡片 */
     const oppStr = teamStrength(gi.opp).toFixed(1);
@@ -1735,7 +1736,7 @@ RENDERERS.hub = function () {
     RENDERERS.hub();
   };
   /* 点击日历中的比赛 → 详情弹窗 */
-  $$("#screen-hub .hcal-game[data-idx]").forEach(el => {
+  $$("#screen-hub .hcal-cell[data-idx]").forEach(el => {
     el.onclick = () => openScheduleModal(Number(el.dataset.idx));
   });
   const bs = $("#btn-standings");

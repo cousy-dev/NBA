@@ -375,25 +375,34 @@ body {
 /* ===== 经理室 ===== */
 .section-h { font-size: 14px; color: var(--muted); font-weight: 700; margin: 18px 0 10px; letter-spacing: 1px; }
 /* ===== 主控台日历（常规赛） ===== */
-.hcal { background: var(--card); border: 1.5px solid var(--line); border-radius: 16px; padding: 12px; margin-top: 14px; }
+.hcal { background: var(--card); border: 1.5px solid var(--line); border-radius: 16px; padding: 10px; margin-top: 14px; }
 .hcal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .hcal-nav-btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--card2); font-size: 18px; font-weight: 800; color: var(--gold); cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; }
 .hcal-nav-btn:active { transform: scale(.92); }
-.hcal-title { font-size: 15px; font-weight: 800; color: var(--gold); }
+.hcal-title { font-size: 16px; font-weight: 800; color: var(--gold); }
 .hcal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 3px; }
-.hcal-weekdays > div { text-align: center; font-size: 10px; color: var(--muted); font-weight: 700; padding: 3px 0; }
+.hcal-weekdays > div { text-align: center; font-size: 11px; color: var(--muted); font-weight: 700; padding: 3px 0; }
 .hcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-.hcal-cell { background: var(--card2); border: 1px solid var(--line); border-radius: 5px; min-height: 46px; padding: 2px; position: relative; overflow: hidden; }
-.hcal-cell.hcal-empty { background: transparent; border: none; min-height: 0; }
-.hcal-cell.today { border-color: var(--gold); border-width: 1.5px; box-shadow: 0 0 0 1px rgba(168,31,46,.2) inset; }
-.hcal-day { font-size: 9px; color: var(--muted); font-weight: 700; margin-bottom: 1px; line-height: 1; }
+.hcal-cell { background: var(--card2); border: 1px solid var(--line); border-radius: 6px; min-height: 60px; padding: 4px 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; cursor: default; overflow: hidden; }
+.hcal-cell.hcal-empty { background: transparent; border: none; min-height: 0; padding: 0; }
+.hcal-cell[data-idx] { cursor: pointer; }
+.hcal-cell.today { border-color: var(--gold); border-width: 2px; box-shadow: 0 0 0 1px rgba(168,31,46,.25) inset; }
+/* 胜负满格上色 */
+.hcal-cell.win { background: #2d8a5a; border-color: #2d8a5a; }
+.hcal-cell.loss { background: #c0392b; border-color: #c0392b; }
+.hcal-cell.next { background: var(--gold); border-color: var(--gold); animation: sch-pulse 1.2s ease-in-out infinite; }
+.hcal-toprow { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 2px; }
+.hcal-day { font-size: 10px; color: var(--muted); font-weight: 700; line-height: 1; }
+.hcal-cell.win .hcal-day, .hcal-cell.loss .hcal-day, .hcal-cell.next .hcal-day { color: rgba(255,255,255,.75); }
 .hcal-cell.today .hcal-day { color: var(--gold); }
-.hcal-game { font-size: 8.5px; padding: 1px 3px; border-radius: 3px; margin-bottom: 1px; cursor: pointer; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-.hcal-game.win, .hcal-game.loss, .hcal-game.next { color: #fff; font-weight: 700; }
-.hcal-game.win { background: #2d8a5a; }
-.hcal-game.loss { background: #c0392b; }
-.hcal-game.next { background: var(--gold); animation: sch-pulse 1.2s ease-in-out infinite; }
-.hcal-game.future { color: var(--muted); border: 1px dashed var(--line); background: transparent; }
+.hcal-cell.today.win .hcal-day, .hcal-cell.today.loss .hcal-day, .hcal-cell.today.next .hcal-day { color: rgba(255,255,255,.9); }
+.hcal-away { font-size: 8px; color: var(--muted); background: rgba(255,255,255,.7); border-radius: 3px; padding: 0 3px; line-height: 1.3; font-weight: 700; }
+.hcal-cell.win .hcal-away, .hcal-cell.loss .hcal-away, .hcal-cell.next .hcal-away { background: rgba(255,255,255,.25); color: #fff; }
+.hcal-opp { font-size: 11.5px; font-weight: 800; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.hcal-cell.win .hcal-opp, .hcal-cell.loss .hcal-opp, .hcal-cell.next .hcal-opp { color: #fff; }
+.hcal-cell .hcal-future { color: var(--muted); font-size: 10.5px; }
+.hcal-score { font-size: 10px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 1px; }
+.hcal-cell.win .hcal-score, .hcal-cell.loss .hcal-score { color: #fff; }
 .next-game { background: var(--card); border: 1.5px solid var(--line); border-radius: 18px; padding: 18px; margin-top: 14px; }
 .ng-label { color: var(--muted); font-size: 12px; text-align: center; letter-spacing: 1px; }
 .ng-row { display: flex; align-items: center; justify-content: space-evenly; margin: 14px 0 10px; }
