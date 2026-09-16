@@ -1941,6 +1941,12 @@ function completeGame(sim, win) {
       g.result = win ? "W" : "L"; g.score = sim.score().slice();
       /* 存储每节累计比分，用于赛程点阵详情 */
       g.quarters = (sim.quarterScores || []).map(s => s.slice());
+      /* 存储双方球员数据（每场比赛的技术统计） */
+      const extractBox = side => side.all.map(p => {
+        const b = side.box.get(p.id);
+        return b ? { id: p.id, name: p.nameCn, pts: b.pts, reb: b.reb, ast: b.ast, stl: b.stl, blk: b.blk, tov: b.tov, fgm: b.fgm, fga: b.fga, tpm: b.tpm, tpa: b.tpa, ftm: b.ftm, fta: b.fta } : null;
+      }).filter(x => x && (x.pts || x.reb || x.ast || x.stl || x.blk));
+      g.box = { my: extractBox(sim.teams[0]), opp: extractBox(sim.teams[1]) };
     }
     if (win) { save.record.w++; save.standings[my].w++; } else { save.record.l++; save.standings[my].l++; }
     save.gameNo++;
@@ -2441,6 +2447,19 @@ function openScheduleModal(i) {
     }).join("");
   }
   const body = document.getElementById("sch-modal-body");
+  /* 球员数据（双方技术统计） */
+  let boxHtml = "";
+  if (g.box && (g.box.my.length || g.box.opp.length)) {
+    const renderTeam = (list, label) => {
+      if (!list.length) return "";
+      const rows = list.slice().sort((a, b) => b.pts - a.pts).map(p =>
+        '<tr><td>' + esc(p.name) + '</td><td>' + p.pts + '</td><td>' + p.reb + '</td><td>' + p.ast + '</td><td>' + p.stl + '</td><td>' + p.blk + '</td></tr>'
+      ).join("");
+      return '<div class="sch-box-team"><div class="sch-box-label">' + esc(label) + '</div>' +
+        '<table class="sch-box-table"><colgroup><col class="player"><col><col><col><col><col></colgroup><thead><tr><th>球员</th><th>分</th><th>板</th><th>助</th><th>断</th><th>帽</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    };
+    boxHtml = '<div class="sch-box">' + renderTeam(g.box.my, save.team.displayName) + renderTeam(g.box.opp, teamName(g.opp)) + '</div>';
+  }
   body.innerHTML =
     '<div class="sch-modal-head">' +
     '  <div class="sch-modal-date">' + esc(d) + '</div>' +
@@ -2459,6 +2478,7 @@ function openScheduleModal(i) {
     '</div>' +
     (qRows ? '<table class="sch-q-table"><thead><tr><th></th><th>我</th><th>对手</th></tr></thead><tbody>' + qRows +
       '<tr class="sch-q-total"><td>合计</td><td><b>' + (g.score ? g.score[0] : "-") + '</b></td><td><b>' + (g.score ? g.score[1] : "-") + '</b></td></tr></tbody></table>' : "") +
+    boxHtml +
     '<div class="sch-modal-result ' + (win ? "win" : "loss") + '">' + (g.result ? (win ? "🎉 胜利" : "😞 失利") : "⏳ 未开赛") + '</div>' +
     '<button class="btn btn-outline" id="sch-modal-close">关闭</button>';
   document.getElementById("sch-modal").style.display = "flex";

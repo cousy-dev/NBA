@@ -398,10 +398,10 @@ body {
 .hcal-cell.today.win .hcal-day, .hcal-cell.today.loss .hcal-day, .hcal-cell.today.next .hcal-day { color: rgba(255,255,255,.9); }
 .hcal-away { font-size: 8px; color: var(--muted); background: rgba(255,255,255,.7); border-radius: 3px; padding: 0 3px; line-height: 1.3; font-weight: 700; }
 .hcal-cell.win .hcal-away, .hcal-cell.loss .hcal-away, .hcal-cell.next .hcal-away { background: rgba(255,255,255,.25); color: #fff; }
-.hcal-opp { font-size: 11.5px; font-weight: 800; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.hcal-opp { font-size: 10px; font-weight: 800; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .hcal-cell.win .hcal-opp, .hcal-cell.loss .hcal-opp, .hcal-cell.next .hcal-opp { color: #fff; }
-.hcal-cell .hcal-future { color: var(--muted); font-size: 10.5px; }
-.hcal-score { font-size: 10px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 1px; }
+.hcal-cell .hcal-future { color: var(--muted); font-size: 9.5px; }
+.hcal-score { font-size: 8.5px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 1px; white-space: nowrap; }
 .hcal-cell.win .hcal-score, .hcal-cell.loss .hcal-score { color: #fff; }
 .next-game { background: var(--card); border: 1.5px solid var(--line); border-radius: 18px; padding: 18px; margin-top: 14px; }
 .ng-label { color: var(--muted); font-size: 12px; text-align: center; letter-spacing: 1px; }
@@ -594,7 +594,7 @@ body {
 /* 赛程详情弹窗 */
 .sch-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .sch-modal-mask { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
-.sch-modal-body { position: relative; background: var(--card); border-radius: 16px; padding: 20px; width: 100%; max-width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+.sch-modal-body { position: relative; background: var(--card); border-radius: 16px; padding: 20px; width: 100%; max-width: 360px; max-height: 85vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
 .sch-modal-head { text-align: center; margin-bottom: 16px; }
 .sch-modal-date { font-size: 18px; font-weight: 800; color: var(--gold); }
 .sch-modal-game { font-size: 12px; color: var(--muted); margin-top: 2px; }
@@ -610,6 +610,15 @@ body {
 .sch-q-table th { color: var(--muted); font-size: 11px; }
 .sch-q-label { color: var(--muted); }
 .sch-q-total td { font-size: 15px; border-bottom: none; }
+/* 球员数据统计表 */
+.sch-box { margin-bottom: 14px; }
+.sch-box-team { margin-bottom: 10px; }
+.sch-box-label { font-size: 12px; font-weight: 800; color: var(--gold); margin-bottom: 4px; padding-left: 2px; }
+.sch-box-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.sch-box-table th, .sch-box-table td { padding: 4px 3px; text-align: center; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.sch-box-table th { color: var(--muted); font-size: 10px; font-weight: 700; }
+.sch-box-table th:first-child, .sch-box-table td:first-child { text-align: left; padding-left: 6px; }
+.sch-box-table col.player { width: 38%; }
 .sch-modal-result { text-align: center; font-size: 16px; font-weight: 800; margin-bottom: 14px; }
 .sch-modal-result.win { color: #2d8a5a; }
 .sch-modal-result.loss { color: #c0392b; }
