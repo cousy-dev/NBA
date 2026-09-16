@@ -1670,7 +1670,6 @@ RENDERERS.hub = function () {
     "  <div><b>" + mine.length + '</b><span>球员</span></div>' +
     "</div>" +
     '<div class="hub-nav"><button class="mc-btn" id="btn-standings">联盟排名</button>' +
-    '<button class="mc-btn" id="btn-schedule">赛程战报</button>' +
     (save.playoffs ? '<button class="mc-btn" id="btn-playoff">季后赛对阵图</button>' : "") +
     (save.tradeDeadlinePassed
       ? '<button class="mc-btn disabled" disabled>交易截止</button>'
@@ -1877,7 +1876,7 @@ function quickSimGame() {
     return;
   }
   if (save.playoffs && save.playoffs.done) { go("seasonend"); return; }
-  RENDERERS.hub(); activate("hub");
+  RENDERERS.hub(); activate("hub", true);
 }
 /* 连模拟 N 场（最快速度，无 toast） */
 function quickSimBatch(n) {
@@ -1908,7 +1907,7 @@ function quickSimBatch(n) {
     return;
   }
   if (save.playoffs && save.playoffs.done) { go("seasonend"); return; }
-  RENDERERS.hub(); activate("hub");
+  RENDERERS.hub(); activate("hub", true);
 }
 /* 完场结算：数据累计 + 战绩/排名 + 联盟轮次 + 季后赛推进 + 伤病 */
 function completeGame(sim, win) {
@@ -2481,9 +2480,18 @@ function openScheduleModal(i) {
     boxHtml +
     '<div class="sch-modal-result ' + (win ? "win" : "loss") + '">' + (g.result ? (win ? "🎉 胜利" : "😞 失利") : "⏳ 未开赛") + '</div>' +
     '<button class="btn btn-outline" id="sch-modal-close">关闭</button>';
-  document.getElementById("sch-modal").style.display = "flex";
-  $("#sch-modal-close").onclick = () => { document.getElementById("sch-modal").style.display = "none"; };
-  document.querySelector("#sch-modal .sch-modal-mask").onclick = () => { document.getElementById("sch-modal").style.display = "none"; };
+  /* 确保弹窗 DOM 存在（经理室日历也会调用，赛程页可能未渲染） */
+  let modal = document.getElementById("sch-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "sch-modal";
+    modal.className = "sch-modal";
+    modal.innerHTML = '<div class="sch-modal-mask"></div><div class="sch-modal-body" id="sch-modal-body"></div>';
+    document.body.appendChild(modal);
+  }
+  modal.style.display = "flex";
+  $("#sch-modal-close").onclick = () => { modal.style.display = "none"; };
+  modal.querySelector(".sch-modal-mask").onclick = () => { modal.style.display = "none"; };
 }
 
 /* 赛程日历当前查看的月份（跨渲染保留） */
