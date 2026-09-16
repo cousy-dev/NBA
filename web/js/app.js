@@ -1523,7 +1523,11 @@ RENDERERS.hub = function () {
       '<div class="ng-meta">本赛季：' + esc(save.playoffs.userResult || "") + "</div>" +
       '<button class="btn btn-primary" id="btn-seasonend">查看赛季总结</button></div>';
   } else if (!gi) {
-    gameHtml = '<div class="next-game"><div class="ng-label">暂无比赛安排</div></div>';
+    if (save.playoffs && !save.playoffs.done) {
+      gameHtml = '<div class="next-game"><div class="ng-label">你已被淘汰，关注剩余季后赛</div></div>';
+    } else {
+      gameHtml = '<div class="next-game"><div class="ng-label">暂无比赛安排</div></div>';
+    }
   } else if (gi.playoff) {
     /* 季后赛保持原样式 */
     const oppStr = teamStrength(gi.opp).toFixed(1);
@@ -1624,6 +1628,16 @@ RENDERERS.hub = function () {
       "</div>";
   }
 
+  /* 季后赛对阵图（嵌入经理室） */
+  let bracketHtml = "";
+  let bracketRefs = {};
+  if (save.playoffs) {
+    if (typeof syncUserSeries === "function") syncUserSeries(save);
+    const bk = buildPlayoffBracket(save, playoffTab);
+    bracketRefs = bk.seriesByRef;
+    bracketHtml = '<div class="hub-bracket"><h3 class="section-h">季后赛对阵图</h3>' + bk.html + '</div>';
+  }
+
   /* 队内得分领袖 */
   const leaders = mine.map(x => ({ x, ps: save.playerStats[x.p.id] }))
     .filter(o => o.ps && o.ps.g > 0)
@@ -1670,7 +1684,6 @@ RENDERERS.hub = function () {
     "  <div><b>" + mine.length + '</b><span>球员</span></div>' +
     "</div>" +
     '<div class="hub-nav"><button class="mc-btn" id="btn-standings">联盟排名</button>' +
-    (save.playoffs ? '<button class="mc-btn" id="btn-playoff">季后赛对阵图</button>' : "") +
     (save.tradeDeadlinePassed
       ? '<button class="mc-btn disabled" disabled>交易截止</button>'
       : '<button class="mc-btn" id="btn-trade">交易中心</button>' +
@@ -1681,7 +1694,7 @@ RENDERERS.hub = function () {
     '<button class="mc-btn" id="btn-awards">奖项追踪</button>' +
     '<button class="mc-btn" id="btn-retired">退役球员</button>' +
     '<button class="mc-btn" id="btn-hof">名人堂</button></div>' +
-    gameHtml + leadersHtml +
+    gameHtml + bracketHtml + leadersHtml +
     '<h3 class="section-h">球队阵容</h3>' +
     '<div class="roster-table" id="hub-roster">' +
     mine.sort((a, b) => b.p.ovr - a.p.ovr).map((x, i) => {
@@ -1748,8 +1761,6 @@ RENDERERS.hub = function () {
   if (bts) bts.onclick = () => go("trade-search");
   const be = $("#btn-extend");
   if (be) be.onclick = () => go("extend");
-  const bpo = $("#btn-playoff");
-  if (bpo) bpo.onclick = () => go("playoff");
   const ba = $("#btn-awards");
   if (ba) ba.onclick = () => go("awards");
   const bco = $("#btn-coach");
@@ -1762,6 +1773,16 @@ RENDERERS.hub = function () {
   if (bh) bh.onclick = () => go("hof");
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
+  /* 经理室季后赛对阵图交互 */
+  $$("#screen-hub .po-tab").forEach(tab => {
+    tab.onclick = () => { playoffTab = tab.dataset.tab; RENDERERS.hub(); };
+  });
+  $$("#screen-hub .br-series[data-ref]").forEach(card => {
+    card.onclick = () => {
+      const ser = bracketRefs[card.dataset.ref];
+      if (ser) openSeriesModal(ser, card.dataset.round);
+    };
+  });
   $("#btn-quit").onclick = () => {
     /* 返回主菜单但保留存档（多槽位，删除在开始页单独操作） */
     if (state.save) writeSave(state.save);
@@ -2722,38 +2743,23 @@ RENDERERS.hof = function () {
   $$("#screen-hof .r-row[data-id]").forEach(row => { row.onclick = () => openPlayer(Number(row.dataset.id)); });
 };
 
-/* ===== 季后赛树状对阵图 ===== */
-RENDERERS.playoff = function () {
-  const save = state.save;
-  if (!save || !save.playoffs) { back(); return; }
-  /* 重建 userSeries 对象引用（JSON 序列化后引用丢失，导致 === 比较失败） */
-  if (typeof syncUserSeries === "function") syncUserSeries(save);
+/* ===== 季后赛对阵图共享渲染（经理室 & 对阵图页共用） ===== */
+function buildPlayoffBracket(save, viewMode) {
   const ps = save.playoffs;
+  if (!ps) return { html: "", seriesByRef: {} };
   const my = myAbbr(save);
-  const teamShort = abbr => {
-    const t = TEAMS.find(x => x.abbr === abbr);
-    return t ? t.nameCn : abbr;
-  };
+  const teamShort = abbr => { const t = TEAMS.find(x => x.abbr === abbr); return t ? t.nameCn : abbr; };
   const logo = abbr => abbr ? teamLogoHtml(abbr) : "";
-  /* 系列赛卡片：双方球队 + 比分 + 晋级标记 */
+  const rounds = ps.rounds;
   const seriesCard = (s, isUserInvolved, ref, roundName) => {
     if (!s) return '<div class="br-empty"></div>';
     const aWin = s.winner === s.a, bWin = s.winner === s.b;
     const userA = s.a === my, userB = s.b === my;
     const myWon = s.done && s.winner === my;
     const myLost = s.done && (s.a === my || s.b === my) && s.winner !== my;
-    /* 用户当前进行中的系列赛：可点击进入比赛模拟 */
     const isUserActive = !s.done && isUserInvolved && ps.userSeries === s;
-    const gameNo = isUserActive ? (s.wa + s.wb + 1) : 0;
-    const actionHtml = isUserActive
-      ? '<div class="br-action">' +
-        '<button class="br-btn-play" data-action="play">▶ 进入比赛 G' + gameNo + '</button>' +
-        '<button class="br-btn-quick" data-action="quick">快速模拟</button>' +
-        '</div>'
-      : "";
     return '<div class="br-series br-clickable' + (isUserInvolved ? " mine" : "") + (myWon ? " won" : "") + (myLost ? " lost" : "") + (s.done ? " done" : "") + (isUserActive ? " active" : "") + '"' +
-      ' data-ref="' + (ref || "") + '" data-round="' + esc(roundName || "") + '"' +
-      (isUserActive ? ' data-series-active="1"' : "") + '>' +
+      ' data-ref="' + (ref || "") + '" data-round="' + esc(roundName || "") + '">' +
       '<div class="br-team' + (aWin ? " adv" : "") + (userA ? " me" : "") + '">' +
         '<span class="br-seed">' + (s.seedA || "") + '</span>' +
         '<span class="br-logo">' + logo(s.a) + '</span>' +
@@ -2766,13 +2772,8 @@ RENDERERS.playoff = function () {
         '<span class="br-tname">' + esc(teamShort(s.b)) + '</span>' +
         '<span class="br-score' + (bWin ? " win" : "") + '">' + (s.wb || 0) + '</span>' +
       '</div>' +
-      actionHtml +
       '</div>';
   };
-  /* 计算每个系列在所属分部树中的轮次索引 */
-  const rounds = ps.rounds;
-  const curRound = ps.round;
-  /* 东部 bracket 列：R1(8 队→4 系列) | R2(2 系列) | R3(1 系列，分区冠军) */
   const eastR1 = rounds[0] ? rounds[0].E : [];
   const eastR2 = rounds[1] ? rounds[1].E : [];
   const eastR3 = rounds[2] ? rounds[2].E : [];
@@ -2780,15 +2781,6 @@ RENDERERS.playoff = function () {
   const westR2 = rounds[1] ? rounds[1].W : [];
   const westR3 = rounds[2] ? rounds[2].W : [];
   const finalRound = rounds[3] ? rounds[3].E[0] : null;
-  /* 渲染一列系列赛（垂直堆叠） */
-  const renderColumn = (seriesList, isUserInvolvedFn) => {
-    if (!seriesList || seriesList.length === 0) {
-      /* 空列占位（保持网格对齐） */
-      return '<div class="br-col">' + Array(4).fill('<div class="br-empty"></div>').join("") + '</div>';
-    }
-    return '<div class="br-col">' + seriesList.map(s => seriesCard(s, isUserInvolvedFn ? isUserInvolvedFn(s) : false)).join("") + '</div>';
-  };
-  /* 单分部 bracket（东或西） */
   const renderConf = (r1, r2, r3, label, conf) => {
     const userInSeries = s => s && (s.a === my || s.b === my);
     const r1Name = rounds[0] ? rounds[0].name : "";
@@ -2800,26 +2792,77 @@ RENDERERS.playoff = function () {
         '<div class="br-col">' + (r1.length ? r1.map((s, i) => seriesCard(s, userInSeries(s), "r0-" + conf + "-" + i, r1Name)).join("") : Array(4).fill('<div class="br-empty"></div>').join("")) + '</div>' +
         '<div class="br-col">' + (r2.length ? r2.map((s, i) => seriesCard(s, userInSeries(s), "r1-" + conf + "-" + i, r2Name)).join("") : Array(2).fill('<div class="br-empty"></div>').join("")) + '</div>' +
         '<div class="br-col">' + (r3.length ? r3.map((s, i) => seriesCard(s, userInSeries(s), "r2-" + conf + "-" + i, r3Name)).join("") : '<div class="br-empty"></div>') + '</div>' +
-      '</div>' +
-    '</div>';
+      '</div></div>';
   };
-  /* 总决赛列 */
   const finalName = rounds[3] ? rounds[3].name : "";
   const finalHtml = finalRound
     ? '<div class="br-col br-final">' + seriesCard(finalRound, finalRound && (finalRound.a === my || finalRound.b === my), "r3-E-0", finalName) + '</div>'
     : '<div class="br-col br-final"><div class="br-empty"></div></div>';
-  /* 冠军区 */
   const champHtml = ps.done && ps.champion
     ? '<div class="br-col br-champ"><div class="br-champion' + (ps.champion === my ? " mine" : "") + '">' +
       '<div class="br-trophy">🏆</div>' +
       '<div class="br-logo">' + logo(ps.champion) + '</div>' +
       '<div class="br-tname">' + esc(teamShort(ps.champion)) + '</div>' +
-      '<div class="br-clabel">' + (ps.champion === my ? "你夺冠了！" : "总冠军") + '</div>' +
-      '</div></div>'
+      '<div class="br-clabel">' + (ps.champion === my ? "你夺冠了！" : "总冠军") + '</div></div></div>'
     : '<div class="br-col br-champ"><div class="br-empty"></div></div>';
-  /* 当前轮次提示 */
+  const roundLabels = ['<div class="br-round-label">首轮</div>',
+    '<div class="br-round-label">分区半决赛</div>', '<div class="br-round-label">分区决赛</div>',
+    '<div class="br-round-label">总决赛</div>', '<div class="br-round-label">冠军</div>'].join("");
+  /* 轮次标签 */
+  const tabDefs = [
+    { key: "bracket", label: "对阵图" },
+    { key: "r0", label: rounds[0] ? rounds[0].name : "首轮" },
+    { key: "r1", label: rounds[1] ? rounds[1].name : "半决赛" },
+    { key: "r2", label: rounds[2] ? rounds[2].name : "分区决赛" },
+    { key: "r3", label: rounds[3] ? rounds[3].name : "总决赛" }
+  ];
+  if (typeof playoffTab === "undefined") playoffTab = "bracket";
+  const tabsHtml = '<div class="po-tabs">' + tabDefs.map(t =>
+    '<button class="po-tab' + (playoffTab === t.key ? " active" : "") + '" data-tab="' + t.key + '">' + t.label + '</button>'
+  ).join("") + '</div>';
+  /* ref → 系列赛查找表 */
+  const seriesByRef = {};
+  rounds.forEach((rnd, ri) => {
+    if (!rnd) return;
+    ["E", "W"].forEach(c => { (rnd[c] || []).forEach((s, si) => { seriesByRef["r" + ri + "-" + c + "-" + si] = s; }); });
+  });
+  /* 单轮视图 */
+  let roundViewHtml = "";
+  if (viewMode !== "bracket") {
+    const ri = Number(viewMode[1]);
+    const rnd = rounds[ri];
+    if (rnd) {
+      const list = (rnd.E || []).concat(rnd.W || []);
+      const userInSeries = s => s && (s.a === my || s.b === my);
+      roundViewHtml = '<div class="po-round-grid">' + list.map((s, i) => {
+        const conf = i < (rnd.E || []).length ? "E" : "W";
+        const idx = i < (rnd.E || []).length ? i : i - (rnd.E || []).length;
+        return seriesCard(s, userInSeries(s), "r" + ri + "-" + conf + "-" + idx, rnd.name);
+      }).join("") + '</div>';
+    } else {
+      roundViewHtml = '<div class="po-empty">该轮尚未开始</div>';
+    }
+  }
+  const mainHtml = viewMode === "bracket"
+    ? ('<div class="br-scroll"><div class="br-round-labels">' + roundLabels + '</div><div class="br-main">' +
+      renderConf(eastR1, eastR2, eastR3, "东部", "E") + '<div class="br-divider"></div>' +
+      renderConf(westR1, westR2, westR3, "西部", "W") + '<div class="br-divider"></div>' +
+      finalHtml + champHtml + '</div></div>')
+    : roundViewHtml;
+  return { html: tabsHtml + mainHtml, seriesByRef };
+}
+
+/* ===== 季后赛树状对阵图 ===== */
+RENDERERS.playoff = function () {
+  const save = state.save;
+  if (!save || !save.playoffs) { back(); return; }
+  if (typeof syncUserSeries === "function") syncUserSeries(save);
+  const ps = save.playoffs;
+  const my = myAbbr(save);
+  const teamShort = abbr => { const t = TEAMS.find(x => x.abbr === abbr); return t ? t.nameCn : abbr; };
+  const curRound = ps.round;
+  const rounds = ps.rounds;
   const curRoundName = ps.done ? "季后赛已结束" : (rounds[curRound] ? rounds[curRound].name + " 进行中" : "季后赛");
-  /* 用户系列赛进度提示 */
   let userSeriesHtml = "";
   if (ps.userSeries && !ps.userSeries.done) {
     const opp = ps.userSeries.a === my ? ps.userSeries.b : ps.userSeries.a;
@@ -2831,65 +2874,12 @@ RENDERERS.playoff = function () {
   } else if (ps.userResult) {
     userSeriesHtml = '<div class="br-user-series">本赛季季后赛结果：' + esc(ps.userResult) + '</div>';
   }
-  /* 横向 5 轮标签 */
-  const roundLabels = ['<div class="br-round-label">首轮</div>',
-    '<div class="br-round-label">分区半决赛</div>',
-    '<div class="br-round-label">分区决赛</div>',
-    '<div class="br-round-label">总决赛</div>',
-    '<div class="br-round-label">冠军</div>'].join("");
-
-  /* 轮次切换标签 */
-  const tabDefs = [
-    { key: "bracket", label: "对阵图" },
-    { key: "r0", label: rounds[0] ? rounds[0].name : "首轮" },
-    { key: "r1", label: rounds[1] ? rounds[1].name : "半决赛" },
-    { key: "r2", label: rounds[2] ? rounds[2].name : "分区决赛" },
-    { key: "r3", label: rounds[3] ? rounds[3].name : "总决赛" }
-  ];
-  const tabsHtml = '<div class="po-tabs">' + tabDefs.map(t =>
-    '<button class="po-tab' + (playoffTab === t.key ? " active" : "") + '" data-tab="' + t.key + '">' + t.label + '</button>'
-  ).join("") + '</div>';
-  /* 构建 ref → 系列赛对象 的查找表 */
-  const seriesByRef = {};
-  rounds.forEach((rnd, ri) => {
-    if (!rnd) return;
-    ["E", "W"].forEach(c => {
-      (rnd[c] || []).forEach((s, si) => { seriesByRef["r" + ri + "-" + c + "-" + si] = s; });
-    });
-  });
-  /* 单轮视图：把该轮所有系列赛平铺成网格 */
-  const roundViewHtml = (() => {
-    if (playoffTab === "bracket") return "";
-    const ri = Number(playoffTab[1]);
-    const rnd = rounds[ri];
-    if (!rnd) return '<div class="po-empty">该轮尚未开始</div>';
-    const list = (rnd.E || []).concat(rnd.W || []);
-    const userInSeries = s => s && (s.a === my || s.b === my);
-    return '<div class="po-round-grid">' + list.map((s, i) => {
-      const conf = i < (rnd.E || []).length ? "E" : "W";
-      const idx = i < (rnd.E || []).length ? i : i - (rnd.E || []).length;
-      return seriesCard(s, userInSeries(s), "r" + ri + "-" + conf + "-" + idx, rnd.name);
-    }).join("") + '</div>';
-  })();
-
+  const bracket = buildPlayoffBracket(save, playoffTab);
   $("#screen-playoff").innerHTML =
     '<h2 class="screen-title">季后赛对阵图</h2>' +
     '<p class="screen-sub">第 ' + save.seasonNo + ' 赛季 · ' + curRoundName + '</p>' +
     userSeriesHtml +
-    tabsHtml +
-    (playoffTab === "bracket"
-      ? ('<div class="br-scroll">' +
-        '<div class="br-round-labels">' + roundLabels + '</div>' +
-        '<div class="br-main">' +
-          renderConf(eastR1, eastR2, eastR3, "东部", "E") +
-          '<div class="br-divider"></div>' +
-          renderConf(westR1, westR2, westR3, "西部", "W") +
-          '<div class="br-divider"></div>' +
-          finalHtml +
-          champHtml +
-        '</div>' +
-        '</div>')
-      : roundViewHtml) +
+    bracket.html +
     '<div class="br-legend">' +
       '<span class="lg-item"><span class="lg-dot me"></span>你的球队</span>' +
       '<span class="lg-item"><span class="lg-dot won"></span>系列赛获胜</span>' +
@@ -2903,34 +2893,9 @@ RENDERERS.playoff = function () {
   });
   /* 系列赛卡片点击 → 查看每场比分 */
   $$("#screen-playoff .br-series[data-ref]").forEach(card => {
-    card.onclick = e => {
-      /* 点击比赛按钮时不触发弹窗 */
-      if (e.target.closest(".br-action")) return;
-      const ref = card.dataset.ref;
-      const ser = seriesByRef[ref];
+    card.onclick = () => {
+      const ser = bracket.seriesByRef[card.dataset.ref];
       if (ser) openSeriesModal(ser, card.dataset.round);
-    };
-  });
-  /* 绑定比赛模拟按钮：进入比赛 / 快速模拟 */
-  $$("#screen-playoff .br-btn-play").forEach(btn => {
-    btn.onclick = e => {
-      e.stopPropagation();
-      /* 检查季后赛是否已结束（用户被淘汰后 AI 自动模拟到冠军） */
-      if (save.playoffs.done) { toast("季后赛已结束"); return; }
-      const gi = currentGame(save);
-      if (!gi) { toast("当前无可进行的系列赛"); return; }
-      startMatch(false);
-    };
-  });
-  $$("#screen-playoff .br-btn-quick").forEach(btn => {
-    btn.onclick = e => {
-      e.stopPropagation();
-      if (save.playoffs.done) { toast("季后赛已结束"); return; }
-      const gi = currentGame(save);
-      if (!gi) { toast("当前无可进行的系列赛"); return; }
-      startMatch(true);
-      /* 快速模拟后刷新对阵图（系列赛比分/状态可能已更新） */
-      RENDERERS.playoff();
     };
   });
   $("#po-back").onclick = () => back();
