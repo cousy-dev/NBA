@@ -394,7 +394,7 @@ function buildPlayoffs(save) {
     const pairs = [[0, 7], [3, 4], [2, 5], [1, 6]]; // 1v8 4v5 3v6 2v7
     pairs.forEach(([hi, lo]) => series.push({
       a: list[hi].abbr, b: list[lo].abbr, seedA: list[hi].seed, seedB: list[lo].seed,
-      wa: 0, wb: 0, done: false, winner: null
+      wa: 0, wb: 0, done: false, winner: null, games: []
     }));
     return series;
   };
@@ -434,16 +434,28 @@ function findUserSeries(save) {
 function resolveSeriesAI(ser) {
   const sA = teamStrength(ser.a), sB = teamStrength(ser.b);
   const pat = [1, 1, 0, 0, 1, 0, 1];
+  if (!ser.games) ser.games = [];
   for (let g = 0; g < 7; g++) {
     const p = winProb(sA, sB, pat[g] === 1);
-    if (Math.random() < p) { ser.wa++; if (ser.wa >= 4) break; } else { ser.wb++; if (ser.wb >= 4) break; }
+    const aWins = Math.random() < p;
+    if (aWins) ser.wa++; else ser.wb++;
+    ser.games.push({ home: pat[g] === 1, score: simGameScore(sA, sB, aWins), aWin: aWins });
+    if (ser.wa >= 4 || ser.wb >= 4) break;
   }
   ser.done = true;
   ser.winner = ser.wa >= 4 ? ser.a : ser.b;
 }
 function winnerSeed(ser) { return ser.winner === ser.a ? ser.seedA : ser.seedB; }
 function mkSer(s1, s2) {
-  return { a: s1.winner, b: s2.winner, seedA: winnerSeed(s1), seedB: winnerSeed(s2), wa: 0, wb: 0, done: false, winner: null };
+  return { a: s1.winner, b: s2.winner, seedA: winnerSeed(s1), seedB: winnerSeed(s2), wa: 0, wb: 0, done: false, winner: null, games: [] };
+}
+/* AI 单场比分模拟：基于两队实力生成合理分数 */
+function simGameScore(sA, sB, aWins) {
+  const base = 108 + (sA + sB) * 0.25;
+  const diff = (sA - sB) * 1.2 + (aWins ? 4 : -4);
+  const a = Math.round(base + diff / 2 + (Math.random() - 0.5) * 14);
+  const b = Math.round(base - diff / 2 + (Math.random() - 0.5) * 14);
+  return aWins ? [Math.max(a, b + 1), Math.min(b, a - 1)] : [Math.min(a, b - 1), Math.max(b, a + 1)];
 }
 /* 该轮全部系列结束 → 生成下一轮；总决赛结束 → 冠军 */
 function advancePlayoffs(save) {

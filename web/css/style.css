@@ -848,9 +848,10 @@ body {
 .br-series.done .br-team:not(.adv) { opacity: 0.55; }
 .br-series.done .br-tname { text-decoration: line-through; color: var(--muted); }
 
-/* 可点击的进行中系列赛 */
-.br-series.clickable { cursor: pointer; }
-.br-series.clickable:hover { border-color: var(--gold); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(168,31,46,0.2); }
+/* 可点击的系列赛卡片 */
+.br-series.br-clickable { cursor: pointer; }
+.br-series.br-clickable:hover { border-color: var(--gold); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(168,31,46,0.2); }
+.br-series.active { box-shadow: 0 0 0 2px var(--gold); }
 .br-action { display: flex; gap: 4px; padding: 4px 6px; border-top: 1px solid var(--line); background: var(--card2); }
 .br-btn-play, .br-btn-quick { flex: 1; border: none; border-radius: 4px; padding: 4px 6px; font-size: 10.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
 .br-btn-play { background: var(--gold); color: #fff; }
@@ -879,6 +880,35 @@ body {
 .lg-dot.won { background: #2ecc71; }
 .lg-dot.lost { background: #e74c3c; }
 .lg-dot.pending { background: var(--line); }
+
+/* ===== 季后赛轮次切换标签 ===== */
+.po-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 14px; justify-content: center; }
+.po-tab { border: 1px solid var(--line); background: var(--card); color: var(--muted); padding: 6px 12px; border-radius: 16px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+.po-tab.active { background: var(--gold); color: #fff; border-color: var(--gold); }
+.po-tab:not(.active):hover { border-color: var(--gold); color: var(--gold); }
+
+/* ===== 单轮视图网格 ===== */
+.po-round-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.po-empty { text-align: center; color: var(--muted); padding: 30px 0; font-size: 14px; }
+
+/* ===== 季后赛系列赛详情弹窗 ===== */
+.po-total { display: flex; align-items: center; justify-content: space-around; background: var(--card2); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+.po-total-team { display: flex; flex-direction: column; align-items: center; font-size: 13px; font-weight: 700; color: var(--muted); }
+.po-total-team b { font-size: 24px; color: var(--text); margin-top: 2px; }
+.po-total-team.win { color: var(--gold); }
+.po-total-team.win b { color: var(--gold); }
+.po-total-vs { font-size: 14px; font-weight: 800; color: var(--muted); }
+.po-games { margin-bottom: 12px; }
+.po-game-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); cursor: default; transition: background 0.15s; }
+.po-game-row:hover { background: var(--card2); }
+.po-game-row:has(.po-game-detail) { cursor: pointer; }
+.po-game-no { font-size: 11px; font-weight: 800; color: var(--muted); min-width: 24px; }
+.po-game-team { flex: 1; font-size: 12px; font-weight: 600; color: var(--muted); }
+.po-game-team.win { color: var(--text); font-weight: 800; }
+.po-game-score { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--muted); min-width: 26px; text-align: center; }
+.po-game-score.win { color: #2ecc71; }
+.po-game-dash { color: var(--muted); font-size: 12px; }
+.po-game-detail { font-size: 12px; color: var(--gold); margin-left: 4px; }
 
 /* 手机端：保持横向滚动，缩小列宽 */
 @media (max-width: 560px) {
