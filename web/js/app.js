@@ -2432,6 +2432,16 @@ function openScheduleModal(i) {
   const save = state.save;
   const g = save.schedule[i];
   if (!g) return;
+  /* 确保弹窗 DOM 存在（经理室日历也会调用，赛程页可能未渲染） */
+  let modal = document.getElementById("sch-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "sch-modal";
+    modal.className = "sch-modal";
+    modal.innerHTML = '<div class="sch-modal-mask"></div><div class="sch-modal-body" id="sch-modal-body"></div>';
+    document.body.appendChild(modal);
+  }
+  const body = document.getElementById("sch-modal-body");
   const dates = save.seasonDates && save.seasonDates[save.seasonNo];
   const d = dates ? dates[i] : "";
   const win = g.result === "W";
@@ -2480,15 +2490,6 @@ function openScheduleModal(i) {
     boxHtml +
     '<div class="sch-modal-result ' + (win ? "win" : "loss") + '">' + (g.result ? (win ? "🎉 胜利" : "😞 失利") : "⏳ 未开赛") + '</div>' +
     '<button class="btn btn-outline" id="sch-modal-close">关闭</button>';
-  /* 确保弹窗 DOM 存在（经理室日历也会调用，赛程页可能未渲染） */
-  let modal = document.getElementById("sch-modal");
-  if (!modal) {
-    modal = document.createElement("div");
-    modal.id = "sch-modal";
-    modal.className = "sch-modal";
-    modal.innerHTML = '<div class="sch-modal-mask"></div><div class="sch-modal-body" id="sch-modal-body"></div>';
-    document.body.appendChild(modal);
-  }
   modal.style.display = "flex";
   $("#sch-modal-close").onclick = () => { modal.style.display = "none"; };
   modal.querySelector(".sch-modal-mask").onclick = () => { modal.style.display = "none"; };
