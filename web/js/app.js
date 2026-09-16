@@ -2455,7 +2455,6 @@ function openScheduleModal(i) {
       return '<tr><td class="sch-q-label">' + qLabels[qi] + '</td><td>' + single[0] + '</td><td>' + single[1] + '</td></tr>';
     }).join("");
   }
-  const body = document.getElementById("sch-modal-body");
   /* 球员数据（双方技术统计） */
   let boxHtml = "";
   if (g.box && (g.box.my.length || g.box.opp.length)) {
