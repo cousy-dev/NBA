@@ -95,6 +95,18 @@ function addDays(m, d, n) {
 function formatDate(m, d) {
   return m + "月" + d + "日";
 }
+/* 赛季起始年份：第 1 赛季 = 2026-27 赛季（10月开打） */
+const SEASON_START_YEAR = 2026;
+/* 解析 "M月D日" 字符串 */
+function parseSeasonDate(s) {
+  const m = String(s || "").match(/^(\d+)月(\d+)日$/);
+  return m ? { month: Number(m[1]), day: Number(m[2]) } : null;
+}
+/* 根据月份推算该场比赛所在的公历年（10-12月=赛季元年，1-4月=次年） */
+function seasonYearForMonth(save, month) {
+  const base = SEASON_START_YEAR + save.seasonNo - 1;
+  return month >= 10 ? base : base + 1;
+}
 /* 当前比赛日期（save.gameNo 是第几场，0-indexed） */
 function currentGameDate(save) {
   if (save.playoffs && save.playoffs.games) return null; /* 季后赛不用 */

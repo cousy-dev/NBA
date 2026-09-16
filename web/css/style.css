@@ -541,21 +541,42 @@ body {
 .st-logo img { width: 100%; height: 100%; object-fit: contain; }
 
 /* 赛程战报 */
-/* 赛程点阵 */
+/* 战绩摘要 */
 .sch-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
 .sch-sum-item { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px; text-align: center; }
 .sch-sum-item b { display: block; font-size: 16px; font-weight: 800; color: var(--gold); }
 .sch-sum-item span { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
-.sch-legend { display: flex; gap: 14px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
-.sch-legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
-.sch-legend-item i.sch-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; cursor: default; font-size: 0; }
-.sch-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; padding-bottom: 20px; }
-.sch-dot { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; border-radius: 7px; cursor: pointer; transition: transform .12s; background: var(--card); border: 1.5px solid var(--line); color: var(--muted); }
-.sch-dot:hover { transform: scale(1.08); }
-.sch-dot.win { background: #2d8a5a; border-color: #2d8a5a; color: #fff; }
-.sch-dot.loss { background: #c0392b; border-color: #c0392b; color: #fff; }
-.sch-dot.next { background: var(--gold); border-color: var(--gold); color: #fff; animation: sch-pulse 1.2s ease-in-out infinite; }
-.sch-dot.future { background: transparent; border: 1.5px dashed var(--line); }
+/* 月历 */
+.cal { margin: 12px 0 20px; }
+.cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-nav-btn { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); font-size: 20px; font-weight: 800; color: var(--gold); cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; }
+.cal-nav-btn:active { background: var(--card2); transform: scale(.94); }
+.cal-title { font-size: 17px; font-weight: 800; color: var(--gold); letter-spacing: .5px; }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 4px; }
+.cal-weekdays > div { text-align: center; font-size: 11px; color: var(--muted); font-weight: 700; padding: 4px 0; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-cell { background: var(--card); border: 1px solid var(--line); border-radius: 6px; min-height: 54px; padding: 3px; position: relative; overflow: hidden; }
+.cal-cell.cal-empty { background: transparent; border: none; min-height: 0; }
+.cal-cell.today { border-color: var(--gold); border-width: 1.5px; box-shadow: 0 0 0 1px rgba(168,31,46,.18) inset; }
+.cal-day { font-size: 10px; color: var(--muted); font-weight: 700; margin-bottom: 2px; line-height: 1; }
+.cal-cell.today .cal-day { color: var(--gold); }
+.cal-game { font-size: 9px; padding: 2px 3px; border-radius: 4px; margin-bottom: 2px; cursor: pointer; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-game.win, .cal-game.loss, .cal-game.next { color: #fff; font-weight: 700; }
+.cal-game.win { background: #2d8a5a; }
+.cal-game.loss { background: #c0392b; }
+.cal-game.next { background: var(--gold); animation: sch-pulse 1.2s ease-in-out infinite; }
+.cal-game.future { color: var(--muted); border: 1px dashed var(--line); background: var(--card2); font-weight: 600; }
+.cal-game-opp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-game-score { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 9.5px; }
+.cal-legend { display: flex; gap: 12px; justify-content: center; margin: 12px 0 8px; flex-wrap: wrap; }
+.cal-leg-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.cal-leg-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.cal-leg-dot.win { background: #2d8a5a; }
+.cal-leg-dot.loss { background: #c0392b; }
+.cal-leg-dot.next { background: var(--gold); }
+.cal-leg-dot.future { background: transparent; border: 1.5px dashed var(--line); }
+.cal-today-btn { width: 100%; margin-top: 6px; padding: 10px; border: 1px solid var(--line); background: var(--card); border-radius: 10px; font-size: 13px; color: var(--gold); font-weight: 700; cursor: pointer; }
+.cal-today-btn:active { background: var(--card2); }
 @keyframes sch-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 /* 赛程详情弹窗 */
 .sch-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }

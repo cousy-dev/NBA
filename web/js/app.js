@@ -2218,11 +2218,10 @@ RENDERERS.schedule = function () {
     }
     if (ps.done) poHtml += '<div class="champ-line">🏆 总冠军：' + esc(teamName(ps.champion)) + "</div>";
   }
-  /* 常规赛点阵 + 战绩摘要 */
+  /* 常规赛战绩摘要 */
   const st = save.standings[my] || { w: 0, l: 0 };
   const gp = st.w + st.l;
   const pct = gp ? ((st.w / gp) * 100).toFixed(1) : "0.0";
-  /* 连胜/连败 */
   let streak = 0, streakType = null;
   for (let i = save.gameNo - 1; i >= 0; i--) {
     const g = save.schedule[i];
@@ -2233,19 +2232,70 @@ RENDERERS.schedule = function () {
   }
   const streakText = streak ? (streakType === "W" ? "连胜 " + streak : "连败 " + streak) : "-";
 
-  const dots = save.schedule.map((g, i) => {
-    let cls = "sch-dot";
-    let title = "第 " + (i + 1) + " 场 · " + (g.home ? "主" : "客") + " vs " + teamName(g.opp);
-    if (g.result) {
-      cls += g.result === "W" ? " win" : " loss";
-      title += " · " + g.score[0] + " - " + g.score[1];
-    } else if (i === save.gameNo) {
-      cls += " next";
-    } else {
-      cls += " future";
-    }
-    return '<div class="' + cls + '" data-idx="' + i + '" title="' + esc(title) + '">' + (i + 1) + "</div>";
-  }).join("");
+  /* ===== 月历视图 ===== */
+  const dates = (save.seasonDates && save.seasonDates[save.seasonNo]) ? save.seasonDates[save.seasonNo] : [];
+  /* 把每场比赛按 M-D 建索引 */
+  const gameByDate = {};
+  dates.forEach((d, i) => {
+    const pd = parseSeasonDate(d);
+    if (!pd) return;
+    const key = pd.month + "-" + pd.day;
+    (gameByDate[key] = gameByDate[key] || []).push(i);
+  });
+
+  /* 当前比赛日期 */
+  const curIdx = Math.min(save.gameNo, (dates.length || 1) - 1);
+  const curDateStr = dates[curIdx] || "";
+  const curPD = parseSeasonDate(curDateStr);
+
+  /* 决定当前查看的月份 */
+  let viewYear, viewMonth;
+  if (scheduleCalView) {
+    viewYear = scheduleCalView.year;
+    viewMonth = scheduleCalView.month;
+  } else if (curPD) {
+    viewMonth = curPD.month;
+    viewYear = seasonYearForMonth(save, curPD.month);
+  } else {
+    viewMonth = 10;
+    viewYear = SEASON_START_YEAR + save.seasonNo - 1;
+  }
+
+  /* 生成日历单元格 */
+  const firstDow = new Date(viewYear, viewMonth - 1, 1).getDay(); /* 0=周日 */
+  const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
+  const WEEKS = ["日", "一", "二", "三", "四", "五", "六"];
+  let cells = "";
+  for (let i = 0; i < firstDow; i++) cells += '<div class="cal-cell cal-empty"></div>';
+  for (let day = 1; day <= daysInMonth; day++) {
+    const key = viewMonth + "-" + day;
+    const gameIdxs = gameByDate[key] || [];
+    let gameHtml = "";
+    gameIdxs.forEach(gi => {
+      const g = save.schedule[gi];
+      if (!g) return;
+      let cls = "cal-game";
+      const prefix = g.home ? "vs" : "@";
+      const opp = teamName(g.opp);
+      if (g.result) {
+        cls += g.result === "W" ? " win" : " loss";
+        gameHtml += '<div class="' + cls + '" data-idx="' + gi + '">' +
+          '<div class="cal-game-opp">' + prefix + " " + esc(opp) + '</div>' +
+          '<div class="cal-game-score">' + g.score[0] + "-" + g.score[1] + '</div></div>';
+      } else if (gi === save.gameNo) {
+        cls += " next";
+        gameHtml += '<div class="' + cls + '" data-idx="' + gi + '">▶ ' + prefix + " " + esc(opp) + '</div>';
+      } else {
+        cls += " future";
+        gameHtml += '<div class="' + cls + '" data-idx="' + gi + '">' + prefix + " " + esc(opp) + '</div>';
+      }
+    });
+    const isToday = curPD && curPD.month === viewMonth && curPD.day === day;
+    cells += '<div class="cal-cell' + (isToday ? " today" : "") + '">' +
+      '<div class="cal-day">' + day + '</div>' + gameHtml + '</div>';
+  }
+
+  const noDates = dates.length === 0;
 
   $("#screen-schedule").innerHTML =
     '<h2 class="screen-title">赛程战报</h2>' +
@@ -2257,65 +2307,100 @@ RENDERERS.schedule = function () {
     '  <div class="sch-sum-item"><b>' + gp + '/' + save.schedule.length + '</b><span>已赛</span></div>' +
     '  <div class="sch-sum-item"><b>' + streakText + '</b><span>近期</span></div>' +
     '</div>' +
-    '<div class="sch-legend">' +
-    '  <span class="sch-legend-item"><i class="sch-dot win"></i>胜</span>' +
-    '  <span class="sch-legend-item"><i class="sch-dot loss"></i>负</span>' +
-    '  <span class="sch-legend-item"><i class="sch-dot next"></i>下一场</span>' +
-    '  <span class="sch-legend-item"><i class="sch-dot future"></i>未赛</span>' +
-    '</div>' +
-    '<div class="sch-grid">' + dots + '</div>' +
+    (noDates ? '<div class="empty-stats">当前存档缺少赛程日期，请开新档以启用日历视图</div>' :
+    '<div class="cal">' +
+    '  <div class="cal-nav">' +
+    '    <button class="cal-nav-btn" id="cal-prev" aria-label="上个月">‹</button>' +
+    '    <div class="cal-title">' + viewYear + " 年 " + viewMonth + " 月</div>" +
+    '    <button class="cal-nav-btn" id="cal-next" aria-label="下个月">›</button>' +
+    '  </div>' +
+    '  <div class="cal-weekdays">' + WEEKS.map(w => '<div>' + w + '</div>').join("") + '</div>' +
+    '  <div class="cal-grid">' + cells + '</div>' +
+    '  <div class="cal-legend">' +
+    '    <span class="cal-leg-item"><i class="cal-leg-dot win"></i>胜</span>' +
+    '    <span class="cal-leg-item"><i class="cal-leg-dot loss"></i>负</span>' +
+    '    <span class="cal-leg-item"><i class="cal-leg-dot next"></i>下一场</span>' +
+    '    <span class="cal-leg-item"><i class="cal-leg-dot future"></i>未赛</span>' +
+    '  </div>' +
+    '  <button class="cal-today-btn" id="cal-today">📍 回到当前比赛</button>' +
+    '</div>') +
     '<div id="sch-modal" class="sch-modal" style="display:none">' +
     '  <div class="sch-modal-mask"></div>' +
     '  <div class="sch-modal-body" id="sch-modal-body"></div>' +
     '</div>';
 
-  /* 绑定点阵点击 */
-  $$("#screen-schedule .sch-dot[data-idx]").forEach(dot => {
-    dot.onclick = () => {
-      const i = Number(dot.dataset.idx);
-      const g = save.schedule[i];
-      if (!g) return;
-      const dates = save.seasonDates && save.seasonDates[save.seasonNo];
-      const d = dates ? dates[i] : "";
-      const win = g.result === "W";
-      /* 计算每节单节得分 */
-      let qRows = "";
-      if (g.quarters && g.quarters.length) {
-        const qLabels = ["Q1", "Q2", "Q3", "Q4"];
-        let prev = [0, 0];
-        qRows = g.quarters.map((qs, qi) => {
-          const single = [qs[0] - prev[0], qs[1] - prev[1]];
-          prev = qs.slice();
-          return '<tr><td class="sch-q-label">' + qLabels[qi] + '</td><td>' + single[0] + '</td><td>' + single[1] + '</td></tr>';
-        }).join("");
-      }
-      const body = document.getElementById("sch-modal-body");
-      body.innerHTML =
-        '<div class="sch-modal-head">' +
-        '  <div class="sch-modal-date">' + esc(d) + '</div>' +
-        '  <div class="sch-modal-game">第 ' + (i + 1) + ' 场 · ' + (g.home ? "主场" : "客场") + '</div>' +
-        '</div>' +
-        '<div class="sch-modal-teams">' +
-        '  <div class="sch-modal-team">' +
-        '    <div class="sch-modal-name">' + esc(save.team.displayName) + '</div>' +
-        '    <div class="sch-modal-score' + (win ? " win" : " loss") + '">' + (g.score ? g.score[0] : "-") + '</div>' +
-        '  </div>' +
-        '  <div class="sch-modal-vs">VS</div>' +
-        '  <div class="sch-modal-team">' +
-        '    <div class="sch-modal-name">' + esc(teamName(g.opp)) + '</div>' +
-        '    <div class="sch-modal-score' + (win ? " loss" : " win") + '">' + (g.score ? g.score[1] : "-") + '</div>' +
-        '  </div>' +
-        '</div>' +
-        (qRows ? '<table class="sch-q-table"><thead><tr><th></th><th>我</th><th>对手</th></tr></thead><tbody>' + qRows +
-          '<tr class="sch-q-total"><td>合计</td><td><b>' + (g.score ? g.score[0] : "-") + '</b></td><td><b>' + (g.score ? g.score[1] : "-") + '</b></td></tr></tbody></table>' : "") +
-        '<div class="sch-modal-result ' + (win ? "win" : "loss") + '">' + (win ? "🎉 胜利" : "😞 失利") + '</div>' +
-        '<button class="btn btn-outline" id="sch-modal-close">关闭</button>';
-      document.getElementById("sch-modal").style.display = "flex";
-      $("#sch-modal-close").onclick = () => { document.getElementById("sch-modal").style.display = "none"; };
-      document.querySelector("#sch-modal .sch-modal-mask").onclick = () => { document.getElementById("sch-modal").style.display = "none"; };
-    };
+  if (noDates) return;
+
+  /* 月份导航 */
+  $("#cal-prev").onclick = () => {
+    let m = viewMonth - 1, y = viewYear;
+    if (m < 1) { m = 12; y--; }
+    scheduleCalView = { year: y, month: m };
+    RENDERERS.schedule();
+  };
+  $("#cal-next").onclick = () => {
+    let m = viewMonth + 1, y = viewYear;
+    if (m > 12) { m = 1; y++; }
+    scheduleCalView = { year: y, month: m };
+    RENDERERS.schedule();
+  };
+  $("#cal-today").onclick = () => {
+    scheduleCalView = null;
+    RENDERERS.schedule();
+  };
+
+  /* 点击比赛格 → 详情弹窗 */
+  $$("#screen-schedule .cal-game[data-idx]").forEach(el => {
+    el.onclick = () => openScheduleModal(Number(el.dataset.idx));
   });
 };
+
+/* 赛程详情弹窗（含 Q1-Q4 节比分） */
+function openScheduleModal(i) {
+  const save = state.save;
+  const g = save.schedule[i];
+  if (!g) return;
+  const dates = save.seasonDates && save.seasonDates[save.seasonNo];
+  const d = dates ? dates[i] : "";
+  const win = g.result === "W";
+  let qRows = "";
+  if (g.quarters && g.quarters.length) {
+    const qLabels = ["Q1", "Q2", "Q3", "Q4"];
+    let prev = [0, 0];
+    qRows = g.quarters.map((qs, qi) => {
+      const single = [qs[0] - prev[0], qs[1] - prev[1]];
+      prev = qs.slice();
+      return '<tr><td class="sch-q-label">' + qLabels[qi] + '</td><td>' + single[0] + '</td><td>' + single[1] + '</td></tr>';
+    }).join("");
+  }
+  const body = document.getElementById("sch-modal-body");
+  body.innerHTML =
+    '<div class="sch-modal-head">' +
+    '  <div class="sch-modal-date">' + esc(d) + '</div>' +
+    '  <div class="sch-modal-game">第 ' + (i + 1) + ' 场 · ' + (g.home ? "主场" : "客场") + '</div>' +
+    '</div>' +
+    '<div class="sch-modal-teams">' +
+    '  <div class="sch-modal-team">' +
+    '    <div class="sch-modal-name">' + esc(save.team.displayName) + '</div>' +
+    '    <div class="sch-modal-score' + (win ? " win" : " loss") + '">' + (g.score ? g.score[0] : "-") + '</div>' +
+    '  </div>' +
+    '  <div class="sch-modal-vs">VS</div>' +
+    '  <div class="sch-modal-team">' +
+    '    <div class="sch-modal-name">' + esc(teamName(g.opp)) + '</div>' +
+    '    <div class="sch-modal-score' + (win ? " loss" : " win") + '">' + (g.score ? g.score[1] : "-") + '</div>' +
+    '  </div>' +
+    '</div>' +
+    (qRows ? '<table class="sch-q-table"><thead><tr><th></th><th>我</th><th>对手</th></tr></thead><tbody>' + qRows +
+      '<tr class="sch-q-total"><td>合计</td><td><b>' + (g.score ? g.score[0] : "-") + '</b></td><td><b>' + (g.score ? g.score[1] : "-") + '</b></td></tr></tbody></table>' : "") +
+    '<div class="sch-modal-result ' + (win ? "win" : "loss") + '">' + (g.result ? (win ? "🎉 胜利" : "😞 失利") : "⏳ 未开赛") + '</div>' +
+    '<button class="btn btn-outline" id="sch-modal-close">关闭</button>';
+  document.getElementById("sch-modal").style.display = "flex";
+  $("#sch-modal-close").onclick = () => { document.getElementById("sch-modal").style.display = "none"; };
+  document.querySelector("#sch-modal .sch-modal-mask").onclick = () => { document.getElementById("sch-modal").style.display = "none"; };
+}
+
+/* 赛程日历当前查看的月份（跨渲染保留） */
+let scheduleCalView = null;
 
 /* ===== 奖项追踪排行 ===== */
 RENDERERS.awards = function () {
