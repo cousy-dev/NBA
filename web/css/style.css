@@ -822,9 +822,9 @@ body {
 
 /* 季后赛树状对阵图 */
 .br-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px 0 12px; }
-.br-round-labels { display: grid; grid-template-columns: repeat(3, 130px) 8px repeat(3, 130px) 8px 130px 130px; gap: 8px; padding: 0 8px 8px; min-width: 800px; }
+.br-round-labels { display: grid; grid-template-columns: repeat(8, 130px); gap: 6px; padding: 0 8px 8px; min-width: 1100px; }
 .br-round-label { font-size: 11px; color: var(--muted); text-align: center; padding: 4px 0; border-bottom: 1px solid var(--line); font-weight: 600; }
-.br-main { display: grid; grid-template-columns: repeat(3, 130px) 8px repeat(3, 130px) 8px 130px 130px; gap: 8px; padding: 0 8px; min-width: 800px; align-items: stretch; }
+.br-main { display: grid; grid-template-columns: repeat(8, 130px); gap: 6px; padding: 0 8px; min-width: 1100px; align-items: stretch; }
 .br-conf { display: contents; }
 .br-cols { display: contents; }
 .br-conf-label { display: none; }
@@ -916,7 +916,7 @@ body {
 
 /* 手机端：保持横向滚动，缩小列宽 */
 @media (max-width: 560px) {
-  .br-round-labels, .br-main { min-width: 720px; grid-template-columns: repeat(3, 120px) 6px repeat(3, 120px) 6px 120px 120px; gap: 6px; padding: 0 4px; }
+  .br-round-labels, .br-main { min-width: 900px; grid-template-columns: repeat(8, 110px); gap: 4px; padding: 0 4px; }
   .br-round-label { font-size: 10px; }
   .br-team { font-size: 10.5px; padding: 4px 5px; }
   .br-seed { width: 12px; font-size: 9px; }

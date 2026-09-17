@@ -2785,18 +2785,16 @@ function buildPlayoffBracket(save, viewMode) {
   const westR2 = rounds[1] ? rounds[1].W : [];
   const westR3 = rounds[2] ? rounds[2].W : [];
   const finalRound = rounds[3] ? rounds[3].E[0] : null;
-  const renderConf = (r1, r2, r3, label, conf) => {
+  const renderConf = (r1, r2, r3, label, conf, reverse) => {
     const userInSeries = s => s && (s.a === my || s.b === my);
     const r1Name = rounds[0] ? rounds[0].name : "";
     const r2Name = rounds[1] ? rounds[1].name : "";
     const r3Name = rounds[2] ? rounds[2].name : "";
-    return '<div class="br-conf">' +
-      '<div class="br-conf-label">' + label + '</div>' +
-      '<div class="br-cols">' +
-        '<div class="br-col">' + (r1.length ? r1.map((s, i) => seriesCard(s, userInSeries(s), "r0-" + conf + "-" + i, r1Name)).join("") : Array(4).fill('<div class="br-empty"></div>').join("")) + '</div>' +
-        '<div class="br-col">' + (r2.length ? r2.map((s, i) => seriesCard(s, userInSeries(s), "r1-" + conf + "-" + i, r2Name)).join("") : Array(2).fill('<div class="br-empty"></div>').join("")) + '</div>' +
-        '<div class="br-col">' + (r3.length ? r3.map((s, i) => seriesCard(s, userInSeries(s), "r2-" + conf + "-" + i, r3Name)).join("") : '<div class="br-empty"></div>') + '</div>' +
-      '</div></div>';
+    const col1 = '<div class="br-col">' + (r1.length ? r1.map((s, i) => seriesCard(s, userInSeries(s), "r0-" + conf + "-" + i, r1Name)).join("") : Array(4).fill('<div class="br-empty"></div>').join("")) + '</div>';
+    const col2 = '<div class="br-col">' + (r2.length ? r2.map((s, i) => seriesCard(s, userInSeries(s), "r1-" + conf + "-" + i, r2Name)).join("") : Array(2).fill('<div class="br-empty"></div>').join("")) + '</div>';
+    const col3 = '<div class="br-col">' + (r3.length ? r3.map((s, i) => seriesCard(s, userInSeries(s), "r2-" + conf + "-" + i, r3Name)).join("") : '<div class="br-empty"></div>') + '</div>';
+    const cols = reverse ? [col3, col2, col1] : [col1, col2, col3];
+    return '<div class="br-conf"><div class="br-conf-label">' + label + '</div><div class="br-cols">' + cols.join("") + '</div></div>';
   };
   const finalName = rounds[3] ? rounds[3].name : "";
   const finalHtml = finalRound
@@ -2810,8 +2808,10 @@ function buildPlayoffBracket(save, viewMode) {
       '<div class="br-clabel">' + (ps.champion === my ? "你夺冠了！" : "总冠军") + '</div></div></div>'
     : '<div class="br-col br-champ"><div class="br-empty"></div></div>';
   const roundLabels = ['<div class="br-round-label">首轮</div>',
-    '<div class="br-round-label">分区半决赛</div>', '<div class="br-round-label">分区决赛</div>',
-    '<div class="br-round-label">总决赛</div>', '<div class="br-round-label">冠军</div>'].join("");
+    '<div class="br-round-label">半决赛</div>', '<div class="br-round-label">分区决赛</div>',
+    '<div class="br-round-label">总决赛</div>',
+    '<div class="br-round-label">分区决赛</div>', '<div class="br-round-label">半决赛</div>',
+    '<div class="br-round-label">首轮</div>', '<div class="br-round-label">冠军</div>'].join("");
   /* 轮次标签 */
   const tabDefs = [
     { key: "bracket", label: "对阵图" },
@@ -2849,8 +2849,8 @@ function buildPlayoffBracket(save, viewMode) {
   }
   const mainHtml = viewMode === "bracket"
     ? ('<div class="br-scroll"><div class="br-round-labels">' + roundLabels + '</div><div class="br-main">' +
-      renderConf(eastR1, eastR2, eastR3, "东部", "E") + '<div class="br-divider"></div>' +
-      renderConf(westR1, westR2, westR3, "西部", "W") + '<div class="br-divider"></div>' +
+      renderConf(eastR1, eastR2, eastR3, "东部", "E", false) +
+      renderConf(westR1, westR2, westR3, "西部", "W", true) +
       finalHtml + champHtml + '</div></div>')
     : roundViewHtml;
   return { html: tabsHtml + mainHtml, seriesByRef };

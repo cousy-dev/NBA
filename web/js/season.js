@@ -430,20 +430,24 @@ function findUserSeries(save) {
   if (!cur) return null;
   return cur.E.concat(cur.W).find(s => !s.done && (s.a === my || s.b === my)) || null;
 }
-/* AI 系列：整体模拟（2-2-1-1-1 主场，a 为高位种子） */
-function resolveSeriesAI(ser) {
-  const sA = teamStrength(ser.a), sB = teamStrength(ser.b);
-  const pat = [1, 1, 0, 0, 1, 0, 1];
+/* AI 系列赛逐场模拟（一次只模拟一场，与用户节奏同步） */
+const SERIES_HOME_PATTERN = [1, 1, 0, 0, 1, 0, 1]; /* 2-2-1-1-1，a 为高位种子 */
+function simOneSeriesGame(ser) {
+  if (ser.done) return;
   if (!ser.games) ser.games = [];
-  for (let g = 0; g < 7; g++) {
-    const p = winProb(sA, sB, pat[g] === 1);
-    const aWins = Math.random() < p;
-    if (aWins) ser.wa++; else ser.wb++;
-    ser.games.push({ home: pat[g] === 1, score: simGameScore(sA, sB, aWins), aWin: aWins });
-    if (ser.wa >= 4 || ser.wb >= 4) break;
-  }
-  ser.done = true;
-  ser.winner = ser.wa >= 4 ? ser.a : ser.b;
+  const g = ser.wa + ser.wb; /* 当前已赛场次 */
+  if (g >= 7) return;
+  const sA = teamStrength(ser.a), sB = teamStrength(ser.b);
+  const home = SERIES_HOME_PATTERN[g] === 1;
+  const aWins = Math.random() < winProb(sA, sB, home);
+  if (aWins) ser.wa++; else ser.wb++;
+  ser.games.push({ home: home, score: simGameScore(sA, sB, aWins), aWin: aWins });
+  if (ser.wa >= 4 || ser.wb >= 4) { ser.done = true; ser.winner = ser.wa >= 4 ? ser.a : ser.b; }
+}
+/* AI 系列赛整场快进（仅用于 finishAllAI 用户缺席时） */
+function resolveSeriesAI(ser) {
+  if (!ser.games) ser.games = [];
+  while (!ser.done && ser.wa + ser.wb < 7) simOneSeriesGame(ser);
 }
 function winnerSeed(ser) { return ser.winner === ser.a ? ser.seedA : ser.seedB; }
 function mkSer(s1, s2) {
@@ -508,8 +512,14 @@ function playoffProgress(save) {
   }
   const cur = ps.rounds[ps.round];
   if (!cur) return;
-  /* 即时结算同轮剩余的 AI 系列赛（用户系列赛是唯一节奏驱动，绝不能被 AI 代打） */
-  cur.E.concat(cur.W).forEach(s => { if (!s.done && s !== ps.userSeries) resolveSeriesAI(s); });
+  /* 逐场模拟同轮剩余 AI 系列赛（与用户节奏同步，每场只推进1场） */
+  cur.E.concat(cur.W).forEach(s => { if (!s.done && s !== ps.userSeries) simOneSeriesGame(s); });
+  /* 如果用户系列赛已结束但其他 AI 系列赛未完，逐场快进剩余 AI */
+  if (ser && ser.done) {
+    while (!cur.E.concat(cur.W).every(s => s.done)) {
+      cur.E.concat(cur.W).forEach(s => { if (!s.done && s !== ser) simOneSeriesGame(s); });
+    }
+  }
   if (cur.E.concat(cur.W).every(s => s.done)) advancePlayoffs(save);
   else syncUserSeries(save);
 }
