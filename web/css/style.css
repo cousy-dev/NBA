@@ -951,8 +951,17 @@ body {
 
 /* ===== 纵向分组对阵图 ===== */
 .po-vertical { display: flex; flex-direction: column; gap: 10px; }
-.po-round-section { background: var(--card2); border-radius: 10px; padding: 8px 10px; }
-.po-round-header { font-size: 13px; font-weight: 800; color: var(--gold); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.po-round-section { background: var(--card2); border-radius: 10px; padding: 8px 10px; transition: background .15s; }
+.po-round-section.collapsed { background: var(--card); opacity: .78; padding: 6px 10px; }
+.po-round-header { font-size: 13px; font-weight: 800; color: var(--gold); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; user-select: none; }
+.po-round-header.collapsed { border-bottom-color: transparent; margin-bottom: 0; padding-bottom: 0; }
+.po-round-header:hover { color: var(--text); }
+.po-round-name { font-weight: 800; }
+.po-round-meta { font-size: 10.5px; color: var(--muted); font-weight: 600; background: var(--card); padding: 2px 7px; border-radius: 8px; }
+.po-round-winners { font-size: 11px; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .8; }
+.po-collapse-hint { font-size: 10.5px; color: var(--muted); margin-left: auto; flex: none; }
+.po-round-section.collapsed .po-round-grid,
+.po-round-section.collapsed .po-conf-label { display: none; }
 .po-conf-label { font-size: 10px; color: var(--muted); font-weight: 700; margin: 4px 0 4px; }
 .po-champ-section { text-align: center; }
 .br-champion { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; background: linear-gradient(135deg, rgba(168,31,46,.08), rgba(168,31,46,.04)); border-radius: 12px; }

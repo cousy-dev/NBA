@@ -1798,6 +1798,15 @@ RENDERERS.hub = function () {
   $$("#screen-hub .po-tab").forEach(tab => {
     tab.onclick = () => { playoffTab = tab.dataset.tab; RENDERERS.hub(); };
   });
+  /* 点击轮次标题 → 折叠/展开切换 */
+  $$("#screen-hub .po-round-header[data-toggle]").forEach(h => {
+    h.onclick = () => {
+      const key = h.dataset.toggle;
+      const cur = poCollapsed[key];
+      poCollapsed[key] = cur === undefined ? true : !cur;
+      RENDERERS.hub();
+    };
+  });
   $$("#screen-hub .br-series[data-ref]").forEach(card => {
     card.onclick = () => {
       const ser = bracketRefs[card.dataset.ref];
@@ -2626,6 +2635,8 @@ let hubCalView = null;
 let playoffTab = "bracket";
 /* 经理室子tab：overview / roster / history */
 let hubTab = "overview";
+/* 季后赛对阵图每轮折叠状态：{ "r0": true, "r1": false } —— true=折叠 / false=展开；未定义时走默认（已完成且早于当前轮=折叠） */
+let poCollapsed = {};
 
 /* ===== 奖项追踪排行 ===== */
 RENDERERS.awards = function () {
@@ -2905,6 +2916,29 @@ function buildPlayoffBracket(save, viewMode) {
     }
   }
   /* 纵向分组视图：每轮一个 section，东/西分区标标签 */
+  /* 计算"当前轮"=最早含未完成系列赛的轮次；若全部完成则=最后一轮 */
+  const roundAllDone = rnd => {
+    if (!rnd) return true;
+    const list = (rnd.E || []).concat(rnd.W || []);
+    return list.every(s => !s || s.done);
+  };
+  let currentRoundIdx = -1;
+  for (let i = 0; i < rounds.length; i++) {
+    if (!rounds[i]) continue;
+    if (!roundAllDone(rounds[i])) { currentRoundIdx = i; break; }
+  }
+  if (currentRoundIdx === -1) {
+    for (let i = rounds.length - 1; i >= 0; i--) {
+      if (rounds[i] && ((rounds[i].E || []).length || (rounds[i].W || []).length)) { currentRoundIdx = i; break; }
+    }
+  }
+  /* 一轮是否应折叠：季后赛未结束 + 该轮已全部完成 + 早于当前轮 + 用户未手动展开 */
+  const shouldCollapse = (ri) => {
+    if (poCollapsed["r" + ri] !== undefined) return poCollapsed["r" + ri];
+    if (ps.done) return false;             // 季后赛已结束 → 全展开回顾
+    if (ri >= currentRoundIdx) return false; // 当前轮及未开始轮 → 展开
+    return roundAllDone(rounds[ri]);        // 之前轮且已结束 → 默认折叠
+  };
   const mainHtml = viewMode === "bracket"
     ? (() => {
         let h = '<div class="po-vertical">';
@@ -2912,19 +2946,36 @@ function buildPlayoffBracket(save, viewMode) {
           if (!rnd) return;
           const eList = rnd.E || [], wList = rnd.W || [];
           if (!eList.length && !wList.length) return;
-          h += '<div class="po-round-section">';
-          h += '<div class="po-round-header">' + esc(rnd.name) + '</div>';
-          if (eList.length) {
-            h += '<div class="po-conf-label">东部</div>';
-            h += '<div class="po-round-grid">';
-            eList.forEach((s, i) => { h += seriesCard(s, userInSeries(s), "r" + ri + "-E-" + i, rnd.name); });
-            h += '</div>';
+          const collapsed = shouldCollapse(ri);
+          /* 统计本轮获胜者用于折叠时预览 */
+          const allSeries = eList.concat(wList).filter(s => s && s.done);
+          const winners = allSeries.map(s => teamShort(s.winner)).join(" · ");
+          const doneCount = allSeries.length;
+          const totalCount = eList.length + wList.length;
+          h += '<div class="po-round-section' + (collapsed ? " collapsed" : "") + '" data-round-idx="r' + ri + '">';
+          h += '<div class="po-round-header' + (collapsed ? " collapsed" : "") + '" data-toggle="r' + ri + '">';
+          h += '<span class="po-round-name">' + esc(rnd.name) + '</span>';
+          if (collapsed) {
+            h += '<span class="po-round-meta">' + doneCount + '/' + totalCount + ' 已完成</span>';
+            if (winners) h += '<span class="po-round-winners">' + esc(winners) + '</span>';
+            h += '<span class="po-collapse-hint">▸ 展开查看</span>';
+          } else {
+            h += '<span class="po-collapse-hint">▾ 点击折叠</span>';
           }
-          if (wList.length) {
-            h += '<div class="po-conf-label">西部</div>';
-            h += '<div class="po-round-grid">';
-            wList.forEach((s, i) => { h += seriesCard(s, userInSeries(s), "r" + ri + "-W-" + i, rnd.name); });
-            h += '</div>';
+          h += '</div>';
+          if (!collapsed) {
+            if (eList.length) {
+              h += '<div class="po-conf-label">东部</div>';
+              h += '<div class="po-round-grid">';
+              eList.forEach((s, i) => { h += seriesCard(s, userInSeries(s), "r" + ri + "-E-" + i, rnd.name); });
+              h += '</div>';
+            }
+            if (wList.length) {
+              h += '<div class="po-conf-label">西部</div>';
+              h += '<div class="po-round-grid">';
+              wList.forEach((s, i) => { h += seriesCard(s, userInSeries(s), "r" + ri + "-W-" + i, rnd.name); });
+              h += '</div>';
+            }
           }
           h += '</div>';
         });
@@ -2982,6 +3033,15 @@ RENDERERS.playoff = function () {
   /* 轮次标签切换 */
   $$("#screen-playoff .po-tab").forEach(tab => {
     tab.onclick = () => { playoffTab = tab.dataset.tab; RENDERERS.playoff(); };
+  });
+  /* 点击轮次标题 → 折叠/展开切换 */
+  $$("#screen-playoff .po-round-header[data-toggle]").forEach(h => {
+    h.onclick = () => {
+      const key = h.dataset.toggle;
+      const cur = poCollapsed[key];
+      poCollapsed[key] = cur === undefined ? true : !cur;
+      RENDERERS.playoff();
+    };
   });
   /* 系列赛卡片点击 → 查看每场比分 */
   $$("#screen-playoff .br-series[data-ref]").forEach(card => {
