@@ -1033,11 +1033,19 @@ body {
 .fa-cat.ufa { background: rgba(63,191,127,0.18); color: #3fbf7f; }
 .fa-cat.rfa { background: rgba(255,107,94,0.18); color: #a81f2e; }
 .fa-row.rfa-row { border-left: 3px solid #a81f2e; }
-.fa-row.renew-row { border-left: 3px solid var(--gold); background: rgba(168,31,46,0.04); }
-.fa-renew { display: flex; align-items: center; gap: 6px; }
-.fa-years, .fa-salary { padding: 5px 8px; border-radius: 7px; border: 1.5px solid var(--line); background: var(--card2); color: var(--text); font-size: 12px; font-weight: 700; }
-.fa-salary { width: 64px; text-align: center; }
-.fa-renew-btn { padding: 6px 12px; border-radius: 8px; border: none; background: var(--gold); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
+.fa-row.renew-row { flex-direction: column; align-items: stretch; border-left: 3px solid var(--gold); background: rgba(168,31,46,0.04); padding: 10px 12px 12px; gap: 8px; }
+.renew-head { display: flex; align-items: center; gap: 10px; }
+.renew-head .aw-rank { min-width: 22px; height: auto; width: auto; font-size: 16px; background: none; border: none; letter-spacing: 0; }
+.renew-head .ovr-badge { flex-shrink: 0; }
+.renew-info { flex: 1; min-width: 0; }
+.renew-name { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.renew-meta { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fa-renew { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.renew-field { display: flex; flex-direction: column; gap: 2px; font-size: 10px; color: var(--muted); }
+.renew-field > span { font-size: 10px; }
+.fa-years, .fa-salary { padding: 6px 8px; border-radius: 8px; border: 1.5px solid var(--line); background: var(--card2); color: var(--text); font-size: 13px; font-weight: 700; min-width: 70px; }
+.fa-salary { width: 80px; text-align: center; }
+.fa-renew-btn { padding: 8px 16px; border-radius: 8px; border: none; background: var(--gold); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
 .fa-renew-btn:active { transform: scale(0.95); }
 .fa-cap-hint { font-size: 11px; color: var(--muted); min-width: 70px; text-align: right; }
 .fa-row .aw-name { flex: 1; }

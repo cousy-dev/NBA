@@ -513,7 +513,7 @@ RENDERERS.freeagent = function () {
       "</div>";
   };
 
-  /* 我的续约行 */
+  /* 我的续约行 — 两行布局：上球员信息，下续约表单 */
   const renewRow = (f, i) => {
     const p = customMap.get(f.id) || ratedMap.get(f.id);
     if (!p) return "";
@@ -524,15 +524,23 @@ RENDERERS.freeagent = function () {
     const warnHint = taxWarning(total + maxSal);
     const renewHint = warnHint || "鸟权可超帽续约";
     return '<div class="fa-row renew-row" data-id="' + f.id + '">' +
-      '  <span class="aw-rank">' + (i + 1) + "</span>" +
-      '  <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
-      '  <div class="aw-name">' + esc(p.nameCn) +
-      '    <span class="aw-team">' + birdTag(f) + " " + esc(posLabel(p)) + " · " + f.age + "岁 · 上限 " + fmtM(maxSal) + "/年</span></div>" +
+      '  <div class="renew-head">' +
+      '    <span class="aw-rank">' + (i + 1) + "</span>" +
+      '    <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
+      '    <div class="renew-info">' +
+      '      <div class="renew-name">' + esc(p.nameCn) + '</div>' +
+      '      <div class="renew-meta">' + birdTag(f) + " " + esc(posLabel(p)) + " · " + f.age + "岁 · 上限 " + fmtM(maxSal) + "/年</div>" +
+      '    </div>' +
+      '  </div>' +
       '  <div class="fa-renew">' +
-      '    <select class="fa-years" data-id="' + f.id + '">' +
+      '    <label class="renew-field"><span>年限</span>' +
+      '      <select class="fa-years" data-id="' + f.id + '">' +
       Array.from({length: maxY - minY + 1}, (_, k) => '<option value="' + (minY + k) + '">' + (minY + k) + " 年</option>").join("") +
-      '    </select>' +
-      '    <input type="number" class="fa-salary" data-id="' + f.id + '" value="' + maxSal + '" step="0.1" min="0.5" max="' + maxSal + '">' +
+      '      </select>' +
+      '    </label>' +
+      '    <label class="renew-field"><span>年薪 (M)</span>' +
+      '      <input type="number" class="fa-salary" data-id="' + f.id + '" value="' + maxSal + '" step="0.1" min="0.5" max="' + maxSal + '">' +
+      '    </label>' +
       '    <button class="fa-renew-btn" data-id="' + f.id + '">续约</button>' +
       '  </div>' +
       '  <div class="fa-cap-hint' + (warnHint ? " tax-warn" : "") + '">' + esc(renewHint) + "</div>" +
