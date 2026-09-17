@@ -696,6 +696,16 @@ function newSeason(save) {
     save.lastStandings[a] = { w: save.standings[a].w, l: save.standings[a].l };
   });
   save.standings = initStandings(save);
+  /* 累计职业生涯数据（用于名人堂展示） */
+  save.careerStats = save.careerStats || {};
+  Object.keys(save.playerStats || {}).forEach(function (id) {
+    var s = save.playerStats[id];
+    var c = save.careerStats[id] || (save.careerStats[id] = { g: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, seasons: 0 });
+    c.g += s.g || 0; c.pts += s.pts || 0; c.reb += s.reb || 0; c.ast += s.ast || 0;
+    c.stl += s.stl || 0; c.blk += s.blk || 0; c.tov += s.tov || 0;
+    c.fgm += s.fgm || 0; c.fga += s.fga || 0; c.tpm += s.tpm || 0; c.tpa += s.tpa || 0;
+    c.ftm += s.ftm || 0; c.fta += s.fta || 0; c.seasons += 1;
+  });
   save.playerStats = {};
   /* 保存季后赛结果供选秀顺位计算 */
   var lp = null;
@@ -947,11 +957,40 @@ function electHOF(save) {
     const autoIn = (acc.mvp || 0) > 0 && (acc.champ || 0) > 0;
     if (score >= 50 || autoIn) {
       const peakOvr = (p.ovr || 70) + Math.max(0, (save.ovrAdj && save.ovrAdj[id]) || 0);
+      const adjAge = (p.age || 24) + (save.ageAdj[id] || 0);
+      const expYears = getExpYears(p, save.seasonNo);
+      /* 快照职业生涯数据（含当年累计） */
+      const cur = (save.playerStats && save.playerStats[id]) || {};
+      const car = (save.careerStats && save.careerStats[id]) || {};
+      const totG = (car.g || 0) + (cur.g || 0);
+      const totPts = (car.pts || 0) + (cur.pts || 0);
+      const totReb = (car.reb || 0) + (cur.reb || 0);
+      const totAst = (car.ast || 0) + (cur.ast || 0);
+      const totStl = (car.stl || 0) + (cur.stl || 0);
+      const totBlk = (car.blk || 0) + (cur.blk || 0);
+      const totFgm = (car.fgm || 0) + (cur.fgm || 0);
+      const totFga = (car.fga || 0) + (cur.fga || 0);
+      const totTpm = (car.tpm || 0) + (cur.tpm || 0);
+      const totTpa = (car.tpa || 0) + (cur.tpa || 0);
+      const totFtm = (car.ftm || 0) + (cur.ftm || 0);
+      const totFta = (car.fta || 0) + (cur.fta || 0);
       save.hof.push({
         id, name: p.nameCn, team: p.team, pos: p.pos,
-        peakOvr, age: (p.age || 24) + (save.ageAdj[id] || 0),
+        peakOvr, age: adjAge, expYears,
         seasonNo: save.seasonNo, score,
-        acc: save.playerAccolades[id] || {}
+        acc: save.playerAccolades[id] || {},
+        career: {
+          g: totG,
+          pts: totPts, reb: totReb, ast: totAst, stl: totStl, blk: totBlk,
+          fgm: totFgm, fga: totFga, tpm: totTpm, tpa: totTpa, ftm: totFtm, fta: totFta,
+          seasons: (car.seasons || 0) + 1,
+          ppg: totG ? +(totPts / totG).toFixed(1) : 0,
+          rpg: totG ? +(totReb / totG).toFixed(1) : 0,
+          apg: totG ? +(totAst / totG).toFixed(1) : 0,
+          fg: totFga ? Math.round(totFgm / totFga * 100) : 0,
+          tp: totTpa ? Math.round(totTpm / totTpa * 100) : 0,
+          ft: totFta ? Math.round(totFtm / totFta * 100) : 0
+        }
       });
       alreadyIn.add(id);
       newInductees.push({ id, name: p.nameCn, team: p.team, score });
