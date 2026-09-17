@@ -863,6 +863,10 @@ body {
 .fa-row.was-mine { border-color: var(--gold); background: rgba(168,31,46,0.06); }
 .fa-price { font-size: 13px; font-weight: 700; color: var(--gold); white-space: nowrap; }
 .fa-sign { flex-shrink: 0; padding: 6px 14px; border-radius: 8px; border: none; background: var(--gold); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
+.fa-will { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; margin-left: 5px; vertical-align: middle; line-height: 1.4; flex-shrink: 0; }
+.fa-will.w-high { background: rgba(76,175,80,.15); color: #2d8a5a; border: 1px solid rgba(76,175,80,.4); }
+.fa-will.w-mid { background: rgba(255,152,0,.15); color: #b57500; border: 1px solid rgba(255,152,0,.4); }
+.fa-will.w-low { background: rgba(214,66,75,.12); color: #b32636; border: 1px solid rgba(214,66,75,.35); }
 .fa-sign:active { transform: scale(0.95); }
 .fa-release { flex-shrink: 0; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(231,76,60,0.4); background: rgba(231,76,60,0.1); color: #e74c3c; font-size: 12px; font-weight: 600; cursor: pointer; }
 

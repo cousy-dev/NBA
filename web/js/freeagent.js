@@ -76,6 +76,108 @@ function birdYearsRange(level) {
   return [1, 4]; /* UFA/RFA */
 }
 
+/* ===== 市场吸引力：球员意愿 =====
+   NBA 球员选择时看重：① 大球市曝光度 ② 球队实力（争冠希望） ③ 薪资 ④ 母队情怀 */
+
+/* 市场等级（基于 Forbes 估值/营收/城市规模）：1.0=顶流 0.35=小球市 */
+const MARKET_TIER = {
+  LAL: 1.00, NYK: 1.00, GSW: 0.95, BOS: 0.95, CHI: 0.90, BKN: 0.88,
+  LAC: 0.85, MIA: 0.82, PHI: 0.80, DAL: 0.78, TOR: 0.72, HOU: 0.70,
+  PHO: 0.68, SAC: 0.65, POR: 0.62, ATL: 0.60, DEN: 0.58, CLE: 0.55,
+  IND: 0.52, CHA: 0.50, DET: 0.48, ORL: 0.46, UTA: 0.44, MIL: 0.42,
+  NOP: 0.40, OKC: 0.38, MEM: 0.36, MIN: 0.35, SAS: 0.35, WAS: 0.35
+};
+function marketTier(abbr) { return MARKET_TIER[abbr] || 0.50; }
+
+/* 计算球队吸引力评分（0-100）
+   market: 大球市分 (0-100) × 0.35
+   strength: 阵容平均 OVR → 实力分 (0-100) × 0.40
+   recent: 上赛季战绩/季后赛表现 → 0.25 */
+function teamAttractiveness(save, abbr) {
+  /* 大球市：MARKET_TIER × 100 */
+  const marketScore = marketTier(abbr) * 100;
+
+  /* 阵容实力：取该队 roster（AI 用 aiRosters 或原始 PLAYERS）
+     用户队用 save.roster */
+  let avgOvr = 70;
+  let roster = [];
+  if (abbr === myAbbr(save)) {
+    roster = save.roster.map(r => r.id);
+  } else {
+    roster = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
+  }
+  const customMap = new Map((save.customPlayers || []).map(p => [p.id, p]));
+  const ratedMap = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+  let sum = 0, cnt = 0;
+  roster.forEach(id => {
+    const p = customMap.get(id) || ratedMap.get(id);
+    if (p) {
+      const adj = (save.ovrAdj || {})[id] || 0;
+      sum += p.ovr + adj;
+      cnt++;
+    }
+  });
+  avgOvr = cnt > 0 ? sum / cnt : 70;
+  /* OVR 70 → 50分；OVR 95 → 100分；线性插值 */
+  const strengthScore = Math.max(0, Math.min(100, (avgOvr - 70) * 2 + 50));
+
+  /* 近期战绩：上赛季排名/季后赛 */
+  let recentScore = 50;
+  if (save.lastSeason && save.lastSeason[abbr]) {
+    const rec = save.lastSeason[abbr]; /* {wins, losses, rankE, rankW} */
+    const total = (rec.wins || 0) + (rec.losses || 0) || 1;
+    const pct = (rec.wins || 0) / total;
+    recentScore = Math.round(pct * 100); /* 胜率 50% → 50 分 */
+    if (rec.madePlayoffs) recentScore += 10;
+    if (rec.reachedFinals) recentScore += 20;
+    if (rec.champion) recentScore += 30;
+  }
+
+  return Math.round(marketScore * 0.35 + strengthScore * 0.40 + recentScore * 0.25);
+}
+
+/* 球员签约意愿：给定 FA 球员 + 目标球队吸引力，返回接受概率 (0-1)
+   - 球星 (OVR ≥ 88)：只去吸引力 ≥ 75 的队，门槛极高
+   - 准球星 (OVR 82-87)：吸引力 ≥ 65
+   - 实力派 (OVR 75-81)：吸引力 ≥ 50
+   - 角色球员 (OVR < 75)：基本不挑，吸引力 ≥ 35 即可
+   - 母队情怀：originTeam === abbr 时 +10 分加成 */
+function signingWillingness(faItem, save, targetAbbr) {
+  const attr = teamAttractiveness(save, targetAbbr);
+  const homeBoost = (faItem.originTeam && faItem.originTeam === targetAbbr) ? 10 : 0;
+  const effAttr = attr + homeBoost;
+  const ovr = faItem.ovr;
+  let threshold;
+  if (ovr >= 90) threshold = 80;
+  else if (ovr >= 88) threshold = 75;
+  else if (ovr >= 82) threshold = 65;
+  else if (ovr >= 75) threshold = 50;
+  else threshold = 35;
+  /* 超过阈值越多，概率越高；低于阈值则概率低 */
+  const diff = effAttr - threshold;
+  let prob;
+  if (diff >= 20) prob = 0.95;
+  else if (diff >= 10) prob = 0.80;
+  else if (diff >= 0) prob = 0.55 + diff * 0.02; /* 0.55 ~ 0.75 */
+  else if (diff >= -10) prob = 0.25 + (diff + 10) * 0.03; /* 0.25 ~ 0.55 */
+  else if (diff >= -20) prob = 0.05 + (diff + 20) * 0.02; /* 0.05 ~ 0.25 */
+  else prob = 0.05;
+  /* 年龄因素：30+ 岁球员更看重赢球，加成最近战绩 */
+  if (faItem.age >= 30) {
+    if (effAttr >= threshold + 10) prob = Math.min(0.98, prob + 0.10);
+    else prob = Math.max(0.02, prob - 0.05);
+  }
+  return Math.max(0.02, Math.min(0.98, prob));
+}
+
+/* 意愿等级（用于 UI 标签） */
+function willingnessLabel(faItem, save, targetAbbr) {
+  const p = signingWillingness(faItem, save, targetAbbr);
+  if (p >= 0.75) return { text: "兴趣浓厚", cls: "w-high" };
+  if (p >= 0.45) return { text: "观望中", cls: "w-mid" };
+  return { text: "兴趣缺缺", cls: "w-low" };
+}
+
 /* ===== 工资 / 顶薪计算 ===== */
 /* 基础要价（UFA 市场价）：基于 OVR + 自由市场溢价 10-30% */
 function faAskingPrice(ovr, id) {
@@ -345,7 +447,7 @@ function extendContract(save, playerId, newYears, newSalary) {
   return true;
 }
 
-/* ===== 签约自由球员（UFA，受工资帽约束） ===== */
+/* ===== 签约自由球员（UFA，受工资帽约束 + 球员意愿） ===== */
 function signFreeAgent(save, playerId, years, salary) {
   const faItem = (save.faPool || []).find(f => f.id === playerId);
   if (!faItem) { toast("该球员已签约其他球队"); return false; }
@@ -357,6 +459,18 @@ function signFreeAgent(save, playerId, years, salary) {
   const total = save.roster.reduce((s, r) => s + r.salary, 0);
   if (total + salary > (save.budget || 115) + 0.01) {
     toast("超过工资帽 " + fmtM(save.budget || 115) + "，无法签约");
+    return false;
+  }
+  /* 球员意愿检查 */
+  const myAb = myAbbr(save);
+  const willingness = signingWillingness(faItem, save, myAb);
+  if (Math.random() > willingness) {
+    const reason = teamAttractiveness(save, myAb);
+    let reasonText = "";
+    if (marketTier(myAb) < 0.55) reasonText = "小球市吸引力有限";
+    else if (reason < 55) reasonText = "球队实力/战绩不足";
+    else reasonText = "球员有其他意向";
+    toast("❌ 球员拒绝了合同 — " + reasonText + "（接受概率 " + Math.round(willingness * 100) + "%）");
     return false;
   }
   const entry = {
@@ -438,34 +552,78 @@ function releasePlayer(save, playerId) {
   writeSave(save);
 }
 
-/* ===== AI 队自由市场签约模拟 ===== */
+/* ===== AI 队自由市场签约模拟（球员驱动 + 球队吸引力） ===== */
 function simAIFreeAgency(save) {
-  /* 每个 AI 队：先续约本队 RFA/重要到期球员，再签自由球员补足 13 人 */
+  /* 初始化 AI 队 roster */
+  if (!save.aiRosters) save.aiRosters = {};
   TEAMS.forEach(t => {
     if (t.abbr === myAbbr(save)) return;
-    let roster = (save.aiRosters && save.aiRosters[t.abbr]) || playersByTeam(t.abbr).map(p => p.id);
-    roster = roster.filter(id => {
-      const p = PLAYERS_RATED.players.find(x => x.id === id) || (save.customPlayers || []).find(x => x.id === id);
-      return p && p.team === t.abbr;
-    });
-    /* AI 续约本队 RFA：从 FA 池中挑出 originTeam 是本队的 RFA，按 OVR 排序，前 8 名续约 */
+    if (!save.aiRosters[t.abbr]) {
+      let roster = playersByTeam(t.abbr).map(p => p.id);
+      roster = roster.filter(id => {
+        const p = PLAYERS_RATED.players.find(x => x.id === id);
+        return p && p.team === t.abbr;
+      });
+      save.aiRosters[t.abbr] = roster;
+    }
+  });
+
+  /* Phase 1：AI 队续约本队 RFA */
+  TEAMS.forEach(t => {
+    if (t.abbr === myAbbr(save)) return;
     const mine = (save.faPool || []).filter(f => f.originTeam === t.abbr && faCategory(f) === "RFA")
       .sort((a, b) => b.ovr - a.ovr);
     mine.slice(0, 8).forEach(f => {
-      const sal = maxSalaryByBird(f.ovr, f.id, "bird");
-      roster.push(f.id);
+      save.aiRosters[t.abbr].push(f.id);
       save.faPool = save.faPool.filter(x => x.id !== f.id);
     });
-    /* 不足 13 人则签自由球员（UFA 优先） */
-    save.faPool.sort((a, b) => b.ovr - a.ovr);
-    while (roster.length < 13 && save.faPool.length > 0) {
-      const fa = save.faPool.shift();
-      if (faCategory(fa) === "RFA") { /* 跳过别队 RFA，不能强签 */ save.faPool.push(fa); break; }
-      roster.push(fa.id);
-    }
-    if (!save.aiRosters) save.aiRosters = {};
-    save.aiRosters[t.abbr] = roster;
   });
+
+  /* Phase 2：球员驱动选择 —— 从高 OVR 到低 OVR，每个球员从 top-3 最有吸引力的 AI 队中选择
+     （忽略用户队，用户队已在自由市场页面完成签约） */
+  const ufai = (save.faPool || []).filter(f => faCategory(f) === "UFA")
+    .sort((a, b) => b.ovr - a.ovr);
+
+  ufai.forEach(fa => {
+    /* 筛选有空位（< 13 人）的 AI 队，按吸引力降序 */
+    const candidates = TEAMS
+      .filter(t => t.abbr !== myAbbr(save))
+      .map(t => ({
+        abbr: t.abbr,
+        roster: save.aiRosters[t.abbr] || [],
+        tier: t.market
+      }))
+      .filter(c => c.roster.length < 13)
+      .map(c => ({ ...c, attr: teamAttractiveness(save, c.abbr) }))
+      .sort((a, b) => b.attr - a.attr);
+
+    if (candidates.length === 0) return;
+
+    /* top-3 球队中，球员按意愿概率选择 */
+    const topN = candidates.slice(0, 3);
+    /* 计算每个候选队的意愿得分 → 转为选择概率 */
+    const weights = topN.map(c => {
+      const w = signingWillingness(fa, save, c.abbr);
+      /* 球星更看重吸引力，角色球员更随机 */
+      const ovrBoost = fa.ovr >= 85 ? 2.0 : fa.ovr >= 75 ? 1.3 : 1.0;
+      return Math.pow(w, ovrBoost);
+    });
+    const totalW = weights.reduce((s, w) => s + w, 0) || 1;
+    let r = Math.random() * totalW;
+    let chosen = topN[0];
+    for (let i = 0; i < topN.length; i++) {
+      r -= weights[i];
+      if (r <= 0) { chosen = topN[i]; break; }
+    }
+
+    /* 概率性拒绝 —— 如果意愿太低，球员宁愿等下一份报价 */
+    const baseWillingness = signingWillingness(fa, save, chosen.abbr);
+    if (Math.random() > baseWillingness) return;
+
+    save.aiRosters[chosen.abbr].push(fa.id);
+    save.faPool = save.faPool.filter(x => x.id !== fa.id);
+  });
+
   writeSave(save);
 }
 
@@ -496,17 +654,22 @@ RENDERERS.freeagent = function () {
     return lv ? '<span class="fa-tag bird-' + lv + '">' + birdLabel(lv) + "</span>" : "";
   };
 
-  /* 自由市场行（UFA/RFA） */
+  /* 自由市场行（UFA/RFA） — 含意愿标签 */
   const faRow = (f, i) => {
     const p = customMap.get(f.id) || ratedMap.get(f.id);
     if (!p) return "";
     const price = faAskingPrice(f.ovr, f.id);
     const cat = catLabel(f);
     const isRFA = cat === "RFA";
+    /* UFA 显示意愿标签；RFA 不显示（有母队匹配机制） */
+    const willTag = !isRFA ? (() => {
+      const w = willingnessLabel(f, save, myAbr);
+      return '<span class="fa-will ' + w.cls + '" title="' + w.text + '">愿:' + w.text.charAt(0) + '</span>';
+    })() : '';
     return '<div class="fa-row' + (isRFA ? " rfa-row" : "") + '" data-id="' + f.id + '">' +
       '  <span class="aw-rank">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
-      '  <div class="aw-name">' + esc(p.nameCn) +
+      '  <div class="aw-name">' + esc(p.nameCn) + willTag +
       '    <span class="aw-team"><span class="fa-cat ' + cat.toLowerCase() + '">' + cat + "</span> " + esc(posLabel(p)) + " · " + f.age + "岁" + (f.originTeam && f.originTeam !== myAbr ? " · 母队 " + esc(f.originTeam) : "") + "</span></div>" +
       '  <div class="fa-price">' + fmtM(price) + "/年</div>" +
       '  <button class="fa-sign" data-id="' + f.id + '">' + (isRFA ? "报价" : "签约") + "</button>" +
