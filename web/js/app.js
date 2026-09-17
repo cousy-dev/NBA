@@ -2778,58 +2778,13 @@ function buildPlayoffBracket(save, viewMode) {
       hintHtml +
       '</div>';
   };
-  const eastR1 = rounds[0] ? rounds[0].E : [];
-  const eastR2 = rounds[1] ? rounds[1].E : [];
-  const eastR3 = rounds[2] ? rounds[2].E : [];
-  const westR1 = rounds[0] ? rounds[0].W : [];
-  const westR2 = rounds[1] ? rounds[1].W : [];
-  const westR3 = rounds[2] ? rounds[2].W : [];
-  const finalRound = rounds[3] ? rounds[3].E[0] : null;
-  const renderConf = (r1, r2, r3, label, conf, reverse) => {
-    const userInSeries = s => s && (s.a === my || s.b === my);
-    const r1Name = rounds[0] ? rounds[0].name : "";
-    const r2Name = rounds[1] ? rounds[1].name : "";
-    const r3Name = rounds[2] ? rounds[2].name : "";
-    const col1 = '<div class="br-col">' + (r1.length ? r1.map((s, i) => seriesCard(s, userInSeries(s), "r0-" + conf + "-" + i, r1Name)).join("") : Array(4).fill('<div class="br-empty"></div>').join("")) + '</div>';
-    const col2 = '<div class="br-col">' + (r2.length ? r2.map((s, i) => seriesCard(s, userInSeries(s), "r1-" + conf + "-" + i, r2Name)).join("") : Array(2).fill('<div class="br-empty"></div>').join("")) + '</div>';
-    const col3 = '<div class="br-col">' + (r3.length ? r3.map((s, i) => seriesCard(s, userInSeries(s), "r2-" + conf + "-" + i, r3Name)).join("") : '<div class="br-empty"></div>') + '</div>';
-    const cols = reverse ? [col3, col2, col1] : [col1, col2, col3];
-    return '<div class="br-conf"><div class="br-conf-label">' + label + '</div><div class="br-cols">' + cols.join("") + '</div></div>';
-  };
-  const finalName = rounds[3] ? rounds[3].name : "";
-  const finalHtml = finalRound
-    ? '<div class="br-col br-final">' + seriesCard(finalRound, finalRound && (finalRound.a === my || finalRound.b === my), "r3-E-0", finalName) + '</div>'
-    : '<div class="br-col br-final"><div class="br-empty"></div></div>';
-  const champHtml = ps.done && ps.champion
-    ? '<div class="br-col br-champ"><div class="br-champion' + (ps.champion === my ? " mine" : "") + '">' +
-      '<div class="br-trophy">🏆</div>' +
-      '<div class="br-logo">' + logo(ps.champion) + '</div>' +
-      '<div class="br-tname">' + esc(teamShort(ps.champion)) + '</div>' +
-      '<div class="br-clabel">' + (ps.champion === my ? "你夺冠了！" : "总冠军") + '</div></div></div>'
-    : '<div class="br-col br-champ"><div class="br-empty"></div></div>';
-  const roundLabels = ['<div class="br-round-label">首轮</div>',
-    '<div class="br-round-label">半决赛</div>', '<div class="br-round-label">分区决赛</div>',
-    '<div class="br-round-label">总决赛</div>',
-    '<div class="br-round-label">分区决赛</div>', '<div class="br-round-label">半决赛</div>',
-    '<div class="br-round-label">首轮</div>', '<div class="br-round-label">冠军</div>'].join("");
-  /* 轮次标签 */
-  const tabDefs = [
-    { key: "bracket", label: "对阵图" },
-    { key: "r0", label: rounds[0] ? rounds[0].name : "首轮" },
-    { key: "r1", label: rounds[1] ? rounds[1].name : "半决赛" },
-    { key: "r2", label: rounds[2] ? rounds[2].name : "分区决赛" },
-    { key: "r3", label: rounds[3] ? rounds[3].name : "总决赛" }
-  ];
-  if (typeof playoffTab === "undefined") playoffTab = "bracket";
-  const tabsHtml = '<div class="po-tabs">' + tabDefs.map(t =>
-    '<button class="po-tab' + (playoffTab === t.key ? " active" : "") + '" data-tab="' + t.key + '">' + t.label + '</button>'
-  ).join("") + '</div>';
   /* ref → 系列赛查找表 */
   const seriesByRef = {};
   rounds.forEach((rnd, ri) => {
     if (!rnd) return;
     ["E", "W"].forEach(c => { (rnd[c] || []).forEach((s, si) => { seriesByRef["r" + ri + "-" + c + "-" + si] = s; }); });
   });
+  const userInSeries = s => s && (s.a === my || s.b === my);
   /* 单轮视图 */
   let roundViewHtml = "";
   if (viewMode !== "bracket") {
@@ -2837,7 +2792,6 @@ function buildPlayoffBracket(save, viewMode) {
     const rnd = rounds[ri];
     if (rnd) {
       const list = (rnd.E || []).concat(rnd.W || []);
-      const userInSeries = s => s && (s.a === my || s.b === my);
       roundViewHtml = '<div class="po-round-grid">' + list.map((s, i) => {
         const conf = i < (rnd.E || []).length ? "E" : "W";
         const idx = i < (rnd.E || []).length ? i : i - (rnd.E || []).length;
@@ -2847,11 +2801,42 @@ function buildPlayoffBracket(save, viewMode) {
       roundViewHtml = '<div class="po-empty">该轮尚未开始</div>';
     }
   }
+  /* 纵向分组视图：每轮一个 section，东/西分区标标签 */
   const mainHtml = viewMode === "bracket"
-    ? ('<div class="br-scroll"><div class="br-round-labels">' + roundLabels + '</div><div class="br-main">' +
-      renderConf(eastR1, eastR2, eastR3, "东部", "E", false) +
-      renderConf(westR1, westR2, westR3, "西部", "W", true) +
-      finalHtml + champHtml + '</div></div>')
+    ? (() => {
+        let h = '<div class="po-vertical">';
+        rounds.forEach((rnd, ri) => {
+          if (!rnd) return;
+          const eList = rnd.E || [], wList = rnd.W || [];
+          if (!eList.length && !wList.length) return;
+          h += '<div class="po-round-section">';
+          h += '<div class="po-round-header">' + esc(rnd.name) + '</div>';
+          if (eList.length) {
+            h += '<div class="po-conf-label">东部</div>';
+            h += '<div class="po-round-grid">';
+            eList.forEach((s, i) => { h += seriesCard(s, userInSeries(s), "r" + ri + "-E-" + i, rnd.name); });
+            h += '</div>';
+          }
+          if (wList.length) {
+            h += '<div class="po-conf-label">西部</div>';
+            h += '<div class="po-round-grid">';
+            wList.forEach((s, i) => { h += seriesCard(s, userInSeries(s), "r" + ri + "-W-" + i, rnd.name); });
+            h += '</div>';
+          }
+          h += '</div>';
+        });
+        if (ps.done && ps.champion) {
+          h += '<div class="po-round-section po-champ-section">';
+          h += '<div class="br-champion' + (ps.champion === my ? " mine" : "") + '">';
+          h += '<span class="br-trophy">🏆</span>';
+          h += '<span class="br-logo">' + logo(ps.champion) + '</span>';
+          h += '<span class="br-tname">' + esc(teamShort(ps.champion)) + '</span>';
+          h += '<span class="br-clabel">' + (ps.champion === my ? "你夺冠了！" : "总冠军") + '</span>';
+          h += '</div></div>';
+        }
+        h += '</div>';
+        return h;
+      })()
     : roundViewHtml;
   return { html: tabsHtml + mainHtml, seriesByRef };
 }

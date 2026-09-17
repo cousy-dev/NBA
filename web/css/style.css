@@ -892,8 +892,21 @@ body {
 .po-tab:not(.active):hover { border-color: var(--gold); color: var(--gold); }
 
 /* ===== 单轮视图网格 ===== */
-.po-round-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.po-round-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 8px; }
 .po-empty { text-align: center; color: var(--muted); padding: 30px 0; font-size: 14px; }
+
+/* ===== 纵向分组对阵图 ===== */
+.po-vertical { display: flex; flex-direction: column; gap: 10px; }
+.po-round-section { background: var(--card2); border-radius: 10px; padding: 8px 10px; }
+.po-round-header { font-size: 13px; font-weight: 800; color: var(--gold); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.po-conf-label { font-size: 10px; color: var(--muted); font-weight: 700; margin: 4px 0 4px; }
+.po-champ-section { text-align: center; }
+.br-champion { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; background: linear-gradient(135deg, rgba(168,31,46,.08), rgba(168,31,46,.04)); border-radius: 12px; }
+.br-champion.mine { background: linear-gradient(135deg, rgba(168,31,46,.15), rgba(168,31,46,.08)); box-shadow: 0 0 0 2px var(--gold); }
+.br-champion .br-trophy { font-size: 28px; }
+.br-champion .br-tname { font-size: 15px; font-weight: 800; color: var(--text); }
+.br-champion.mine .br-tname { color: var(--gold); }
+.br-champion .br-clabel { font-size: 11px; color: var(--muted); font-weight: 600; }
 
 /* ===== 季后赛系列赛详情弹窗 ===== */
 .po-total { display: flex; align-items: center; justify-content: space-around; background: var(--card2); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
