@@ -2758,6 +2758,9 @@ function buildPlayoffBracket(save, viewMode) {
     const myWon = s.done && s.winner === my;
     const myLost = s.done && (s.a === my || s.b === my) && s.winner !== my;
     const isUserActive = !s.done && isUserInvolved && ps.userSeries === s;
+    /* 有比赛数据或已完成的卡片显示"点击查看"提示 */
+    const hasGames = (s.games && s.games.length > 0) || s.done || !s.done;
+    const hintHtml = hasGames ? '<div class="br-hint">▸ 点击查看详情</div>' : "";
     return '<div class="br-series br-clickable' + (isUserInvolved ? " mine" : "") + (myWon ? " won" : "") + (myLost ? " lost" : "") + (s.done ? " done" : "") + (isUserActive ? " active" : "") + '"' +
       ' data-ref="' + (ref || "") + '" data-round="' + esc(roundName || "") + '">' +
       '<div class="br-team' + (aWin ? " adv" : "") + (userA ? " me" : "") + '">' +
@@ -2772,6 +2775,7 @@ function buildPlayoffBracket(save, viewMode) {
         '<span class="br-tname">' + esc(teamShort(s.b)) + '</span>' +
         '<span class="br-score' + (bWin ? " win" : "") + '">' + (s.wb || 0) + '</span>' +
       '</div>' +
+      hintHtml +
       '</div>';
   };
   const eastR1 = rounds[0] ? rounds[0].E : [];
