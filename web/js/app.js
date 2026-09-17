@@ -2778,6 +2778,17 @@ function buildPlayoffBracket(save, viewMode) {
       hintHtml +
       '</div>';
   };
+  /* 轮次切换标签 */
+  const tabDefs = [
+    { key: "bracket", label: "对阵图" },
+    { key: "r0", label: rounds[0] ? rounds[0].name : "首轮" },
+    { key: "r1", label: rounds[1] ? rounds[1].name : "半决赛" },
+    { key: "r2", label: rounds[2] ? rounds[2].name : "分区决赛" },
+    { key: "r3", label: rounds[3] ? rounds[3].name : "总决赛" }
+  ];
+  const tabsHtml = '<div class="po-tabs">' + tabDefs.map(t =>
+    '<button class="po-tab' + (playoffTab === t.key ? " active" : "") + '" data-tab="' + t.key + '">' + t.label + '</button>'
+  ).join("") + '</div>';
   /* ref → 系列赛查找表 */
   const seriesByRef = {};
   rounds.forEach((rnd, ri) => {
