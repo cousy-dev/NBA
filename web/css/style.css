@@ -855,6 +855,14 @@ body {
 .fa-budget-bar { height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin-top: 6px; }
 .fb-fill { height: 100%; background: var(--gold); border-radius: 4px; transition: width .3s; }
 .fb-fill.over { background: #e74c3c; }
+/* 工资帽硬帽 + 特例可用性 UI */
+.fa-cap-lines { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 10.5px; color: var(--muted); }
+.fa-cap-lines span { background: var(--card2); padding: 3px 8px; border-radius: 6px; }
+.fa-exc-list { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.fa-exc { font-size: 10.5px; padding: 3px 8px; border-radius: 6px; font-weight: 600; }
+.fa-exc.on { background: rgba(76,175,80,.15); color: #2d8a5a; border: 1px solid rgba(76,175,80,.35); }
+.fa-exc.off { background: rgba(150,150,150,.08); color: var(--muted); border: 1px solid var(--line); opacity: .65; }
+.fa-hard-cap-badge { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: rgba(214,66,75,.12); border: 1.5px solid rgba(214,66,75,.45); color: #b32636; font-size: 12px; font-weight: 700; }
 .fa-warning { background: rgba(231,76,60,0.15); border: 1px solid rgba(231,76,60,0.4); color: #e74c3c; border-radius: 10px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 12px; text-align: center; }
 .fa-tabs { display: flex; gap: 4px; margin: 4px 0 12px; }
 .fa-tab { flex: 1; padding: 8px 4px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--muted); font-size: 13px; font-weight: 700; cursor: pointer; }
@@ -1143,6 +1151,18 @@ body {
 .modal-close:hover { background: var(--card); color: var(--text); }
 .modal-body { padding: 14px 18px; overflow-y: auto; }
 .modal-body .roster-table { margin: 0; }
+/* 特例选择弹窗 */
+#exc-modal .modal-box { padding: 16px 18px 18px; text-align: center; }
+#exc-modal h3 { font-size: 17px; margin-bottom: 6px; }
+#exc-modal .modal-sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+.exc-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.exc-opt { padding: 10px 14px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1.4; }
+.exc-opt small { font-weight: 400; display: block; margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+.exc-opt small.exc-reason { color: #b32636; font-style: italic; }
+.exc-opt.ok { border-color: rgba(76,175,80,.5); background: rgba(76,175,80,.08); }
+.exc-opt.ok:hover { background: rgba(76,175,80,.18); transform: translateY(-1px); }
+.exc-opt.disabled { opacity: .4; cursor: not-allowed; }
+.exc-cancel { margin-top: 4px; }
 
 /* ===== 教练战术台 ===== */
 .coach-tactics { margin-bottom: 14px; }

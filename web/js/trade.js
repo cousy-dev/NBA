@@ -189,6 +189,27 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
 
 /* ===== 执行交易 ===== */
 function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPickOffers, aiPickOffers) {
+  /* 硬帽校验：接收方（用户）若已触发硬帽，交易后总薪资不得超第一土豪线 */
+  if (typeof getCapStatus === "function") {
+    const cs = getCapStatus(save);
+    if (cs.hardCapped) {
+      const currentTotal = save.roster.reduce((s, r) => s + (r.salary || 0), 0);
+      const outSalary = save.roster.filter(r => myOfferIds.includes(r.id))
+        .reduce((s, r) => s + (r.salary || 0), 0);
+      const inSalary = aiOfferIds.reduce((s, id) => {
+        const p = PLAYERS_RATED.players.find(x => x.id === id);
+        return s + (p ? estimateSalary(p.ovr, p.id) : 0);
+      }, 0);
+      const newTotal = currentTotal - outSalary + inSalary;
+      const apron = typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 209.0;
+      if (newTotal > apron + 0.01) {
+        toast("⚠ 交易失败：本队已触发硬帽（" + (cs.hardCapReason || "") + "），交易后总薪资 " +
+              (typeof fmtM === "function" ? fmtM(newTotal) : newTotal.toFixed(1) + "M") +
+              " 将超第一土豪线 " + (typeof fmtM === "function" ? fmtM(apron) : apron.toFixed(1) + "M"));
+        return false;
+      }
+    }
+  }
   /* 从用户阵容移除 myOffer，加入 aiOffer */
   const newRoster = save.roster.filter(r => !myOfferIds.includes(r.id));
   aiOfferIds.forEach(id => {

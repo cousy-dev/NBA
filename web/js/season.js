@@ -686,6 +686,18 @@ function newSeason(save) {
   save.tradeDeadlinePassed = false;  /* 重置交易截止日标志 */
   save.injuries = {};  /* 新赛季伤病清零 */
   save.injuryLog = [];
+  /* 新赛季重置工资帽硬帽状态：硬帽触发、特例使用全部清零（每季独立结算） */
+  if (save.capStatus) {
+    const prevBAESeason = save.capStatus.lastBAESeason || 0;  /* 双年特例需保留上赛季记录用于两年间隔判定 */
+    save.capStatus = {
+      hardCapped: false,
+      hardCapReason: "",
+      usedMLE: null,
+      usedTaxpayerMLE: null,
+      usedBAE: null,
+      lastBAESeason: prevBAESeason  /* 保留上赛季使用记录 */
+    };
+  }
   /* 名人堂选举 */
   save.hofNewInductees = electHOF(save);
   save.schedule = makeSchedule(save);

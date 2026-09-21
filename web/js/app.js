@@ -40,6 +40,12 @@ const ARENA_POOL = ["星穹球馆", "龙曜中心", "极光体育馆", "皇冠�
 const SALARY_CAP = 165.0;
 const TAX_LINE = 200.4;
 const FIRST_APRON = 209.0;
+/* 特例金额（2026-27 NBA 真实数据） */
+const MLE_AMOUNT = 12.4;        /* 空间中产特例：非纳税人中产（使用后触发硬帽） */
+const TAXPAYER_MLE = 5.3;       /* 纳税人中产特例：超帽球队可用（不触发硬帽，但需缴税） */
+const BAE_AMOUNT = 4.5;         /* 双年特例：每两年可用一次（触发硬帽） */
+const MLE_MAX_YEARS = 3;        /* 中产特例最多 3 年 */
+const BAE_MAX_YEARS = 2;        /* 双年特例最多 2 年 */
 /* 梦幻选秀：30 队蛇形选秀，每队选 FANTASY_ROUNDS 人（不考虑薪资，纯按能力选） */
 const FANTASY_ROUNDS = 15;
 /* 交易截止日：常规赛第 53 场结束后（82 场的 65%，对齐 NBA 现实 2 月中旬截止日） */
@@ -1068,7 +1074,23 @@ RENDERERS.summary = function () {
       budget: d.budget,
       budgetLabel: d.budgetLabel,
       teamOvr: parseFloat(teamOvr),
-      roster: d.rosterArr.map(x => ({ id: x.p.id, salary: x.sal, years: realYearsForId(x.p.id) }))
+      roster: d.rosterArr.map(x => ({ id: x.p.id, salary: x.sal, years: realYearsForId(x.p.id) })),
+      /* 工资帽硬帽跟踪字段：
+         hardCapped: 本队本赛季是否触发硬帽（先签后换/空间中产/双年特例）
+         hardCapReason: 触发原因文案
+         usedMLE: 已用空间中产特例（球员 id）
+         usedTaxpayerMLE: 已用纳税人中产特例（球员 id）
+         usedBAE: 已用双年产特例（球员 id，或上次使用赛季号）
+         lastBAESeason: 上次使用双年特例的赛季号（每两年可用一次）
+         all in one object: capStatus */
+      capStatus: {
+        hardCapped: false,
+        hardCapReason: "",
+        usedMLE: null,
+        usedTaxpayerMLE: null,
+        usedBAE: null,
+        lastBAESeason: 0
+      }
     };
     /* 扩张建队：记录被选走球员，原 30 队阵容移除他们，并给予选秀权优待 */
     if (isExpansion && state.expansion) {

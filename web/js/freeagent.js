@@ -60,13 +60,123 @@ function birdCapAbsolute(level) {
 }
 
 /* 奢侈税警告：续约后总薪资超线时返回警告文案（仅警告不阻止，鸟权续约可超帽）
-   TAX_LINE(200.4)=奢侈税线（超线交税）；FIRST_APRON(209.0)=第一土豪线（操作受限） */
-function taxWarning(total) {
+   TAX_LINE(200.4)=奢侈税线（超线交税）；FIRST_APRON(209.0)=第一土豪线（操作受限）
+   isBird: 是否为鸟权续约 —— true 时明确说明"鸟权可超帽，不触发硬帽" */
+function taxWarning(total, isBird) {
   const apron = typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 209.0;
   const tax = typeof TAX_LINE !== "undefined" ? TAX_LINE : 200.4;
-  if (total > apron + 0.01) return "⚠ 续约后总薪资 " + fmtM(total) + " 超第一土豪线 " + fmtM(apron) + "，将面临土豪线限制";
-  if (total > tax + 0.01) return "⚠ 续约后总薪资 " + fmtM(total) + " 超奢侈税线 " + fmtM(tax) + "，需缴纳奢侈税";
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+  const birdNote = isBird ? "（鸟权可超帽，不触发硬帽）" : "";
+  if (total > apron + 0.01) return "⚠ 续约后总薪资 " + fmtM(total) + " 超第一土豪线 " + fmtM(apron) + birdNote;
+  if (total > tax + 0.01) return "⚠ 续约后总薪资 " + fmtM(total) + " 超奢侈税线 " + fmtM(tax) + birdNote;
+  if (total > cap + 0.01 && !isBird) return "⚠ 续约后总薪资 " + fmtM(total) + " 超工资帽 " + fmtM(cap);
   return "";
+}
+
+/* ===== 工资帽硬帽触发与执行 =====
+   触发条件（符合 NBA CBA 规则）：
+   1. 先签后换（sign-and-trade）：本队接收 S&T 来的球员
+   2. 空间中产特例（MLE）：帽下球队签约 MLE 球员
+   3. 双年特例（BAE）：每两年可用一次，触发硬帽
+   不触发：
+   - 鸟权续约（完全/早/非）→ 永远不触发硬帽
+   - 纳税人中产特例（Taxpayer MLE）→ 不触发硬帽（但需缴税）
+*/
+function getCapStatus(save) {
+  if (!save.capStatus) {
+    save.capStatus = {
+      hardCapped: false, hardCapReason: "",
+      usedMLE: null, usedTaxpayerMLE: null, usedBAE: null, lastBAESeason: 0
+    };
+  }
+  return save.capStatus;
+}
+
+/* 获取本队当前总薪资 */
+function teamSalary(save) {
+  return save.roster.reduce((s, r) => s + (r.salary || 0), 0);
+}
+
+/* 触发硬帽：标记本队本赛季被卡在第一土豪线
+   reason: "先签后换" / "空间中产特例" / "双年特例" */
+function triggerHardCap(save, reason) {
+  const cs = getCapStatus(save);
+  cs.hardCapped = true;
+  cs.hardCapReason = reason;
+}
+
+/* 检查硬帽是否会被违反：本队被硬帽时，新增薪资后不能超第一土豪线
+   返回 { ok: bool, message: string } */
+function enforceHardCap(save, addedSalary) {
+  const cs = getCapStatus(save);
+  if (!cs.hardCapped) return { ok: true, message: "" };
+  const total = teamSalary(save) + addedSalary;
+  const apron = typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 209.0;
+  if (total > apron + 0.01) {
+    return {
+      ok: false,
+      message: "⚠ 已触发硬帽（" + (cs.hardCapReason || "操作受限") + "），总薪资 " +
+              fmtM(total) + " 不可超第一土豪线 " + fmtM(apron)
+    };
+  }
+  return { ok: true, message: "" };
+}
+
+/* 硬帽状态描述（用于 UI 展示） */
+function hardCapBadge(save) {
+  const cs = getCapStatus(save);
+  if (!cs.hardCapped) return null;
+  return {
+    text: "硬帽触发",
+    reason: cs.hardCapReason,
+    cls: "hard-cap-on"
+  };
+}
+
+/* 特例可用性检查（用于 UI 展示与签约前校验）
+   返回 { mle, taxpayerMle, bae } 各为 { available: bool, amount: number, maxYears: number, reason: string } */
+function exceptionAvailability(save) {
+  const cs = getCapStatus(save);
+  const total = teamSalary(save);
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+  const tax = typeof TAX_LINE !== "undefined" ? TAX_LINE : 200.4;
+  const mleAmt = typeof MLE_AMOUNT !== "undefined" ? MLE_AMOUNT : 12.4;
+  const taxMleAmt = typeof TAXPAYER_MLE !== "undefined" ? TAXPAYER_MLE : 5.3;
+  const baeAmt = typeof BAE_AMOUNT !== "undefined" ? BAE_AMOUNT : 4.5;
+
+  /* 空间中产特例：仅帽下球队可用（薪资 ≤ SALARY_CAP），且本队未触发硬帽，且未用过 */
+  const mleRoom = cap - total;
+  const mle = {
+    available: !cs.usedMLE && !cs.hardCapped && mleRoom >= mleAmt,
+    amount: mleAmt,
+    maxYears: typeof MLE_MAX_YEARS !== "undefined" ? MLE_MAX_YEARS : 3,
+    reason: cs.usedMLE ? "本季已用空间中产" :
+            cs.hardCapped ? "已触发硬帽，无法用空间中产" :
+            mleRoom < mleAmt ? "帽下空间不足 " + fmtM(mleAmt) : ""
+  };
+
+  /* 纳税人中产特例：超帽球队可用，不触发硬帽 */
+  const taxpayerMle = {
+    available: !cs.usedTaxpayerMLE && total > cap,
+    amount: taxMleAmt,
+    maxYears: typeof MLE_MAX_YEARS !== "undefined" ? MLE_MAX_YEARS : 3,
+    reason: cs.usedTaxpayerMLE ? "本季已用纳税人中产" :
+            total <= cap ? "帽下球队应使用空间中产" : ""
+  };
+
+  /* 双年特例：每两年可用一次（lastBAESeason 间隔 ≥ 1），触发硬帽 */
+  const currentSeason = save.seasonNo || 1;
+  const baeEligible = (currentSeason - (cs.lastBAESeason || 0)) >= 2;
+  const bae = {
+    available: baeEligible && !cs.usedBAE && !cs.hardCapped,
+    amount: baeAmt,
+    maxYears: typeof BAE_MAX_YEARS !== "undefined" ? BAE_MAX_YEARS : 2,
+    reason: !baeEligible ? "上赛季已用，本季不可用" :
+            cs.usedBAE ? "本季已用双年特例" :
+            cs.hardCapped ? "已触发硬帽" : ""
+  };
+
+  return { mle, taxpayerMle, bae };
 }
 /* 鸟权等级 → 可签年限范围 */
 function birdYearsRange(level) {
@@ -350,7 +460,8 @@ function reSignPlayer(save, playerId, years, salary) {
   save.roster.push(entry);
   save.faPool = save.faPool.filter(f => f.id !== playerId);
   writeSave(save);
-  const warn = taxWarning(newTotal);
+  /* 鸟权续约不触发硬帽，即使已硬帽也可超帽续约自家球员（NBA CBA 例外条款） */
+  const warn = taxWarning(newTotal, true);
   toast("续约成功！" + years + " 年 " + fmtM(salary) + "/年（" + birdLabel(level) + "）" + (warn ? " " + warn : ""));
   return true;
 }
@@ -442,26 +553,55 @@ function extendContract(save, playerId, newYears, newSalary) {
   entry.signedVia = "extension";
   maybeAssignOption(entry, p.ovr, playerId);
   writeSave(save);
-  const warn = taxWarning(total);
+  /* 鸟权提前续约不触发硬帽（即使已硬帽也可续约自家球员） */
+  const warn = taxWarning(total, true);
   toast("✅ 续约成功！" + p.nameCn + " · " + newYears + " 年 " + fmtM(newSalary) + "/年（" + birdLabel(level) + "）" + (warn ? " " + warn : ""));
   return true;
 }
 
 /* ===== 签约自由球员（UFA，受工资帽约束 + 球员意愿） ===== */
-function signFreeAgent(save, playerId, years, salary) {
+function signFreeAgent(save, playerId, years, salary, exception) {
   const faItem = (save.faPool || []).find(f => f.id === playerId);
   if (!faItem) { toast("该球员已签约其他球队"); return false; }
   if (faCategory(faItem) === "RFA") {
     toast("受限制自由球员需走报价流程");
     return false;
   }
-  /* UFA：受预算约束 */
   const total = save.roster.reduce((s, r) => s + r.salary, 0);
-  if (total + salary > (save.budget || 115) + 0.01) {
-    toast("超过工资帽 " + fmtM(save.budget || 115) + "，无法签约");
-    return false;
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+  const cs = getCapStatus(save);
+  const excs = exceptionAvailability(save);
+
+  /* 1. 预算硬检查：超过 budget 即拒绝（除非走特例） */
+  let usingException = null;
+  if (exception === "MLE") {
+    if (!excs.mle.available) { toast(excs.mle.reason || "空间中产特例不可用"); return false; }
+    if (salary > excs.mle.amount + 0.01) { toast("空间中产上限 " + fmtM(excs.mle.amount) + "/年"); return false; }
+    if (years > excs.mle.maxYears) { toast("空间中产最多 " + excs.mle.maxYears + " 年"); return false; }
+    usingException = "MLE";
+  } else if (exception === "BAE") {
+    if (!excs.bae.available) { toast(excs.bae.reason || "双年特例不可用"); return false; }
+    if (salary > excs.bae.amount + 0.01) { toast("双年特例上限 " + fmtM(excs.bae.amount) + "/年"); return false; }
+    if (years > excs.bae.maxYears) { toast("双年特例最多 " + excs.bae.maxYears + " 年"); return false; }
+    usingException = "BAE";
+  } else if (exception === "TaxMLE") {
+    if (!excs.taxpayerMle.available) { toast(excs.taxpayerMle.reason || "纳税人中产不可用"); return false; }
+    if (salary > excs.taxpayerMle.amount + 0.01) { toast("纳税人中产上限 " + fmtM(excs.taxpayerMle.amount) + "/年"); return false; }
+    if (years > excs.taxpayerMle.maxYears) { toast("纳税人中产最多 " + excs.taxpayerMle.maxYears + " 年"); return false; }
+    usingException = "TaxMLE";
+  } else {
+    /* 普通签约：必须帽下（total + salary ≤ SALARY_CAP） */
+    if (total + salary > cap + 0.01) {
+      toast("超过工资帽 " + fmtM(cap) + "，需使用特例（空间中产/纳税人中产/双年）");
+      return false;
+    }
   }
-  /* 球员意愿检查 */
+
+  /* 2. 硬帽执行：本队已硬帽时，新增薪资不得超第一土豪线 */
+  const hardCapCheck = enforceHardCap(save, salary);
+  if (!hardCapCheck.ok) { toast(hardCapCheck.message); return false; }
+
+  /* 3. 球员意愿检查 */
   const myAb = myAbbr(save);
   const willingness = signingWillingness(faItem, save, myAb);
   if (Math.random() > willingness) {
@@ -473,17 +613,42 @@ function signFreeAgent(save, playerId, years, salary) {
     toast("❌ 球员拒绝了合同 — " + reasonText + "（接受概率 " + Math.round(willingness * 100) + "%）");
     return false;
   }
+
+  /* 4. 触发硬帽（仅 MLE / BAE，TaxMLE 不触发） */
+  if (usingException === "MLE") {
+    triggerHardCap(save, "空间中产特例");
+    cs.usedMLE = playerId;
+  } else if (usingException === "BAE") {
+    triggerHardCap(save, "双年特例");
+    cs.usedBAE = playerId;
+    cs.lastBAESeason = save.seasonNo || 1;
+  } else if (usingException === "TaxMLE") {
+    cs.usedTaxpayerMLE = playerId;
+    /* TaxMLE 不触发硬帽，但需缴税 */
+  }
+
+  /* 5. 入队 */
   const entry = {
     id: playerId, salary, years,
-    birdYears: 0, /* 新签约球员 birdYears 从 0 开始 */
+    birdYears: 0,
     optionType: null, optionYear: 0, optionSalary: 0,
-    isRookieScale: false, signedVia: "fa"
+    isRookieScale: false,
+    signedVia: usingException ? "exception:" + usingException : "fa"
   };
   maybeAssignOption(entry, faItem.ovr, playerId);
   save.roster.push(entry);
   save.faPool = save.faPool.filter(f => f.id !== playerId);
   writeSave(save);
-  toast("签约成功！" + years + " 年 " + fmtM(salary) + "/年");
+  let toastMsg = "✅ 签约成功！" + years + " 年 " + fmtM(salary) + "/年";
+  if (usingException === "MLE") {
+    toastMsg += " ⚠ 触发硬帽（空间中产特例），本季总薪资不可超 " + fmtM(FIRST_APRON || 209.0);
+  } else if (usingException === "BAE") {
+    toastMsg += " ⚠ 触发硬帽（双年特例），本季总薪资不可超 " + fmtM(FIRST_APRON || 209.0);
+  }
+  const newTotal = total + salary;
+  const taxWarn = taxWarning(newTotal, false);
+  if (taxWarn) toastMsg += " · " + taxWarn;
+  toast(toastMsg);
   return true;
 }
 
@@ -714,6 +879,28 @@ RENDERERS.freeagent = function () {
   const rfaRows = rfa.map((f, i) => faRow(f, i)).join("") || '<div class="empty-stats">暂无受限制自由球员</div>';
   const renewRows = myRenew.map((f, i) => renewRow(f, i)).join("") || '<div class="empty-stats">无本队到期续约球员</div>';
 
+  /* 工资帽硬帽状态 + 特例可用性 UI */
+  const cs = getCapStatus(save);
+  const excs = exceptionAvailability(save);
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+  const tax = typeof TAX_LINE !== "undefined" ? TAX_LINE : 200.4;
+  const apron = typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 209.0;
+  const hardCapHtml = cs.hardCapped
+    ? '<div class="fa-hard-cap-badge">⚠ 硬帽触发 · ' + esc(cs.hardCapReason || "") + ' · 本季不可超 ' + fmtM(apron) + '</div>'
+    : "";
+  const excBadge = (e, label) => '<span class="fa-exc' + (e.available ? " on" : " off") + '" title="' + esc(e.reason) + '">' +
+    label + ' ' + fmtM(e.amount) + '/' + e.maxYears + 'y' + (e.available ? '✓' : '✗') + '</span>';
+  const excHtml = '<div class="fa-exc-list">' +
+    excBadge(excs.mle, '空间中产') +
+    excBadge(excs.taxpayerMle, '纳税人中产') +
+    excBadge(excs.bae, '双年特例') +
+    '</div>';
+  const capLinesHtml = '<div class="fa-cap-lines">' +
+    '<span>工资帽 ' + fmtM(cap) + '</span>' +
+    '<span>奢侈税线 ' + fmtM(tax) + '</span>' +
+    '<span>第一土豪线 ' + fmtM(apron) + '</span>' +
+    '</div>';
+
   $("#screen-freeagent").innerHTML =
     '<h2 class="screen-title">自由市场</h2>' +
     '<p class="screen-sub">第 ' + save.seasonNo + " 赛季休赛期 · NBA 规则：鸟权续约 / UFA 签约 / RFA 报价匹配</p>" +
@@ -721,6 +908,7 @@ RENDERERS.freeagent = function () {
     '  <div class="fa-budget-row"><span>阵容人数</span><b>' + save.roster.length + "</b></div>" +
     '  <div class="fa-budget-row"><span>总工资 / 预算</span><b>' + fmtM(total) + " / " + fmtM(budget) + "</b></div>" +
     '  <div class="fa-budget-bar"><div class="fb-fill' + (pct > 95 ? " over" : "") + '" style="width:' + pct + '%"></div></div>' +
+    capLinesHtml + excHtml + hardCapHtml +
     "</div>" +
     (save.roster.length < 8 ? '<div class="fa-warning">⚠ 阵容不足 8 人，无法开始赛季</div>' : "") +
     '<div class="fa-tabs">' +
@@ -790,6 +978,14 @@ RENDERERS.freeagent = function () {
         const price = faAskingPrice(f.ovr, f.id);
         if (faCategory(f) === "UFA") {
           const years = contractYears(f.ovr, f.age);
+          /* 检查是否需要特例 */
+          const total = save.roster.reduce((s, r) => s + r.salary, 0);
+          const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+          if (total + price > cap + 0.01) {
+            /* 超帽签约：需选特例，弹窗让用户选 */
+            openExceptionModal(save, id, years, price);
+            return;
+          }
           if (signFreeAgent(save, id, years, price)) RENDERERS.freeagent();
         } else {
           /* RFA 报价 */
@@ -802,6 +998,54 @@ RENDERERS.freeagent = function () {
     $$("#screen-freeagent .fa-row[data-id]").forEach(row => {
       row.onclick = () => openPlayer(Number(row.dataset.id));
     });
+  }
+
+  /* 特例选择弹窗：超帽签约 UFA 时让用户选 MLE/纳税人中产/双年/取消 */
+  function openExceptionModal(save, playerId, years, salary) {
+    const f = save.faPool.find(x => x.id === playerId);
+    if (!f) return;
+    const p = (save.customPlayers || []).find(x => x.id === playerId) || PLAYERS_RATED.players.find(x => x.id === playerId);
+    const excs = exceptionAvailability(save);
+    const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+    const total = save.roster.reduce((s, r) => s + r.salary, 0);
+    /* 关闭已有弹窗 */
+    const old = $("#exc-modal");
+    if (old) old.remove();
+    const m = document.createElement("div");
+    m.id = "exc-modal";
+    m.className = "modal-overlay";
+    m.innerHTML =
+      '<div class="modal-box">' +
+      '<h3>选择薪资特例</h3>' +
+      '<p class="modal-sub">签 ' + esc(p.nameCn) + ' · ' + years + '年 ' + fmtM(salary) + '/年 · 当前总薪资 ' + fmtM(total) + ' 超工资帽 ' + fmtM(cap) + '</p>' +
+      '<div class="exc-options">' +
+        '<button class="exc-opt' + (excs.mle.available && salary <= excs.mle.amount ? " ok" : " disabled") + '" data-exc="MLE"' + (excs.mle.available && salary <= excs.mle.amount ? "" : " disabled") + '>' +
+          '空间中产特例<br><small>' + fmtM(excs.mle.amount) + '/年 · 最多' + excs.mle.maxYears + '年' + (excs.mle.available ? ' ✓' : ' ✗') + '</small>' +
+          (excs.mle.reason ? '<small class="exc-reason">' + excs.mle.reason + '</small>' : '') +
+        '</button>' +
+        '<button class="exc-opt' + (excs.taxpayerMle.available && salary <= excs.taxpayerMle.amount ? " ok" : " disabled") + '" data-exc="TaxMLE"' + (excs.taxpayerMle.available && salary <= excs.taxpayerMle.amount ? "" : " disabled") + '>' +
+          '纳税人中产<br><small>' + fmtM(excs.taxpayerMle.amount) + '/年 · 最多' + excs.taxpayerMle.maxYears + '年' + (excs.taxpayerMle.available ? ' ✓' : ' ✗') + '</small>' +
+          (excs.taxpayerMle.reason ? '<small class="exc-reason">' + excs.taxpayerMle.reason + '</small>' : '') +
+        '</button>' +
+        '<button class="exc-opt' + (excs.bae.available && salary <= excs.bae.amount ? " ok" : " disabled") + '" data-exc="BAE"' + (excs.bae.available && salary <= excs.bae.amount ? "" : " disabled") + '>' +
+          '双年特例<br><small>' + fmtM(excs.bae.amount) + '/年 · 最多' + excs.bae.maxYears + '年' + (excs.bae.available ? ' ✓' : ' ✗') + '</small>' +
+          (excs.bae.reason ? '<small class="exc-reason">' + excs.bae.reason + '</small>' : '') +
+        '</button>' +
+      '</div>' +
+      '<button class="btn exc-cancel">取消</button>' +
+      '</div>';
+    document.body.appendChild(m);
+    $$("#exc-modal .exc-opt").forEach(b => {
+      b.onclick = () => {
+        const exc = b.dataset.exc;
+        if (signFreeAgent(save, playerId, years, salary, exc)) {
+          m.remove();
+          RENDERERS.freeagent();
+        }
+      };
+    });
+    $("#exc-modal .exc-cancel").onclick = () => m.remove();
+    m.onclick = e => { if (e.target === m) m.remove(); };
   }
 
   /* 续约按钮（用户自定义年限+薪资） */
