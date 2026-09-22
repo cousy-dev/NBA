@@ -1298,3 +1298,63 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 @media (max-width: 380px) {
   .tm-stats { white-space: normal; word-break: break-all; text-align: left; }
 }
+
+/* ===== 全明星周末 ===== */
+.as-cards { display: flex; flex-direction: column; gap: 12px; margin: 14px 0; }
+.as-card { display: flex; align-items: center; gap: 14px; padding: 16px 14px; border: 1.5px solid var(--line); border-radius: 16px; background: var(--card); text-align: left; width: 100%; cursor: pointer; transition: transform .15s, box-shadow .15s, border-color .15s; }
+.as-card:active { transform: scale(.98); }
+.as-card.done { border-color: var(--line); opacity: .85; }
+.as-card.done .as-status { color: var(--gold); }
+.as-icon { font-size: 30px; flex-shrink: 0; line-height: 1; width: 44px; text-align: center; }
+.as-body { flex: 1 1 0; min-width: 0; }
+.as-title { font-size: 16px; font-weight: 800; }
+.as-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.as-result { font-size: 13px; color: var(--gold); margin-top: 6px; font-weight: 700; }
+.as-cta { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.as-status { font-size: 18px; color: var(--muted); flex-shrink: 0; }
+
+/* 全明星正赛比分板 */
+.as-scoreboard { display: flex; align-items: center; justify-content: center; gap: 20px; padding: 20px 14px; background: var(--card2); border-radius: 16px; margin: 14px 0; }
+.as-team { text-align: center; flex: 1; }
+.as-team.winner .as-team-name { color: var(--gold); }
+.as-team.winner .as-team-score { color: var(--gold); }
+.as-team-name { font-size: 15px; font-weight: 800; color: var(--text); }
+.as-team-score { font-size: 38px; font-weight: 900; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.as-vs { font-size: 13px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+
+/* 全明星正赛阵容（东西部双列） */
+.as-rosters { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; }
+.as-col h3 { font-size: 14px; margin: 0 0 8px; text-align: center; color: var(--text); }
+.as-col .tm-row { padding: 7px 8px; }
+.as-col .tm-name { font-size: 13px; }
+.as-col .tm-stats { font-size: 10px; }
+@media (max-width: 380px) {
+  .as-rosters { grid-template-columns: 1fr; }
+  .as-scoreboard { gap: 10px; padding: 14px 8px; }
+  .as-team-score { font-size: 30px; }
+}
+
+/* 三分大赛对阵 */
+.tp-round { margin: 14px 0; }
+.tp-round h3 { font-size: 14px; color: var(--muted); font-weight: 700; margin: 0 0 8px; }
+.tp-matchups { display: flex; flex-direction: column; gap: 8px; }
+.tp-matchup { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); }
+.tp-player { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; border-radius: 6px; }
+.tp-player.win { background: rgba(63,191,127,.10); font-weight: 800; }
+.tp-player.win .tp-name { color: var(--gold); }
+.tp-player.me { border: 1px dashed var(--gold); }
+.tp-name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-score { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+/* 扣篮大赛 */
+.dk-round { margin: 14px 0; }
+.dk-round h3 { font-size: 14px; color: var(--muted); font-weight: 700; margin: 0 0 8px; }
+.dk-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); margin-bottom: 5px; }
+.dk-row.win { border-color: rgba(63,191,127,.4); background: rgba(63,191,127,.06); }
+.dk-row.win .dk-badge { color: var(--gold); }
+.dk-row.me { border-color: var(--gold); }
+.dk-name { flex: 1 1 0; min-width: 0; font-size: 13px; font-weight: 700; }
+.dk-team { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.dk-dunks { display: flex; gap: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.dk-total { font-size: 16px; font-weight: 900; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.dk-badge { font-size: 10px; font-weight: 700; color: var(--muted); flex-shrink: 0; padding: 3px 7px; border-radius: 5px; background: var(--card2); }

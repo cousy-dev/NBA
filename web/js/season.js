@@ -1035,3 +1035,180 @@ function getRetiredPlayers(save) {
     return { id, p, name: p.nameCn, team: p.team, pos: p.pos, peakOvr, age: adjAge, expYears, acc, score, inHOF, isRejected, eligible };
   }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
+
+/* ===== 全明星周末 ===== */
+/* 第 42 场打完后触发全明星周末（对应 seasonDates 中 plan[ASB]=7 天 gap） */
+const ALL_STAR_TRIGGER_GAME = 42;
+
+/* 选拔用综合实力（含士气/老化修正） */
+function allStarScore(save, id) {
+  const p0 = findPlayerById(save, id);
+  if (!p0) return 0;
+  return (p0.ovr || 70) + ((save.ovrAdj && save.ovrAdj[id]) || 0) + moraleOvrDelta(moraleOf(save, id));
+}
+
+/* 收集全联盟球员并分东西部 */
+function collectLeaguePlayers(save) {
+  const my = myAbbr(save);
+  const myIds = save.roster.map(r => r.id);
+  const pool = [];
+  TEAMS.forEach(t => {
+    const conf = confOf(t.abbr);
+    let ids;
+    if (t.abbr === my) ids = myIds;
+    else ids = (save.aiRosters && save.aiRosters[t.abbr]) || playersByTeam(t.abbr).map(p => p.id);
+    ids.forEach(id => {
+      const p0 = findPlayerById(save, id);
+      if (!p0) return;
+      pool.push({ id, p: p0, team: t.abbr, conf, ovr: allStarScore(save, id), isMine: t.abbr === my });
+    });
+  });
+  return pool;
+}
+
+/* 全明星正赛阵容：东西部各12人（前5首发，后7替补） */
+function buildAllStarRosters(save) {
+  const pool = collectLeaguePlayers(save);
+  const east = pool.filter(x => x.conf === "E").sort((a, b) => b.ovr - a.ovr).slice(0, 12)
+    .map((x, i) => ({ id: x.id, p: x.p, team: x.team, ovr: x.ovr, isMine: x.isMine, isStarter: i < 5 }));
+  const west = pool.filter(x => x.conf === "W").sort((a, b) => b.ovr - a.ovr).slice(0, 12)
+    .map((x, i) => ({ id: x.id, p: x.p, team: x.team, ovr: x.ovr, isMine: x.isMine, isStarter: i < 5 }));
+  return { east, west };
+}
+
+/* 模拟全明星正赛：东西部对抗，高分，MVP=赢方得分最高者 */
+function simAllStarGame(save, rosters) {
+  const simPlayer = (p) => {
+    const ovrFactor = Math.max(0, Math.min(1, (p.ovr - 70) / 25));
+    const pts = Math.round((8 + ovrFactor * 18) * (0.7 + Math.random() * 0.6));
+    const reb = Math.round((2 + ovrFactor * 6) * (0.7 + Math.random() * 0.6));
+    const ast = Math.round((1 + ovrFactor * 5) * (0.7 + Math.random() * 0.6));
+    return { id: p.id, name: p.p.nameCn, team: p.team, pts, reb, ast, isStarter: p.isStarter, isMine: p.isMine };
+  };
+  const eastBox = rosters.east.map(simPlayer);
+  const westBox = rosters.west.map(simPlayer);
+  const eastScore = eastBox.reduce((s, b) => s + b.pts, 0);
+  const westScore = westBox.reduce((s, b) => s + b.pts, 0);
+  const winner = eastScore >= westScore ? "E" : "W";
+  const winBox = winner === "E" ? eastBox : westBox;
+  const mvp = winBox.slice().sort((a, b) => b.pts - a.pts || b.reb - a.reb)[0] || null;
+  return {
+    eastScore, westScore, winner,
+    mvp: mvp ? { id: mvp.id, name: mvp.name, team: mvp.team, pts: mvp.pts, reb: mvp.reb, ast: mvp.ast } : null,
+    box: { east: eastBox, west: westBox }
+  };
+}
+
+/* 三分大赛候选：偏好 PG/SG/SF + OVR≥75 */
+function threePtCandidates(save) {
+  const pool = collectLeaguePlayers(save);
+  const scored = pool.map(x => {
+    const pos = getPos(x.p).pos;
+    const posBonus = (pos === "PG" || pos === "SG") ? 5 : (pos === "SF" ? 2 : -3);
+    return { id: x.id, p: x.p, team: x.team, ovr: x.ovr, pos, score: x.ovr + posBonus, isMine: x.isMine };
+  }).filter(x => x.ovr >= 75);
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 8);
+}
+
+/* 模拟三分大赛：8人单淘汰，每轮每人25球，命中率基于OVR+位置 */
+function simThreePoint(save, candidates) {
+  if (candidates.length < 2) return { winner: null, rounds: [] };
+  const shoot = (player) => {
+    const base = 0.35 + Math.min(0.3, Math.max(0, (player.score - 75)) / 60);
+    const rate = Math.max(0.3, Math.min(0.65, base + (Math.random() - 0.5) * 0.15));
+    return Math.round(25 * rate);
+  };
+  const rounds = [];
+  const roundNames = ["1/4决赛", "半决赛", "决赛"];
+  let current = candidates.slice();
+  let ri = 0;
+  while (current.length > 1) {
+    const matchups = [];
+    const next = [];
+    for (let i = 0; i + 1 < current.length; i += 2) {
+      const a = current[i], b = current[i + 1];
+      let aS = shoot(a), bS = shoot(b);
+      while (aS === bS) { aS = shoot(a); bS = shoot(b); }
+      const winner = aS > bS ? a : b;
+      matchups.push({
+        a: { id: a.id, name: a.p.nameCn, team: a.team, score: aS, isMine: a.isMine },
+        b: { id: b.id, name: b.p.nameCn, team: b.team, score: bS, isMine: b.isMine },
+        winnerId: winner.id
+      });
+      next.push(winner);
+    }
+    rounds.push({ round: roundNames[ri] || ("第" + (ri + 1) + "轮"), matchups });
+    current = next;
+    ri++;
+  }
+  const w = current[0];
+  return {
+    winner: w ? { id: w.id, name: w.p.nameCn, team: w.team, isMine: w.isMine } : null,
+    rounds
+  };
+}
+
+/* 扣篮大赛候选：年龄≤28 + 偏好前锋/中锋 */
+function dunkCandidates(save) {
+  const pool = collectLeaguePlayers(save);
+  const scored = pool.map(x => {
+    const adjAge = (x.p.age || 24) + ((save.ageAdj && save.ageAdj[x.id]) || 0);
+    const pos = getPos(x.p).pos;
+    const posBonus = (pos === "PF" || pos === "C") ? 4 : (pos === "SF" ? 2 : 0);
+    const ageBonus = Math.max(0, (25 - adjAge)) * 1.5;
+    return { id: x.id, p: x.p, team: x.team, ovr: x.ovr, pos, age: adjAge, score: x.ovr + posBonus + ageBonus, isMine: x.isMine };
+  }).filter(x => x.age <= 28 && x.ovr >= 75);
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 4);
+}
+
+/* 模拟扣篮大赛：4人2轮（半决赛+决赛），5评委各6-10分，满分50/ dunk */
+function simDunk(save, candidates) {
+  if (candidates.length < 2) return { winner: null, rounds: [] };
+  const dunkScore = (player) => {
+    const base = 7 + Math.min(2, Math.max(0, (player.score - 75)) / 15);
+    let total = 0;
+    for (let i = 0; i < 5; i++) {
+      total += Math.max(6, Math.min(10, base + (Math.random() - 0.5) * 3));
+    }
+    return Math.round(total * 10) / 10;
+  };
+  const rounds = [];
+  const roundNames = ["半决赛", "决赛"];
+  let current = candidates.slice();
+  let ri = 0;
+  while (current.length > 1) {
+    const scores = current.map(p => {
+      const d1 = dunkScore(p), d2 = dunkScore(p);
+      return { id: p.id, name: p.p.nameCn, team: p.team, pos: p.pos, dunk1: d1, dunk2: d2, total: Math.round((d1 + d2) * 10) / 10, isMine: p.isMine };
+    });
+    scores.sort((a, b) => b.total - a.total);
+    const advanceCount = Math.max(1, Math.floor(current.length / 2));
+    const advance = scores.slice(0, advanceCount);
+    const advanceIds = new Set(advance.map(s => s.id));
+    rounds.push({ round: roundNames[ri] || ("第" + (ri + 1) + "轮"), scores, advanceIds: [...advanceIds] });
+    current = current.filter(p => advanceIds.has(p.id));
+    ri++;
+  }
+  const w = current[0];
+  return {
+    winner: w ? { id: w.id, name: w.p.nameCn, team: w.team, isMine: w.isMine } : null,
+    rounds
+  };
+}
+
+/* 初始化/获取本赛季全明星周末数据 */
+function ensureAllStar(save) {
+  if (!save.allStar || save.allStar.seasonNo !== save.seasonNo) {
+    save.allStar = {
+      seasonNo: save.seasonNo,
+      done: false,
+      rosters: buildAllStarRosters(save),
+      game: null,
+      threePt: null,
+      dunk: null
+    };
+  }
+  return save.allStar;
+}

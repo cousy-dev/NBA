@@ -296,6 +296,10 @@ function currentStep() {
     case "trade-deal": return ["交易谈判", 1, 1];
     case "extend": return ["提前续约", 1, 1];
     case "draft": return ["NBA 选秀", 1, 1];
+    case "allstar-hub": return ["全明星周末", 1, 1];
+    case "allstar-game": return ["全明星正赛", 1, 1];
+    case "threept": return ["三分大赛", 1, 1];
+    case "dunk": return ["扣篮大赛", 1, 1];
     default: return ["", 0, 1];
   }
 }
@@ -1557,6 +1561,15 @@ RENDERERS.hub = function () {
   /* 时间线视图：日期头 + 近期赛果 + 即将开赛 */
   const gi = currentGame(save);
   let gameHtml;
+  /* 全明星周末待办：第42场已打完但全明星尚未举办 */
+  const allStarPending = save.gameNo >= ALL_STAR_TRIGGER_GAME && save.gameNo < save.schedule.length &&
+    (!save.allStar || !save.allStar.done || save.allStar.seasonNo !== save.seasonNo);
+  if (allStarPending) {
+    gameHtml = '<div class="next-game gold">' +
+      '<div class="champ-line">🌟 全明星周末来了！</div>' +
+      '<div class="ng-meta">赛季中旬休赛期 · 三分大赛 · 扣篮大赛 · 全明星正赛</div>' +
+      '<button class="btn btn-primary" id="btn-allstar">前往全明星周末</button></div>';
+  } else
   if (save.playoffs && save.playoffs.done) {
     const iWon = save.playoffs.champion === my;
     gameHtml = '<div class="next-game champ-banner' + (iWon ? " gold" : "") + '">' +
@@ -1784,6 +1797,9 @@ RENDERERS.hub = function () {
   if (bqRest) bqRest.onclick = quickSimToPlayoffs;
   const bqRound = $("#btn-quick-round");
   if (bqRound) bqRound.onclick = quickSimRound;
+  /* 全明星周末入口 */
+  const bas = $("#btn-allstar");
+  if (bas) bas.onclick = () => { ensureAllStar(save); go("allstar-hub"); };
   /* 球队名单按钮 → 切到阵容 tab */
   const brl = $("#btn-roster-list");
   if (brl) brl.onclick = () => { hubTab = "roster"; RENDERERS.hub(); };
@@ -2060,6 +2076,13 @@ function runSimAnimation(save, totalGames, opts) {
 
   function finishAll() {
     closeOverlay();
+    /* 全明星周末触发：跳转到全明星中心 */
+    if (state._allStarPending) {
+      state._allStarPending = false;
+      ensureAllStar(save);
+      go("allstar-hub");
+      return;
+    }
     /* 结算跳转 */
     if (state._regularJustEnded) {
       state._regularJustEnded = false;
@@ -2086,6 +2109,8 @@ function runSimAnimation(save, totalGames, opts) {
       recent.push(r);
       if (recent.length > 8) recent.shift();
       if (opts.mode === "round" && opts.stopCheck && opts.stopCheck()) break;
+      /* 全明星周末触发：暂停批量模拟 */
+      if (state._allStarPending) break;
     }
     finishAll();
   }
@@ -2095,6 +2120,12 @@ function runSimAnimation(save, totalGames, opts) {
     /* 停止时不关闭，让当前场动画跑完后退出 */
     if (instantSkip) return;
     closeOverlay();
+    if (state._allStarPending) {
+      state._allStarPending = false;
+      ensureAllStar(save);
+      go("allstar-hub");
+      return;
+    }
     if (state._regularJustEnded) {
       state._regularJustEnded = false;
       RENDERERS["regular-end"]();
@@ -2209,7 +2240,7 @@ function runSimAnimation(save, totalGames, opts) {
         /* 单场/系列赛终结停留久一点，批量自动推进 */
         const wait = (opts.single || seriesDone) ? 1100 : 650;
         setTimeout(() => {
-          if (idx >= totalGames || state._regularJustEnded || seriesDone) finishAll();
+          if (idx >= totalGames || state._regularJustEnded || state._allStarPending || seriesDone) finishAll();
           else playNextGame();
         }, wait);
         return;
@@ -2293,6 +2324,10 @@ function completeGame(sim, win) {
       toast("🚫 交易截止日已过，本赛季不再允许交易");
     }
     simLeagueRound(save);
+    /* 全明星周末：第 42 场打完后触发（赛季中旬，对应 7 天 gap） */
+    if (save.gameNo === ALL_STAR_TRIGGER_GAME && (!save.allStar || !save.allStar.done || save.allStar.seasonNo !== save.seasonNo)) {
+      state._allStarPending = true;
+    }
     if (save.gameNo >= save.schedule.length) {
       buildPlayoffs(save);
       state._regularJustEnded = true;
@@ -2560,6 +2595,12 @@ function showPost() {
     completeGame(sim, win);
     el.remove();
     state.match.sim = null;
+    if (state._allStarPending) {
+      state._allStarPending = false;
+      ensureAllStar(state.save);
+      go("allstar-hub");
+      return;
+    }
     if (state._regularJustEnded) {
       state._regularJustEnded = false;
       RENDERERS["regular-end"]();
@@ -2573,6 +2614,146 @@ function showPost() {
     activate("hub");
   };
 }
+
+/* ===== 全明星周末 ===== */
+RENDERERS["allstar-hub"] = function () {
+  const save = state.save;
+  const as = ensureAllStar(save);
+  const card = (key, icon, title, desc, result) => {
+    const done = !!result;
+    return '<button class="as-card' + (done ? " done" : "") + '" id="as-go-' + key + '">' +
+      '<div class="as-icon">' + icon + '</div>' +
+      '<div class="as-body"><div class="as-title">' + title + '</div>' +
+      '<div class="as-desc">' + desc + '</div>' +
+      (done ? '<div class="as-result">' + result + '</div>' : '<div class="as-cta">▶ 开始</div>') + '</div>' +
+      '<div class="as-status">' + (done ? "✓" : "○") + '</div></button>';
+  };
+  let cards = "";
+  cards += card("game", "🏀", "全明星正赛", "东部 vs 西部 · 东西部各12人对抗", as.game ? (as.game.mvp ? "MVP: " + esc(as.game.mvp.name) + " " + as.game.mvp.pts + "分" : "已完赛") : null);
+  cards += card("threept", "🎯", "三分大赛", "8人单淘汰 · 25球决胜", as.threePt ? (as.threePt.winner ? "冠军: " + esc(as.threePt.winner.name) : "已完赛") : null);
+  cards += card("dunk", "💥", "扣篮大赛", "4人2轮 · 5评委打分", as.dunk ? (as.dunk.winner ? "冠军: " + esc(as.dunk.winner.name) : "已完赛") : null);
+  const allDone = as.game && as.threePt && as.dunk;
+  $("#screen-allstar-hub").innerHTML =
+    '<h2 class="screen-title">🌟 全明星周末</h2>' +
+    '<p class="screen-sub">第 ' + save.seasonNo + ' 赛季 · 赛季中旬休赛期</p>' +
+    '<div class="as-cards">' + cards + '</div>' +
+    (allDone ?
+      '<button class="btn btn-primary" id="as-finish">完成全明星周末</button>' :
+      '<button class="btn btn-outline" id="as-skip-all">⏩ 一键模拟全部</button>') +
+    '<button class="btn btn-outline" id="as-back">返回经理室</button>';
+  $("#as-go-game").onclick = () => { if (!as.game) { as.game = simAllStarGame(save, as.rosters); writeSave(save); } go("allstar-game"); };
+  $("#as-go-threept").onclick = () => { if (!as.threePt) { as.threePt = simThreePoint(save, threePtCandidates(save)); writeSave(save); } go("threept"); };
+  $("#as-go-dunk").onclick = () => { if (!as.dunk) { as.dunk = simDunk(save, dunkCandidates(save)); writeSave(save); } go("dunk"); };
+  if (allDone) {
+    $("#as-finish").onclick = () => {
+      as.done = true;
+      writeSave(save);
+      toast("🌟 全明星周末结束！" + (as.game && as.game.mvp ? " MVP: " + as.game.mvp.name : ""));
+      RENDERERS.hub();
+      state.stack = [];
+      activate("hub");
+    };
+  } else {
+    $("#as-skip-all").onclick = () => {
+      if (!as.game) { as.game = simAllStarGame(save, as.rosters); }
+      if (!as.threePt) { as.threePt = simThreePoint(save, threePtCandidates(save)); }
+      if (!as.dunk) { as.dunk = simDunk(save, dunkCandidates(save)); }
+      as.done = true;
+      writeSave(save);
+      toast("🌟 全明星周末一键完成！" + (as.game && as.game.mvp ? " MVP: " + as.game.mvp.name : ""));
+      RENDERERS.hub();
+      state.stack = [];
+      activate("hub");
+    };
+  }
+  $("#as-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+};
+
+RENDERERS["allstar-game"] = function () {
+  const save = state.save;
+  const as = save.allStar;
+  const g = as && as.game;
+  if (!g) { back(); return; }
+  const rosterRows = (list) => list.map((p, i) => {
+    const box = g.box[list === g.box.east ? "east" : "west"][i];
+    if (!box) return "";
+    return '<div class="tm-row' + (box.isMine ? " me" : "") + (p.isStarter ? "" : " sub-row") + '">' +
+      '<span class="tm-pos">' + (p.isStarter ? "首" : "替") + '</span>' +
+      '<div class="ovr-badge ' + ovrClass(p.ovr) + '">' + p.ovr + '</div>' +
+      '<div class="tm-main"><div class="tm-name">' + esc(p.p.nameCn) + '</div>' +
+      '<div class="tm-sub"><span class="tm-team">' + esc(teamName(p.team)) + '</span>' +
+      '<span class="tm-stats">' + box.pts + '分 ' + box.reb + '板 ' + box.ast + '助</span></div></div></div>';
+  }).join("");
+  const eastWin = g.winner === "E";
+  $("#screen-allstar-game").innerHTML =
+    '<h2 class="screen-title">🏀 全明星正赛</h2>' +
+    (g.mvp ? '<div class="se-card gold"><h3>🌟 全明星 MVP</h3>' +
+      '<div class="aw-row me"><span class="aw-rank">MVP</span>' +
+      '<div class="aw-name">' + esc(g.mvp.name) + '<span class="aw-team">' + esc(teamName(g.mvp.team)) + '</span></div>' +
+      '<div class="aw-line">' + g.mvp.pts + '分 ' + g.mvp.reb + '板 ' + g.mvp.ast + '助</div></div></div>' : "") +
+    '<div class="as-scoreboard">' +
+      '<div class="as-team' + (eastWin ? " winner" : "") + '"><div class="as-team-name">东部</div><div class="as-team-score">' + g.eastScore + '</div></div>' +
+      '<div class="as-vs">VS</div>' +
+      '<div class="as-team' + (!eastWin ? " winner" : "") + '"><div class="as-team-name">西部</div><div class="as-team-score">' + g.westScore + '</div></div>' +
+    '</div>' +
+    '<div class="as-rosters"><div class="as-col"><h3>东部</h3>' + rosterRows(as.rosters.east) + '</div>' +
+    '<div class="as-col"><h3>西部</h3>' + rosterRows(as.rosters.west) + '</div></div>' +
+    '<button class="btn btn-outline" id="asg-back">返回</button>';
+  $("#asg-back").onclick = back;
+};
+
+RENDERERS["threept"] = function () {
+  const save = state.save;
+  const t = save.allStar && save.allStar.threePt;
+  if (!t) { back(); return; }
+  const roundHtml = t.rounds.map(r => {
+    const matchups = r.matchups.map(m => {
+      const aWin = m.winnerId === m.a.id;
+      return '<div class="tp-matchup">' +
+        '<div class="tp-player' + (aWin ? " win" : "") + (m.a.isMine ? " me" : "") + '">' +
+          '<span class="tp-name">' + esc(m.a.name) + '</span>' +
+          '<span class="tp-score">' + m.a.score + '/25</span></div>' +
+        '<div class="tp-player' + (!aWin ? " win" : "") + (m.b.isMine ? " me" : "") + '">' +
+          '<span class="tp-name">' + esc(m.b.name) + '</span>' +
+          '<span class="tp-score">' + m.b.score + '/25</span></div>' +
+      '</div>';
+    }).join("");
+    return '<div class="tp-round"><h3>' + r.round + '</h3><div class="tp-matchups">' + matchups + '</div></div>';
+  }).join("");
+  $("#screen-threept").innerHTML =
+    '<h2 class="screen-title">🎯 三分大赛</h2>' +
+    (t.winner ? '<div class="se-card gold"><h3>🏆 三分大赛冠军</h3>' +
+      '<div class="aw-row' + (t.winner.isMine ? " me" : "") + '"><span class="aw-rank">1st</span>' +
+      '<div class="aw-name">' + esc(t.winner.name) + '<span class="aw-team">' + esc(teamName(t.winner.team)) + '</span></div></div></div>' : "") +
+    roundHtml +
+    '<button class="btn btn-outline" id="tp-back">返回</button>';
+  $("#tp-back").onclick = back;
+};
+
+RENDERERS["dunk"] = function () {
+  const save = state.save;
+  const d = save.allStar && save.allStar.dunk;
+  if (!d) { back(); return; }
+  const roundHtml = d.rounds.map(r => {
+    const rows = r.scores.map(s => {
+      const advanced = r.advanceIds.includes(s.id);
+      return '<div class="dk-row' + (advanced ? " win" : "") + (s.isMine ? " me" : "") + '">' +
+        '<div class="dk-name">' + esc(s.name) + '<span class="dk-team">' + esc(teamName(s.team)) + '</span></div>' +
+        '<div class="dk-dunks"><span class="dk-dunk">D1: ' + s.dunk1 + '</span><span class="dk-dunk">D2: ' + s.dunk2 + '</span></div>' +
+        '<div class="dk-total">' + s.total + '</div>' +
+        '<div class="dk-badge">' + (advanced ? "晋级" : "淘汰") + '</div></div>';
+    }).join("");
+    return '<div class="dk-round"><h3>' + r.round + '</h3>' + rows + '</div>';
+  }).join("");
+  $("#screen-dunk").innerHTML =
+    '<h2 class="screen-title">💥 扣篮大赛</h2>' +
+    (d.winner ? '<div class="se-card gold"><h3>🏆 扣篮大赛冠军</h3>' +
+      '<div class="aw-row' + (d.winner.isMine ? " me" : "") + '"><span class="aw-rank">1st</span>' +
+      '<div class="aw-name">' + esc(d.winner.name) + '<span class="aw-team">' + esc(teamName(d.winner.team)) + '</span></div></div></div>' : "") +
+    roundHtml +
+    '<button class="btn btn-outline" id="dk-back">返回</button>';
+  $("#dk-back").onclick = back;
+};
 
 /* ===== 联盟排名 ===== */
 RENDERERS.standings = function () {
