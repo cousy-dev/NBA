@@ -213,7 +213,7 @@ class GameSim {
     });
 
     /* 失误 */
-    let toP = 0.115 + (dAvg - 76) * 0.003 + (76 - this._attr(offT, handler.id, "org")) * 0.0035;
+    let toP = 0.115 + (dAvg - 76) * 0.002 + (76 - this._attr(offT, handler.id, "org")) * 0.0025;
     if (tac.pace === "fast") toP += 0.02;
     if (defTac.def === "press") toP += 0.05;
     if (Math.random() < toP) {
@@ -246,18 +246,22 @@ class GameSim {
     const isRim = !isThree && Math.random() < 0.68;
     const defender = this._weighted(defP, p => this._attr(defT, p.id, "def") + Math.random() * 8);
     const dA = this._attr(defT, defender.id, "def");
+    /* 追赶机制：落后方在大比分落后时小幅提升命中率，领先方小幅下降（模拟垃圾时间放松） */
+    const sc = this.score();
+    const diff = sc[this.off] - sc[1 - this.off];
+    const catchUp = diff <= -15 ? 0.035 : diff >= 15 ? -0.02 : 0;
     let fgP;
     if (isThree) {
-      fgP = 0.355 + (this._attr(offT, shooter.id, "out") - 75) * 0.0025 - (dAvg - 76) * 0.0025 + momOff;
+      fgP = 0.355 + (this._attr(offT, shooter.id, "out") - 75) * 0.0018 - (dAvg - 76) * 0.0018 + momOff + catchUp;
       if (defTac.def === "double" && shooter.ovr >= 88) fgP -= 0.04;
       fgP = Math.max(0.20, Math.min(0.55, fgP));
     } else if (isRim) {
-      fgP = 0.60 + (this._attr(offT, shooter.id, "ins") - 75) * 0.004 - (dAvg - 76) * 0.003 + momOff;
+      fgP = 0.60 + (this._attr(offT, shooter.id, "ins") - 75) * 0.0028 - (dAvg - 76) * 0.002 + momOff + catchUp;
       if (defTac.def === "zone") fgP -= 0.03;
       if (defTac.def === "double" && shooter.ovr >= 88) fgP -= 0.035;
       fgP = Math.max(0.35, Math.min(0.82, fgP));
     } else {
-      fgP = 0.42 + (this._attr(offT, shooter.id, "out") - 75) * 0.002 - (dAvg - 76) * 0.002 + momOff;
+      fgP = 0.42 + (this._attr(offT, shooter.id, "out") - 75) * 0.0015 - (dAvg - 76) * 0.0015 + momOff + catchUp;
       fgP = Math.max(0.28, Math.min(0.60, fgP));
     }
 
