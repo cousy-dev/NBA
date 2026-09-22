@@ -920,7 +920,10 @@ RENDERERS.freeagent = function () {
     '<div class="fa-panel" id="fa-panel">' +
     '  <div class="aw-list">' + ufaRows + "</div>" +
     "</div>" +
-    '<button class="btn btn-primary" id="btn-fa-done"' + (save.roster.length < 8 ? " disabled" : "") + ">开始新赛季</button>";
+    '<div class="fa-actions">' +
+    '<button class="btn btn-primary" id="btn-fa-done"' + (save.roster.length < 8 ? " disabled" : "") + ">开始新赛季</button>" +
+    '<button class="btn btn-outline" id="btn-fa-trade">休赛期交易</button>' +
+    "</div>";
 
   /* 我的阵容 HTML */
   const rosterHtml = mine.sort((a, b) => b.p.ovr - a.p.ovr).map((x, i) => {
@@ -1078,4 +1081,5 @@ RENDERERS.freeagent = function () {
     toast("第 " + save.seasonNo + " 赛季开始！");
     RENDERERS.hub(); state.stack = []; activate("hub");
   };
+  $("#btn-fa-trade").onclick = () => { go("trade"); };
 };

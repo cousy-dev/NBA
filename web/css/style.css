@@ -1085,6 +1085,8 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .fa-cap-hint { font-size: 11px; color: var(--muted); min-width: 70px; text-align: right; }
 .fa-row .aw-name { flex: 1; }
 .fa-row .aw-team { display: block; font-size: 11.5px; margin-top: 3px; }
+.fa-actions { display: flex; gap: 10px; margin-top: 12px; }
+.fa-actions .btn { flex: 1; }
 @media (max-width: 560px) {
   .fa-row { flex-wrap: wrap; }
   .fa-renew { width: 100%; justify-content: space-between; margin-top: 6px; }

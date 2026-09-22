@@ -1678,7 +1678,7 @@ RENDERERS.hub = function () {
       '  <div class="ng-btns">' +
       '    <button class="btn btn-primary" id="btn-play">开始比赛</button>' +
       '    <button class="btn btn-outline" id="btn-quick">快速模拟</button>' +
-      '    <button class="btn btn-outline" id="btn-quick-rest">模拟到季后赛</button>' +
+      '    <button class="btn btn-outline" id="btn-quick-rest">' + (save.gameNo < ALL_STAR_TRIGGER_GAME && (!save.allStar || !save.allStar.done || save.allStar.seasonNo !== save.seasonNo) ? "模拟到全明星" : "模拟到季后赛") + '</button>' +
       "  </div>" +
       "</div>";
   }
