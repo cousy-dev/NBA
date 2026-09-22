@@ -3547,17 +3547,24 @@ RENDERERS.trade = function () {
   }
   const my = myAbbr(save);
   const others = TEAMS.filter(t => t.abbr !== my).map(t => ({
-    ...t, str: teamStrength(t.abbr), val: teamStrength(t.abbr).toFixed(1)
+    ...t, str: teamStrength(t.abbr), val: teamStrength(t.abbr).toFixed(1),
+    status: teamStatus(save, t.abbr)
   })).sort((a, b) => b.str - a.str);
+  const statusBadgeHtml = (s) => {
+    const cls = s === "contending" ? "badge-contend" : s === "tanking" ? "badge-tank" : "badge-rebuild";
+    const txt = s === "contending" ? "争冠中" : s === "tanking" ? "摆烂中" : "补强中";
+    return '<span class="team-status ' + cls + '">' + txt + "</span>";
+  };
   $("#screen-trade").innerHTML =
     '<h2 class="screen-title">交易中心</h2>' +
-    '<p class="screen-sub">选择交易对象，发起球员交换谈判</p>' +
+    '<p class="screen-sub">选择交易对象，发起球员交换谈判 · 状态影响交易意愿</p>' +
     '<div class="trade-team-grid">' +
     others.map(t =>
       '<div class="trade-team-card" data-abbr="' + t.abbr + '">' +
       '  <div class="trade-team-logo">' + teamLogoHtml(t.abbr) + "</div>" +
       '  <div class="trade-team-name">' + esc(t.nameCn) + "</div>" +
       '  <div class="trade-team-str">★' + stars(t.str) + " · " + t.val + "</div>" +
+      statusBadgeHtml(t.status) +
       "</div>"
     ).join("") +
     "</div>";
@@ -3613,7 +3620,7 @@ RENDERERS["trade-deal"] = function () {
     };
   });
   /* AI 球员显示「我方需求加成」：我队缺什么位置，对方那个位置球员就更值钱 */
-  const tradable = getTradable(aiTeam).map(x => ({
+  const tradable = getTradable(aiTeam, save).map(x => ({
     p: x.p, sal: estimateSalary(x.p.ovr, x.p.id), untouchable: !!x.untouchable,
     ctx: {
       years: 2, potential: x.p.potential, birdYears: 0,
@@ -3675,7 +3682,7 @@ RENDERERS["trade-deal"] = function () {
     '<div class="trade-deal-header">' +
     '  <div class="td-side">' + teamLogoHtml(myAbbr(save)) + "<div><b>" + esc(save.team.displayName) + "</b><span>你方</span></div></div>" +
     '  <div class="td-center"><div class="td-val">' + myVal + " vs " + aiVal + '<small>包裹价值 · 添头边际递减</small></div><div class="td-sal">' + fmtM(mySal) + " ↔ " + fmtM(aiSal) + "</div>" + matchHtml + "</div>" +
-    '  <div class="td-side">' + teamLogoHtml(aiTeam) + "<div><b>" + esc(aiT.nameCn) + "</b><span>对方</span></div></div>" +
+    '  <div class="td-side">' + teamLogoHtml(aiTeam) + "<div><b>" + esc(aiT.nameCn) + "</b><span>对方 · " + (STATUS_LABELS[teamStatus(save, aiTeam)] || "") + "</span></div></div>" +
     "</div>" +
     (result ? '<div class="trade-result ' + (result.accept ? "accept" : "reject") + '">' +
       '<div class="tr-icon">' + (result.accept ? "✓" : "✗") + "</div>" +
@@ -3954,7 +3961,7 @@ RENDERERS["trade-search"] = function () {
       const mine = loadMyPlayers(save);
       const mp = mine.find(x => x.p.id === myId);
       if (mp) state.trade.myPicks.push(mp);
-      const aiPlayers = getTradable(aiTeam);
+      const aiPlayers = getTradable(aiTeam, state.save);
       const ap = aiPlayers.find(x => x.p.id === aiId);
       if (ap) state.trade.aiPicks.push(ap);
       go("trade-deal");

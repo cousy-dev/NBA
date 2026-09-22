@@ -227,6 +227,41 @@ function positionHole(before, after) {
   return ["G", "F", "C"].find(pos => after[pos] < POS_FLOOR[pos] && after[pos] < before[pos]);
 }
 
+/* ===== 球队状态判定 =====
+   根据阵容实力 + 战绩动态判定，影响非卖品门槛与交易偏好：
+   contending    争冠中：Top8 均 OVR≥84（4 星+）或赛季胜率≥0.6 → 球星非卖品
+   strengthening 补强中：79≤实力<84，胜率 0.35~0.6 → 仅超巨非卖品
+   tanking       摆烂中：实力<79 或胜率<0.35 → 所有人可交易 */
+const STATUS_CONTENDING = "contending";
+const STATUS_STRENGTHENING = "strengthening";
+const STATUS_TANKING = "tanking";
+const STATUS_LABELS = { contending: "争冠中", strengthening: "补强中", tanking: "摆烂中" };
+
+function teamStatus(save, abbr) {
+  const str = (typeof teamStrength === "function") ? teamStrength(abbr) : 80;
+  /* 战绩：用户队用 save.record，AI 队用 save.standings */
+  let w = 0, l = 0, gp = 0;
+  if (abbr === (save.team && save.team.abbr)) {
+    const rec = save.record || { w: 0, l: 0 };
+    w = rec.w; l = rec.l;
+  } else if (save.standings && save.standings[abbr]) {
+    w = save.standings[abbr].w; l = save.standings[abbr].l;
+  }
+  gp = w + l;
+  const wpct = gp ? w / gp : 0.5;
+  /* 赛季初（<20 场）以阵容实力为主；赛季中后期战绩权重上升 */
+  if (str >= 84 || (gp >= 20 && wpct >= 0.6)) return STATUS_CONTENDING;
+  if (str < 79 || (gp >= 20 && wpct < 0.35)) return STATUS_TANKING;
+  return STATUS_STRENGTHENING;
+}
+
+/* 不同状态下的非卖品 OVR 门槛：摆烂队返回 200（即无人非卖品） */
+function untouchableOvr(status) {
+  if (status === STATUS_CONTENDING) return 85;
+  if (status === STATUS_STRENGTHENING) return 90;
+  return 200;
+}
+
 /* ===== AI 交易意愿 =====
    AI 必须"有利可图"才交易：薪资配平 + 阵容合理 + 收到的打包价值 ≥ 送出价值。
    返回 { accept, reason, counter? } */
@@ -240,10 +275,15 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   if (!myOffer.length && !myPicks.length) return { accept: false, reason: "你没有给出任何筹码。" };
   if (!aiOffer.length && !aiPicks.length) return { accept: false, reason: "对方没有送出任何球员或选秀权。" };
 
-  /* ---- 硬性规则 1：非卖品保护 ---- */
-  const untouch = aiOffer.find(x => x.p.ovr >= 90);
+  /* ---- 硬性规则 1：非卖品保护（随球队状态变化）----
+     争冠中：OVR≥85 即非卖品（保护核心争冠阵容）
+     补强中：OVR≥90 非卖品（只锁超巨）
+     摆烂中：无非卖品（所有人可交易，重建优先） */
+  const aiStatus = teamStatus(save, aiTeam);
+  const untouchOvr = untouchableOvr(aiStatus);
+  const untouch = aiOffer.find(x => x.p.ovr >= untouchOvr);
   if (untouch) {
-    return { accept: false, reason: untouch.p.nameCn + " 是对方的非卖品（OVR " + untouch.p.ovr + "），任何报价都不会被考虑。" };
+    return { accept: false, reason: untouch.p.nameCn + " 是" + STATUS_LABELS[aiStatus] + "球队的非卖品（OVR " + untouch.p.ovr + "），任何报价都不会被考虑。" };
   }
 
   /* ---- 薪资汇总 ---- */
@@ -337,56 +377,92 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
 
   const ratio = incomingVal / Math.max(1, outgoingVal);
 
-  /* ---- 球星头牌硬门槛：送走球星必须换来同等级核心资产或首轮签，
-          无论添头打包总值多高都不能绕过（现实 NBA 的核心逻辑）---- */
+  /* ---- 球星头牌硬门槛 + 球队状态偏好（随争冠/补强/摆烂变化）---- */
   const bestOut = aiOffer.reduce((m, x) => Math.max(m, x.p.ovr), 0);
   const bestIn = myOffer.reduce((m, x) => Math.max(m, x.p.ovr), 0);
   const bestOutName = (aiOffer.find(x => x.p.ovr === bestOut) || aiOffer[0]).p.nameCn;
   const firstRounders = myPicks.filter(pk => pk.round === 1).length;
+  const lottoPick = myPicks.some(pk => (typeof estimatePickPosition === "function") &&
+    estimatePickPosition(save, pk) <= 8);
+  const avgAgeIn = myOffer.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, myOffer.length);
+  const avgAgeOut = aiOffer.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, aiOffer.length);
+
+  /* 状态前缀 + 年龄偏好：摆烂队要年轻资产（加分）/嫌老将（打折）；争冠队要即战力 */
+  const statusPrefix = aiStatus === STATUS_TANKING ? "摆烂队"
+                     : aiStatus === STATUS_CONTENDING ? "争冠球队" : "对方";
+  let statusBonus = 1.0;
+  if (aiStatus === STATUS_TANKING) {
+    statusBonus = avgAgeIn < avgAgeOut - 1.5 ? 1.12 : (avgAgeIn > avgAgeOut + 2 ? 0.85 : 1.0);
+  } else if (aiStatus === STATUS_CONTENDING) {
+    statusBonus = avgAgeIn >= avgAgeOut - 1 ? 1.04 : 0.96;
+  }
+
+  /* 门槛随状态调整：摆烂队放宽（球星愿去赢球方）、争冠队收紧 */
   let threshold = 1.05;
   let starGate = null;
-  if (bestOut >= 88) {
-    threshold = 1.30;
-    /* 88+ 超巨：回报中必须有 OVR≥best-4 球员，或前 8 顺位签，或 2 个首轮 */
-    const lottoPick = myPicks.some(pk => (typeof estimatePickPosition === "function") &&
-      estimatePickPosition(save, pk) <= 8);
-    if (bestIn < bestOut - 4 && !lottoPick && firstRounders < 2) {
-      starGate = "对方不会为添头和普通筹码放走 " + bestOutName +
-                 "（OVR " + bestOut + "）：至少需要一名同级球星（OVR≥" + (bestOut - 4) +
-                 "）、一个前 8 顺位签或 2 个首轮签，添头再多也不行。";
+  if (aiStatus === STATUS_TANKING) {
+    /* 摆烂队：所有人可交易，门槛整体降一档；82-84 档跳过头牌门槛 */
+    if (bestOut >= 88) {
+      threshold = 1.15;
+      if (bestIn < bestOut - 8 && !lottoPick && firstRounders < 1) {
+        starGate = bestOutName + "（OVR " + bestOut + "）是摆烂队为数不多的核心资产：" +
+                   "至少需要一名 OVR≥" + (bestOut - 8) + " 的球员或一个首轮签。";
+      }
+    } else if (bestOut >= 85) {
+      threshold = 1.10;
+      if (bestIn < bestOut - 10 && firstRounders < 1) {
+        starGate = "摆烂队愿意放走 " + bestOutName + "（OVR " + bestOut + "），但需要年轻资产：" +
+                   "附带一个首轮签或 OVR≥" + (bestOut - 10) + " 的球员。";
+      }
     }
-  } else if (bestOut >= 85) {
-    threshold = 1.20;
-    /* 85-87 明星：头牌需 OVR≥best-7，或附带任意首轮签 */
-    if (bestIn < bestOut - 7 && firstRounders < 1) {
-      starGate = "对方不会用 " + bestOutName + "（OVR " + bestOut + "）换一堆角色球员：" +
-                 "你的包裹中必须有一名 OVR≥" + (bestOut - 7) + " 的年轻核心，或附带一个首轮签。";
+    /* bestOut < 85：摆烂队跳过 starGate，只看价值 */
+  } else if (aiStatus === STATUS_CONTENDING) {
+    /* 争冠队：82+ 即触发头牌门槛（保护轮换核心） */
+    if (bestOut >= 88) {
+      threshold = 1.30;
+      if (bestIn < bestOut - 4 && !lottoPick && firstRounders < 2) {
+        starGate = "争冠球队不会为添头放走 " + bestOutName + "（OVR " + bestOut + "）：" +
+                   "至少需要一名同级球星（OVR≥" + (bestOut - 4) + "）、一个前 8 顺位签或 2 个首轮签。";
+      }
+    } else if (bestOut >= 82) {
+      threshold = 1.20;
+      if (bestIn < bestOut - 7 && firstRounders < 1) {
+        starGate = "争冠球队的轮换核心 " + bestOutName + "（OVR " + bestOut + "）非添头可换：" +
+                   "需要 OVR≥" + (bestOut - 7) + " 的同级球员或一个首轮签。";
+      }
     }
-  } else if (bestOut >= 82) {
-    threshold = 1.15;
-    /* 82-84 准明星：头牌需 OVR≥best-7，或附带任意首轮签 */
-    if (bestIn < bestOut - 7 && firstRounders < 1) {
-      starGate = "添头无法凑数换走 " + bestOutName + "（OVR " + bestOut + "）：" +
-                 "请提供一名 OVR≥" + (bestOut - 7) + " 的同等级球员作为主体，或加入一个首轮签。";
+  } else {
+    /* 补强队：原逻辑 */
+    if (bestOut >= 88) {
+      threshold = 1.30;
+      if (bestIn < bestOut - 4 && !lottoPick && firstRounders < 2) {
+        starGate = "对方不会为添头和普通筹码放走 " + bestOutName +
+                   "（OVR " + bestOut + "）：至少需要一名同级球星（OVR≥" + (bestOut - 4) +
+                   "）、一个前 8 顺位签或 2 个首轮签，添头再多也不行。";
+      }
+    } else if (bestOut >= 85) {
+      threshold = 1.20;
+      if (bestIn < bestOut - 7 && firstRounders < 1) {
+        starGate = "对方不会用 " + bestOutName + "（OVR " + bestOut + "）换一堆角色球员：" +
+                   "你的包裹中必须有一名 OVR≥" + (bestOut - 7) + " 的年轻核心，或附带一个首轮签。";
+      }
+    } else if (bestOut >= 82) {
+      threshold = 1.15;
+      if (bestIn < bestOut - 7 && firstRounders < 1) {
+        starGate = "添头无法凑数换走 " + bestOutName + "（OVR " + bestOut + "）：" +
+                   "请提供一名 OVR≥" + (bestOut - 7) + " 的同等级球员作为主体，或加入一个首轮签。";
+      }
     }
   }
 
-  /* ---- 重建球队偏好：烂队收到更年轻的包裹时加分 ---- */
-  const record = save.standings[aiTeam] || { w: 0, l: 0 };
-  const gp = record.w + record.l;
-  const winPct = gp ? record.w / gp : 0.5;
-  const avgAgeIn = myOffer.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, myOffer.length);
-  const avgAgeOut = aiOffer.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, aiOffer.length);
-  const rebuildBonus = (winPct < 0.4 && avgAgeIn < avgAgeOut - 1.5) ? 1.08 : 1.0;
-
-  const effectiveRatio = ratio * rebuildBonus;
+  const effectiveRatio = ratio * statusBonus;
 
   /* 头牌门槛为硬性拒绝，不看打包总值 */
   if (starGate) {
     return { accept: false, reason: starGate };
   }
   if (effectiveRatio >= threshold) {
-    return { accept: true, reason: "对方认为这笔交易有利可图，愿意接受。" };
+    return { accept: true, reason: statusPrefix + "认为这笔交易有利可图，愿意接受。" };
   }
 
   /* ---- 拒绝：给出具体差距与补救提示 ---- */
@@ -498,12 +574,13 @@ function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPi
   writeSave(save);
 }
 
-/* ===== 获取 AI 队伍可交易球员（全部返回，OVR≥90 标记为非卖品） ===== */
-function getTradable(aiTeamAbbr) {
+/* ===== 获取 AI 队伍可交易球员（全部返回，按球队状态标记非卖品） ===== */
+function getTradable(aiTeamAbbr, save) {
   const all = playersByTeam(aiTeamAbbr);
-  /* OVR≥90 视为非卖品：仍然展示，但打上标记且不可被选入交易篮 */
+  const status = save ? teamStatus(save, aiTeamAbbr) : STATUS_STRENGTHENING;
+  const untOvr = untouchableOvr(status);
   return all
-    .map(p => ({ p, untouchable: p.ovr >= 90 }))
+    .map(p => ({ p, untouchable: p.ovr >= untOvr }))
     .sort((a, b) => b.p.ovr - a.p.ovr);
 }
 
