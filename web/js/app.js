@@ -1369,6 +1369,25 @@ function migrateSave(save) {
   }
   if (!save.playerStats) save.playerStats = {};
   if (!save.history) save.history = [];
+  /* 修复早期球员库的重复 id 问题：阵容按 id 去重（保留首个），避免交易人数/移除逻辑错乱 */
+  if (save.roster) {
+    const seenR = new Set();
+    save.roster = save.roster.filter(r => {
+      if (seenR.has(r.id)) return false;
+      seenR.add(r.id);
+      return true;
+    });
+  }
+  if (save.aiRosters) {
+    Object.keys(save.aiRosters).forEach(a => {
+      const seenA = new Set();
+      save.aiRosters[a] = save.aiRosters[a].filter(id => {
+        if (seenA.has(id)) return false;
+        seenA.add(id);
+        return true;
+      });
+    });
+  }
   save.ovrAdj = save.ovrAdj || {};
   save.ageAdj = save.ageAdj || {};
   save.morale = save.morale || {};
@@ -3608,13 +3627,29 @@ RENDERERS["trade-deal"] = function () {
   /* 选秀权数据 */
   const myPickPool = getTeamPicks(save, myAbbr(save));
   const aiPickPool = getTeamPicks(save, aiTeam);
-  /* 总价值 = 球员 + 选秀权 */
-  const myVal = myPicks.reduce((s, x) => s + tradeValue(x.p, x.sal, x.ctx), 0) + myDPicks.reduce((s, pk) => s + pickValue(pk), 0);
-  const aiVal = aiPicks.reduce((s, x) => s + tradeValue(x.p, x.sal, x.ctx), 0) + aiDPicks.reduce((s, pk) => s + pickValue(pk), 0);
+  /* 包裹总价值（边际递减）：头牌足额、添头大幅折价，与 AI 评估口径一致 */
+  const myVal = Math.round(packagedValue(myPicks, myDPicks, x => tradeValue(x.p, x.sal, x.ctx)));
+  const aiVal = Math.round(packagedValue(aiPicks, aiDPicks, x => tradeValue(x.p, x.sal, x.ctx)));
   const result = state.trade.result;
   const mySal = myPicks.reduce((s, x) => s + x.sal, 0);
   const aiSal = aiPicks.reduce((s, x) => s + x.sal, 0);
   const hasOffer = (myPicks.length + myDPicks.length) && (aiPicks.length + aiDPicks.length);
+
+  /* 实时薪资配平指示器（双方视角） */
+  let matchHtml = "";
+  if (myPicks.length || aiPicks.length) {
+    const myPayroll0 = save.roster.reduce((s, r) => s + (r.salary || 0), 0);
+    const fin0 = aiTeamFinances(save, aiTeam);
+    const uOk = salaryMatchOk(mySal, aiSal, myPayroll0 - mySal);
+    const aOk = salaryMatchOk(aiSal, mySal, fin0.payroll - aiSal);
+    const pill = (ok, label, detail) =>
+      '<span class="td-match ' + (ok ? "ok" : "bad") + '">' + (ok ? "✓" : "✗") + " " + label +
+      (detail ? '<small>' + detail + "</small>" : "") + "</span>";
+    const uDetail = uOk.ok ? "" : "上限 " + fmtM(uOk.max);
+    const aDetail = aOk.ok ? "" : "上限 " + fmtM(aOk.max);
+    matchHtml = '<div class="td-match-row">' +
+      pill(uOk.ok, "你方配平", uDetail) + pill(aOk.ok, "对方配平", aDetail) + "</div>";
+  }
 
   const pickList = (arr, side) =>
     arr.length ? arr.map(x =>
@@ -3639,7 +3674,7 @@ RENDERERS["trade-deal"] = function () {
     '<h2 class="screen-title">交易谈判</h2>' +
     '<div class="trade-deal-header">' +
     '  <div class="td-side">' + teamLogoHtml(myAbbr(save)) + "<div><b>" + esc(save.team.displayName) + "</b><span>你方</span></div></div>" +
-    '  <div class="td-center"><div class="td-val">' + myVal + " vs " + aiVal + '</div><div class="td-sal">' + fmtM(mySal) + " ↔ " + fmtM(aiSal) + "</div></div>" +
+    '  <div class="td-center"><div class="td-val">' + myVal + " vs " + aiVal + '<small>包裹价值 · 添头边际递减</small></div><div class="td-sal">' + fmtM(mySal) + " ↔ " + fmtM(aiSal) + "</div>" + matchHtml + "</div>" +
     '  <div class="td-side">' + teamLogoHtml(aiTeam) + "<div><b>" + esc(aiT.nameCn) + "</b><span>对方</span></div></div>" +
     "</div>" +
     (result ? '<div class="trade-result ' + (result.accept ? "accept" : "reject") + '">' +

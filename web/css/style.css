@@ -720,7 +720,13 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .td-side span { display: block; color: var(--muted); font-size: 11px; }
 .td-center { text-align: center; }
 .td-val { font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.td-val small { display: block; font-size: 9px; font-weight: 600; color: var(--muted); margin-top: 1px; }
 .td-sal { font-size: 11.5px; color: var(--muted); }
+.td-match-row { display: flex; gap: 4px; justify-content: center; margin-top: 6px; flex-wrap: wrap; }
+.td-match { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 6px; line-height: 1.2; }
+.td-match small { font-size: 9px; font-weight: 600; opacity: .85; }
+.td-match.ok { background: rgba(46,160,67,.15); color: #2ea043; }
+.td-match.bad { background: rgba(214,66,75,.15); color: #d6424b; }
 
 .trade-result { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .trade-result.accept { border: 1.5px solid rgba(63, 191, 127, .5); }

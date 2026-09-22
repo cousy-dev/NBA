@@ -132,83 +132,348 @@ function positionNeedBonus(save, abbr, pos) {
   return 0;                                             /* 刚好 */
 }
 
-/* ===== AI 交易意愿 ===== */
-/* AI 评估一笔交易是否接受，返回 { accept: bool, reason: string, counter?: offer } */
-/* myOffer/aiOffer: [{ p, sal }] 或空数组; myPicks/aiPicks: [pickInfo] 或空数组 */
+/* ===== AI 球队薪资与阵容工具 ===== */
+/* AI 队当前总薪资（估算合同）+ 球员 id 列表 */
+function aiTeamFinances(save, abbr) {
+  const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));
+  const byId = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+  const ids = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
+  let payroll = 0;
+  const players = [];
+  ids.forEach(id => {
+    const p = customById.get(id) || byId.get(id);
+    if (p) {
+      const adj = (typeof applyAdj === "function") ? applyAdj(p, save) : p;
+      const sal = estimateSalary(adj.ovr, id);
+      payroll += sal;
+      players.push({ p: adj, sal });
+    }
+  });
+  return { ids, players, payroll };
+}
+
+/* ===== NBA CBA 2023 薪资配平规则 =====
+   送出 outSal 的球队，超帽时最多可收回：
+   - outSal < 7.5M：200% × outSal + 0.1M
+   - 7.5M ≤ outSal < 29M：outSal + 5.0M
+   - outSal ≥ 29M：125% × outSal + 0.1M
+   帽下球队可直接用薪资空间吃到工资帽。
+   payrollAfterOut：送出球员后该队总薪资（M） */
+function maxIncomingSalary(outSal, payrollAfterOut, cap) {
+  cap = cap || (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0);
+  let matched;
+  if (outSal < 0.11) matched = 0.11;                 /* 空气：超帽几乎不能收回 */
+  else if (outSal < 7.5) matched = outSal * 2 + 0.1;
+  else if (outSal < 29) matched = outSal + 5.0;
+  else matched = outSal * 1.25 + 0.1;
+  /* 帽下空间可以叠加：只要交易后不超工资帽即可，空间额就是可收回的薪资上限
+     （注意：不是 outSal + room，送出的薪资已体现在 payrollAfterOut 中） */
+  const room = Math.max(0, cap - payrollAfterOut);
+  return Math.max(matched, room);
+}
+
+/* 检查配平是否合法：inSal 是否为送出 outSal 的球队可接收 */
+function salaryMatchOk(outSal, inSal, payrollAfterOut, cap) {
+  cap = cap || (typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0);
+  /* 帽下直接吃 */
+  if (payrollAfterOut + inSal <= cap + 0.01) return { ok: true, via: "cap-room" };
+  /* 超帽走配平例外 */
+  if (outSal < 0.11) return { ok: false, via: "trade-exception", max: 0.11 };
+  const maxIn = maxIncomingSalary(outSal, payrollAfterOut, cap);
+  return { ok: inSal <= maxIn + 0.01, via: "trade-exception", max: maxIn };
+}
+
+/* ===== 打包价值：极陡峭边际递减，防止"一堆添头=球星" =====
+   现实交易看核心资产等级：第 1 件 100%，第 2 件起仅作补偿 35%/15%/8%/5%
+   选秀权为独立硬资产，权重 100%/60%/40%
+   items: [{p, sal, ctx, _v?}]；pickItems: [pickInfo] */
+function packagedValue(items, pickItems, valueFn) {
+  valueFn = valueFn || (x => x._v);
+  const sorted = items.slice().map(x => ({ x, v: valueFn(x) })).sort((a, b) => b.v - a.v);
+  let total = 0;
+  sorted.forEach((it, i) => {
+    const f = i === 0 ? 1.0 : i === 1 ? 0.35 : i === 2 ? 0.15 : i === 3 ? 0.08 : 0.05;
+    total += it.v * f;
+  });
+  const picks = (pickItems || []).slice().map(pk => ({ pk, v: pickValue(pk) })).sort((a, b) => b.v - a.v);
+  picks.forEach((it, i) => {
+    const f = i === 0 ? 1.0 : i === 1 ? 0.60 : 0.40;
+    total += it.v * f;
+  });
+  return total;
+}
+
+/* 位置人数下限：现代阵容常有 1 名纯中锋（F-C 双能位计入两侧） */
+const POS_FLOOR = { G: 4, F: 4, C: 2 };
+
+/* 交易后某队各位置人数（G/F/C），G-F / F-C 双能位在主副位置各计一次 */
+function positionCountsAfter(currentPlayers, outIds, inPlayers) {
+  const c = { G: 0, F: 0, C: 0 };
+  const tally = p => {
+    const gp = getPos(p);
+    c[catOf(gp.pos)]++;
+    if (gp.pos2) c[catOf(gp.pos2)]++;
+  };
+  currentPlayers.forEach(x => {
+    if (!outIds.includes(x.p.id)) tally(x.p);
+  });
+  inPlayers.forEach(x => tally(x.p));
+  return c;
+}
+
+/* 返回被交易掏空的位置（交易后低于下限且比交易前更少）；原本就只有 1 中锋的球队
+   进行 G↔G 等不影响该位置的交易时，不算掏空 */
+function positionHole(before, after) {
+  return ["G", "F", "C"].find(pos => after[pos] < POS_FLOOR[pos] && after[pos] < before[pos]);
+}
+
+/* ===== AI 交易意愿 =====
+   AI 必须"有利可图"才交易：薪资配平 + 阵容合理 + 收到的打包价值 ≥ 送出价值。
+   返回 { accept, reason, counter? } */
 function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   const aiTeam = myAbbrCode;
   myPicks = myPicks || [];
   aiPicks = aiPicks || [];
-  /* 计算双方价值（球员 + 选秀权），传入 ctx 启用多维度评估 */
-  /* AI 接收的球员（myOffer）按 AI 队阵容短板重新计算需求加成 */
-  const myVal = myOffer.reduce((s, x) => {
-    const ctx = { ...(x.ctx || {}), needBonus: positionNeedBonus(save, aiTeam, x.p.pos) };
-    return s + tradeValue(x.p, x.sal, ctx);
-  }, 0) + myPicks.reduce((s, pk) => s + pickValue(pk), 0);
-  /* AI 送出的球员（aiOffer）按 AI 队冗余度评估：送走冗余位置球员损失更小 */
-  const aiVal = aiOffer.reduce((s, x) => {
-    const ctx = { ...(x.ctx || {}), needBonus: -positionNeedBonus(save, aiTeam, x.p.pos) * 0.5 };
-    return s + tradeValue(x.p, x.sal, ctx);
-  }, 0) + aiPicks.reduce((s, pk) => s + pickValue(pk), 0);
-  /* AI 需要得到略多的价值才愿意交易（主场优势心理） */
-  const threshold = 1.05;
-  const ratio = myVal / Math.max(1, aiVal);
-  /* 战绩因素：烂队更愿意送走老将换潜力 */
-  const aiStr = teamStrength(aiTeam);
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+
+  /* 空报价拦截 */
+  if (!myOffer.length && !myPicks.length) return { accept: false, reason: "你没有给出任何筹码。" };
+  if (!aiOffer.length && !aiPicks.length) return { accept: false, reason: "对方没有送出任何球员或选秀权。" };
+
+  /* ---- 硬性规则 1：非卖品保护 ---- */
+  const untouch = aiOffer.find(x => x.p.ovr >= 90);
+  if (untouch) {
+    return { accept: false, reason: untouch.p.nameCn + " 是对方的非卖品（OVR " + untouch.p.ovr + "），任何报价都不会被考虑。" };
+  }
+
+  /* ---- 薪资汇总 ---- */
+  const inSalToAi = myOffer.reduce((s, x) => s + (x.sal || 0), 0);   /* AI 收到 */
+  const outSalFromAi = aiOffer.reduce((s, x) => s + (x.sal || estimateSalary(x.p.ovr, x.p.id)), 0); /* AI 送出 */
+  const fin = aiTeamFinances(save, aiTeam);
+  const aiPayrollAfter = fin.payroll - outSalFromAi;
+
+  /* ---- 硬性规则 2：薪资配平（双方都必须合规）---- */
+  const aiMatch = salaryMatchOk(outSalFromAi, inSalToAi, aiPayrollAfter, cap);
+  if (!aiMatch.ok) {
+    const gap = inSalToAi - aiMatch.max;
+    return {
+      accept: false,
+      reason: "薪资无法配平：对方送出 " + fmtM(outSalFromAi) + "，最多可收回 " + fmtM(aiMatch.max) +
+              "，你的报价多出 " + fmtM(Math.max(0, gap)) + "。需减少报价球员或加大对方送出的合同。"
+    };
+  }
+  /* 用户队同样受配平约束（用户是"送出 inSalToAi / 收回 outSalFromAi"的一方） */
+  const userPayroll = save.roster.reduce((s, r) => s + (r.salary || 0), 0);
+  const userPayrollAfter = userPayroll - inSalToAi;
+  const userMatch = salaryMatchOk(inSalToAi, outSalFromAi, userPayrollAfter, cap);
+  if (!userMatch.ok) {
+    return {
+      accept: false,
+      reason: "薪资无法配平：你送出 " + fmtM(inSalToAi) + "，最多可收回 " + fmtM(userMatch.max) +
+              "，对方合同 " + fmtM(outSalFromAi) + " 过大。"
+    };
+  }
+  /* 用户已触发硬帽：交易后不得超第一土豪线 */
+  if (typeof getCapStatus === "function") {
+    const cs = getCapStatus(save);
+    if (cs.hardCapped && userPayrollAfter + outSalFromAi > (FIRST_APRON || 209.0) + 0.01) {
+      return { accept: false, reason: "本队已触发硬帽（" + cs.hardCapReason + "），交易后总薪资将超第一土豪线。" };
+    }
+  }
+
+  /* ---- 硬性规则 3：阵容人数 ----
+     下限：用户≥8（开赛要求）、AI≥9（轮换底线）
+     上限：21 人（游戏阵容数据硬顶，允许 2换1/3换1 等正常打包交易） */
+  const ROSTER_HARD_MAX = 21;
+  const myOutIds = myOffer.map(x => x.p.id);
+  const aiOutIds = aiOffer.map(x => x.p.id);
+  const myRosterIds = save.roster.map(r => r.id);
+  const myCountAfter0 = myRosterIds.length - myOutIds.length + aiOutIds.length;
+  if (myCountAfter0 < 8) {
+    return { accept: false, reason: "交易后你的阵容不足 8 人，无法开始赛季。" };
+  }
+  if (myCountAfter0 > ROSTER_HARD_MAX) {
+    return { accept: false, reason: "交易后你的阵容将达 " + myCountAfter0 + " 人，超过 " + ROSTER_HARD_MAX + " 人上限。" };
+  }
+  const aiCountAfter = fin.ids.length - aiOutIds.length + myOutIds.length;
+  if (aiCountAfter > ROSTER_HARD_MAX) {
+    return { accept: false, reason: "对方无法接收更多球员（交易后将达 " + aiCountAfter + " 人，超过 " + ROSTER_HARD_MAX + " 人上限）。" };
+  }
+  if (aiCountAfter < 9) return { accept: false, reason: "对方交易后阵容不足 9 人，会导致其无法正常轮换，拒绝交易。" };
+
+  /* ---- 硬性规则 4：位置掏空（AI 视角，仅拦截让薄弱位置进一步减少的交易）---- */
+  const aiPosBefore = positionCountsAfter(fin.players, [], []);
+  const aiPosAfter = positionCountsAfter(fin.players, aiOutIds, myOffer.map(x => ({ p: x.p })));
+  const holePos = positionHole(aiPosBefore, aiPosAfter);
+  if (holePos) {
+    const hole = holePos === "G" ? "后卫" : holePos === "F" ? "前锋" : "中锋";
+    return { accept: false, reason: "交易后对方" + hole + "位置人手不足，除非加入同位置球员，否则拒绝。" };
+  }
+
+  /* ===== 价值评估 ===== */
+  /* AI 收到：先按基础价值（不含需求）计算并排序；
+     阵容需求溢价只给包裹头牌足额，其余资产仅 40%——避免"每个添头都吃满需求加成" */
+  const incoming = myOffer.map(x => {
+    const baseCtx = { ...(x.ctx || {}) };
+    delete baseCtx.needBonus;
+    let v = tradeValue(x.p, x.sal, baseCtx);
+    /* 溢价合同惩罚：薪资明显高于市场价值的资产，AI 视为负累 */
+    const mkt = estimateSalary(x.p.ovr, x.p.id);
+    if (x.sal > 0 && mkt > 0 && x.sal > mkt * 1.3) {
+      v = Math.max(5, v - Math.round((x.sal - mkt * 1.3) * 1.5));
+    }
+    return { x, v, need: positionNeedBonus(save, aiTeam, x.p.pos) };
+  }).sort((a, b) => b.v - a.v)
+    .map((it, i) => ({ x: it.x, v: Math.round(it.v + it.need * (i === 0 ? 1 : 0.4)) }));
+  const incomingVal = packagedValue(incoming.map(i => ({ _v: i.v })), myPicks);
+
+  /* AI 送出：冗余位置球员损失略小（×0.75 需求反向），但核心球员按全价计 */
+  const outgoing = aiOffer.map(x => {
+    const neg = -positionNeedBonus(save, aiTeam, x.p.pos) * 0.75;
+    const ctx = { ...(x.ctx || {}), needBonus: neg };
+    return { _v: tradeValue(x.p, x.sal || estimateSalary(x.p.ovr, x.p.id), ctx) };
+  });
+  const outgoingVal = packagedValue(outgoing, aiPicks);
+
+  const ratio = incomingVal / Math.max(1, outgoingVal);
+
+  /* ---- 球星头牌硬门槛：送走球星必须换来同等级核心资产或首轮签，
+          无论添头打包总值多高都不能绕过（现实 NBA 的核心逻辑）---- */
+  const bestOut = aiOffer.reduce((m, x) => Math.max(m, x.p.ovr), 0);
+  const bestIn = myOffer.reduce((m, x) => Math.max(m, x.p.ovr), 0);
+  const bestOutName = (aiOffer.find(x => x.p.ovr === bestOut) || aiOffer[0]).p.nameCn;
+  const firstRounders = myPicks.filter(pk => pk.round === 1).length;
+  let threshold = 1.05;
+  let starGate = null;
+  if (bestOut >= 88) {
+    threshold = 1.30;
+    /* 88+ 超巨：回报中必须有 OVR≥best-4 球员，或前 8 顺位签，或 2 个首轮 */
+    const lottoPick = myPicks.some(pk => (typeof estimatePickPosition === "function") &&
+      estimatePickPosition(save, pk) <= 8);
+    if (bestIn < bestOut - 4 && !lottoPick && firstRounders < 2) {
+      starGate = "对方不会为添头和普通筹码放走 " + bestOutName +
+                 "（OVR " + bestOut + "）：至少需要一名同级球星（OVR≥" + (bestOut - 4) +
+                 "）、一个前 8 顺位签或 2 个首轮签，添头再多也不行。";
+    }
+  } else if (bestOut >= 85) {
+    threshold = 1.20;
+    /* 85-87 明星：头牌需 OVR≥best-7，或附带任意首轮签 */
+    if (bestIn < bestOut - 7 && firstRounders < 1) {
+      starGate = "对方不会用 " + bestOutName + "（OVR " + bestOut + "）换一堆角色球员：" +
+                 "你的包裹中必须有一名 OVR≥" + (bestOut - 7) + " 的年轻核心，或附带一个首轮签。";
+    }
+  } else if (bestOut >= 82) {
+    threshold = 1.15;
+    /* 82-84 准明星：头牌需 OVR≥best-7，或附带任意首轮签 */
+    if (bestIn < bestOut - 7 && firstRounders < 1) {
+      starGate = "添头无法凑数换走 " + bestOutName + "（OVR " + bestOut + "）：" +
+                 "请提供一名 OVR≥" + (bestOut - 7) + " 的同等级球员作为主体，或加入一个首轮签。";
+    }
+  }
+
+  /* ---- 重建球队偏好：烂队收到更年轻的包裹时加分 ---- */
   const record = save.standings[aiTeam] || { w: 0, l: 0 };
   const gp = record.w + record.l;
   const winPct = gp ? record.w / gp : 0.5;
-  /* 重建中球队：偏好年轻潜力股 */
-  const avgAgeMy = myOffer.reduce((s, p) => s + (p.p.age || 24), 0) / myOffer.length;
-  const avgAgeAi = aiOffer.reduce((s, p) => s + (p.p.age || 24), 0) / aiOffer.length;
-  const rebuildBonus = (winPct < 0.4 && avgAgeMy < avgAgeAi) ? 1.10 : 1.0;
+  const avgAgeIn = myOffer.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, myOffer.length);
+  const avgAgeOut = aiOffer.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, aiOffer.length);
+  const rebuildBonus = (winPct < 0.4 && avgAgeIn < avgAgeOut - 1.5) ? 1.08 : 1.0;
 
   const effectiveRatio = ratio * rebuildBonus;
-  if (effectiveRatio >= threshold) {
-    return { accept: true, reason: "交易方案公平，对方愿意接受。" };
+
+  /* 头牌门槛为硬性拒绝，不看打包总值 */
+  if (starGate) {
+    return { accept: false, reason: starGate };
   }
-  /* 拒绝时尝试生成还价 */
-  if (effectiveRatio >= 0.82) {
-    /* 接近但不够，AI 选一个价值稍低的替代品还价 */
-    const allAi = playersByTeam(aiTeam).filter(p => p.ovr < 90 && !aiOffer.find(x => x.p.id === p.id));
-    const targetVal = aiVal * 0.95;
+  if (effectiveRatio >= threshold) {
+    return { accept: true, reason: "对方认为这笔交易有利可图，愿意接受。" };
+  }
+
+  /* ---- 拒绝：给出具体差距与补救提示 ---- */
+  const pct = Math.round(effectiveRatio * 100);
+  let hint = "";
+  const firstAvail = getTeamPicks(save, myAbbr(save)).filter(pk => pk.round === 1);
+  const hasPickNotOffered = firstAvail.some(pk =>
+    !myPicks.find(d => d.originalTeam === pk.originalTeam && d.round === pk.round));
+  if (hasPickNotOffered) hint = "追加一个首轮签可能促成交易。";
+  if (effectiveRatio >= 0.85) {
+    /* 接近：尝试生成换人还价（AI 降一档要价，用 p 替换 aiOffer[0]） */
+    const replacedOutIds = aiOutIds.filter(id => id !== aiOffer[0].p.id);
+    const allAi = fin.players
+      .map(x => x.p).filter(p => p.ovr < 88 && !aiOutIds.includes(p.id))
+      .filter(p => {
+        const c = positionCountsAfter(fin.players, replacedOutIds.concat([p.id]), myOffer.map(x => ({ p: x.p })));
+        return !positionHole(aiPosBefore, c);
+      });
+    const targetVal = outgoingVal * 0.92;
     const counter = allAi
       .map(p => ({ p, v: tradeValue(p, estimateSalary(p.ovr, p.id)) }))
-      .filter(x => Math.abs(x.v - targetVal) < 12)
-      .sort((a, b) => a.v - b.v)[0];
-    if (counter) {
+      .filter(x => x.v <= targetVal && x.v >= targetVal - 18)
+      .sort((a, b) => b.v - a.v)[0];
+    if (counter && aiOffer[0]) {
       return {
         accept: false,
-        reason: "对方认为价值不够，提出还价：用 " + counter.p.nameCn + " 替换 " + aiOffer[0].p.nameCn + "？",
+        reason: "对方觉得价值差一点（当前回报约为要价的 " + pct + "%），提出还价：用 " +
+                counter.p.nameCn + "（OVR " + counter.p.ovr + "）替换 " + aiOffer[0].p.nameCn + "。" +
+                (hint ? " 或者" + hint : ""),
         counter: { out: aiOffer[0], in: { p: counter.p, sal: estimateSalary(counter.p.ovr, counter.p.id) } }
       };
     }
   }
-  return { accept: false, reason: "对方拒绝了这笔交易，价值差距过大。" };
+  return {
+    accept: false,
+    reason: "对方拒绝交易：你的包裹价值仅为要价的 " + pct + "%（需达到 " +
+            Math.round(threshold * 100) + "%）。添头无法凑数——请提供更高 OVR 的球员或选秀权。" +
+            (hint ? " " + hint : "")
+  };
 }
 
 /* ===== 执行交易 ===== */
 function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPickOffers, aiPickOffers) {
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+  /* 薪资汇总 */
+  const myOutSal = save.roster.filter(r => myOfferIds.includes(r.id))
+    .reduce((s, r) => s + (r.salary || 0), 0);
+  const aiInSal = aiOfferIds.reduce((s, id) => {
+    const p = PLAYERS_RATED.players.find(x => x.id === id);
+    return s + (p ? estimateSalary(p.ovr, p.id) : 0);
+  }, 0);
+  const myPayroll = save.roster.reduce((s, r) => s + (r.salary || 0), 0);
+  const fin = aiTeamFinances(save, aiTeamAbbr);
+  const aiOutSal = fin.players.filter(x => aiOfferIds.includes(x.p.id)).reduce((s, x) => s + x.sal, 0);
+
+  /* 防御性配平校验（正常流程已由 aiEvaluateTrade 拦截） */
+  const userMatch = salaryMatchOk(myOutSal, aiInSal, myPayroll - myOutSal, cap);
+  if (!userMatch.ok) {
+    toast("⚠ 交易失败：薪资无法配平（你最多可收回 " + fmtM(userMatch.max) + "）");
+    return false;
+  }
+  const aiMatch = salaryMatchOk(aiOutSal, myOutSal, fin.payroll - aiOutSal, cap);
+  if (!aiMatch.ok) {
+    toast("⚠ 交易失败：对方薪资无法配平（最多可收回 " + fmtM(aiMatch.max) + "）");
+    return false;
+  }
   /* 硬帽校验：接收方（用户）若已触发硬帽，交易后总薪资不得超第一土豪线 */
   if (typeof getCapStatus === "function") {
     const cs = getCapStatus(save);
     if (cs.hardCapped) {
-      const currentTotal = save.roster.reduce((s, r) => s + (r.salary || 0), 0);
-      const outSalary = save.roster.filter(r => myOfferIds.includes(r.id))
-        .reduce((s, r) => s + (r.salary || 0), 0);
-      const inSalary = aiOfferIds.reduce((s, id) => {
-        const p = PLAYERS_RATED.players.find(x => x.id === id);
-        return s + (p ? estimateSalary(p.ovr, p.id) : 0);
-      }, 0);
-      const newTotal = currentTotal - outSalary + inSalary;
+      const newTotal = myPayroll - myOutSal + aiInSal;
       const apron = typeof FIRST_APRON !== "undefined" ? FIRST_APRON : 209.0;
       if (newTotal > apron + 0.01) {
         toast("⚠ 交易失败：本队已触发硬帽（" + (cs.hardCapReason || "") + "），交易后总薪资 " +
-              (typeof fmtM === "function" ? fmtM(newTotal) : newTotal.toFixed(1) + "M") +
-              " 将超第一土豪线 " + (typeof fmtM === "function" ? fmtM(apron) : apron.toFixed(1) + "M"));
+              fmtM(newTotal) + " 将超第一土豪线 " + fmtM(apron));
         return false;
       }
     }
+  }
+  /* 人数校验：双方 9~21 人（用户下限 8） */
+  const myCountAfter = save.roster.length - myOfferIds.length + aiOfferIds.length;
+  if (myCountAfter < 8) { toast("⚠ 交易失败：交易后你的阵容不足 8 人"); return false; }
+  if (myCountAfter > 21) { toast("⚠ 交易失败：交易后你的阵容超过 21 人上限"); return false; }
+  const aiCountAfter = fin.ids.length - aiOfferIds.length + myOfferIds.length;
+  if (aiCountAfter < 9 || aiCountAfter > 21) {
+    toast("⚠ 交易失败：对方交易后阵容人数不合法（" + aiCountAfter + " 人）");
+    return false;
   }
   /* 从用户阵容移除 myOffer，加入 aiOffer */
   const newRoster = save.roster.filter(r => !myOfferIds.includes(r.id));
