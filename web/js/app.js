@@ -2674,8 +2674,8 @@ RENDERERS["allstar-game"] = function () {
   const as = save.allStar;
   const g = as && as.game;
   if (!g) { back(); return; }
-  const rosterRows = (list) => list.map((p, i) => {
-    const box = g.box[list === g.box.east ? "east" : "west"][i];
+  const rosterRows = (list, side) => list.map((p, i) => {
+    const box = g.box[side][i];
     if (!box) return "";
     return '<div class="tm-row' + (box.isMine ? " me" : "") + (p.isStarter ? "" : " sub-row") + '">' +
       '<span class="tm-pos">' + (p.isStarter ? "首" : "替") + '</span>' +
@@ -2696,8 +2696,8 @@ RENDERERS["allstar-game"] = function () {
       '<div class="as-vs">VS</div>' +
       '<div class="as-team' + (!eastWin ? " winner" : "") + '"><div class="as-team-name">西部</div><div class="as-team-score">' + g.westScore + '</div></div>' +
     '</div>' +
-    '<div class="as-rosters"><div class="as-col"><h3>东部</h3>' + rosterRows(as.rosters.east) + '</div>' +
-    '<div class="as-col"><h3>西部</h3>' + rosterRows(as.rosters.west) + '</div></div>' +
+    '<div class="as-rosters"><div class="as-col"><h3>东部</h3>' + rosterRows(as.rosters.east, "east") + '</div>' +
+    '<div class="as-col"><h3>西部</h3>' + rosterRows(as.rosters.west, "west") + '</div></div>' +
     '<button class="btn btn-outline" id="asg-back">返回</button>';
   $("#asg-back").onclick = back;
 };
