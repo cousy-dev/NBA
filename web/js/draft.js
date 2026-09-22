@@ -57,7 +57,13 @@ const POS2_CANDIDATES = {
 
 /* 生成一个新秀 */
 let ROOKIE_ID_COUNTER = 900000;
-function genRookie(pickOvrSeed) {
+/* 从存档恢复计数器，防止刷新后新秀 ID 碰撞 */
+function restoreRookieIdCounter(save) {
+  if (save && save.rookieIdCounter && save.rookieIdCounter > ROOKIE_ID_COUNTER) {
+    ROOKIE_ID_COUNTER = save.rookieIdCounter;
+  }
+}
+function genRookie(pickOvrSeed, save) {
   /* pickOvrSeed: 0-1, 0=状元 1=末轮 */
   /* 位置分布：后卫/前锋多，中锋少，更贴近真实 NBA */
   const posList = ["PG", "SG", "SG", "SF", "SF", "PF", "PF", "C"];
@@ -73,8 +79,10 @@ function genRookie(pickOvrSeed) {
   else ovr = 50 + Math.floor(Math.random() * 8);                          /* 二轮末 50-57 */
 
   const nameCn = genRookieName();
-  /* id：counter 分段 ×1000 + 段内随机，保证同届新秀 id 零碰撞（旧方案 900000+随机数有约 6% 碰撞概率） */
+  /* id：counter 分段 ×1000 + 段内随机，保证同届新秀 id 零碰撞 */
   const id = (++ROOKIE_ID_COUNTER) * 1000 + Math.floor(Math.random() * 1000);
+  /* 持久化计数器到存档，防止刷新后重置导致跨届 ID 碰撞 */
+  if (save) save.rookieIdCounter = ROOKIE_ID_COUNTER;
   const age = 19 + Math.floor(Math.random() * 3);
   const tpl = POS_TEMPLATES[pos] || POS_TEMPLATES.F;
   const base = ovr * 0.85;
@@ -179,7 +187,7 @@ function genDraftClass(save) {
   const n = 64;
   for (let i = 0; i < n; i++) {
     const seed = i / n;
-    class_.push(genRookie(seed));
+    class_.push(genRookie(seed, save));
   }
   /* 打乱展示顺序：避免玩家总是选第一位就拿到最高潜力新秀；
      AI 选人时仍按潜力+需求排序，公平性不变 */

@@ -1453,6 +1453,8 @@ function migrateSave(save) {
       }
     });
   }
+  /* 恢复新秀 ID 计数器，防止后续选秀 ID 碰撞 */
+  if (typeof restoreRookieIdCounter === "function") restoreRookieIdCounter(save);
   return save;
 }
 function writeSave(save) {

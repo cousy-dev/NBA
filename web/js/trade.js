@@ -553,16 +553,22 @@ function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPi
   }
   /* 从用户阵容移除 myOffer，加入 aiOffer */
   const newRoster = save.roster.filter(r => !myOfferIds.includes(r.id));
+  const newRosterIds = new Set(newRoster.map(r => r.id));
   aiOfferIds.forEach(id => {
-    const p = PLAYERS_RATED.players.find(x => x.id === id);
-    if (p) newRoster.push({ id: p.id, salary: estimateSalary(p.ovr, p.id), years: realYearsForId(p.id) });
+    /* 使用 findPlayerById 兼容自定义新秀（仅在 save.customPlayers 中，未进 PLAYERS_RATED） */
+    const p = (typeof findPlayerById === "function") ? findPlayerById(save, id) : PLAYERS_RATED.players.find(x => x.id === id);
+    if (p && !newRosterIds.has(p.id)) {
+      newRosterIds.add(p.id);
+      newRoster.push({ id: p.id, salary: estimateSalary(p.ovr, p.id), years: realYearsForId(p.id) });
+    }
   });
   save.roster = newRoster;
   /* AI 阵容变化：从 aiTeam 移除 aiOffer，加入 myOffer（仅记录，不影响玩家） */
   save.aiRosters = save.aiRosters || {};
   const aiList = (save.aiRosters[aiTeamAbbr] || playersByTeam(aiTeamAbbr).map(p => p.id))
     .filter(id => !aiOfferIds.includes(id));
-  myOfferIds.forEach(id => aiList.push(id));
+  const aiExisting = new Set(aiList);
+  myOfferIds.forEach(id => { if (!aiExisting.has(id)) { aiExisting.add(id); aiList.push(id); } });
   save.aiRosters[aiTeamAbbr] = aiList;
   /* 选秀权交换 */
   if (myPickOffers && myPickOffers.length) {
