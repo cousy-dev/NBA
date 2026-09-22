@@ -74,12 +74,14 @@ function newBox() { return { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm
 
 const Q_LEN = 720;
 const Q_COUNT = 4;
+const OT_LEN = 300; /* 加时赛 5 分钟 */
 
 class GameSim {
   constructor(home, away) {
     this.teams = [this._initSide(home, 0), this._initSide(away, 1)];
     this.q = 1; this.clock = Q_LEN; this.off = Math.random() < 0.5 ? 0 : 1;
     this.over = false; this.winner = -1;
+    this.otCount = 0; /* 已进行的加时赛数 */
     this.tactics = [
       { def: "man", pace: "normal", focus: "balanced" },
       { def: "man", pace: "normal", focus: "balanced" }
@@ -157,9 +159,24 @@ class GameSim {
     const evs = [];
     /* 节结束 */
     if (this.clock <= 0) {
-      evs.push({ t: "period", text: "—— 第" + this.q + "节结束 ——", q: this.q, score: this.score() });
+      evs.push({ t: "period", text: "—— " + this._periodName() + "结束 ——", q: this.q, score: this.score() });
       this.q++;
-      if (this.q > Q_COUNT) { this._finish(evs); return { events: evs, over: this.over }; }
+      const endScore = this.score();
+      const tied = endScore[0] === endScore[1];
+      if (this.q > Q_COUNT && !tied) {
+        /* 常规时间/加时结束且分出胜负 */
+        this._finish(evs);
+        return { events: evs, over: this.over };
+      }
+      if (this.q > Q_COUNT && tied) {
+        /* 平局 → 进入加时赛（可连续多个加时直至分出胜负） */
+        this.otCount++;
+        this.clock = OT_LEN;
+        this.off = Math.random() < 0.5 ? 0 : 1;
+        [0, 1].forEach(i => this._startQuarter(this.teams[i], evs));
+        evs.push({ t: "period", text: "—— 加时赛" + this.otCount + "开始（5 分钟）——", q: this.q, score: this.score() });
+        return { events: evs, over: false };
+      }
       this.clock = Q_LEN; this.off = Math.random() < 0.5 ? 0 : 1;
       [0, 1].forEach(i => this._startQuarter(this.teams[i], evs));
       evs.push({ t: "period", text: "—— 第" + this.q + "节开始 ——", q: this.q, score: this.score() });
@@ -358,6 +375,8 @@ class GameSim {
     return true;
   }
   setTactic(sideIdx, key, val) { this.tactics[sideIdx][key] = val; }
+  /* 当前节名称：第1-4节 / 加时赛N */
+  _periodName() { return this.q <= Q_COUNT ? "第" + this.q + "节" : "加时赛" + (this.q - Q_COUNT); }
   score() { return this.teams.map(s => this._sidePts(s)); }
   _sidePts(s) { let t = 0; s.box.forEach(b => t += b.pts); return t; }
   _finish(evs) {

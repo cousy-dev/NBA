@@ -1859,6 +1859,8 @@ const PACE_LABELS = { fast: "快攻", normal: "平衡", slow: "阵地" };
 const FOCUS_LABELS = { inside: "内线强攻", balanced: "内外均衡", outside: "外线三分" };
 state.match = { sim: null, timer: null, speed: 1, paused: true, over: false, feedCount: 0 };
 
+/* 节次标签：Q1-Q4 / OT1-OTn（加时赛） */
+function periodLabel(q) { return q <= 4 ? "Q" + q : "OT" + (q - 4); }
 function buildSimFor(gi) {
   const save = state.save;
   /* 伤停球员不参赛 */
@@ -1987,12 +1989,7 @@ function runSimAnimation(save, totalGames, opts) {
           '<span class="sa-dash">-</span>' +
           '<span class="sa-s-away" id="sa-sa">0</span>' +
         '</div>' +
-        '<div class="sa-quarters" id="sa-quarters">' +
-          '<span class="sa-q" data-q="1">Q1</span>' +
-          '<span class="sa-q" data-q="2">Q2</span>' +
-          '<span class="sa-q" data-q="3">Q3</span>' +
-          '<span class="sa-q" data-q="4">Q4</span>' +
-        '</div>' +
+        '<div class="sa-quarters" id="sa-quarters"></div>' +
         '<div class="sa-result" id="sa-result"></div>' +
       '</div>' +
       '<div class="sa-recent" id="sa-recent"></div>' +
@@ -2008,7 +2005,8 @@ function runSimAnimation(save, totalGames, opts) {
   const oppEl = $id("sa-opp");
   const shEl = $id("sa-sh");
   const saEl = $id("sa-sa");
-  const qEls = ov.querySelectorAll(".sa-q");
+  const quartersEl = $id("sa-quarters");
+  let qEls = [];
   const resultEl = $id("sa-result");
   const idxEl = $id("sa-idx");
   const winsEl = $id("sa-wins");
@@ -2132,9 +2130,13 @@ function runSimAnimation(save, totalGames, opts) {
       seriesEl.style.display = "";
     }
 
-    /* 重置比分和节次 */
+    /* 重置比分，按本场节数动态生成节次芯片（Q1-Q4 + 加时 OT1...） */
     shEl.textContent = "0"; saEl.textContent = "0";
-    qEls.forEach(q => q.classList.remove("on", "cur"));
+    quartersEl.innerHTML = r.quarters.map((_, qi) =>
+      '<span class="sa-q' + (qi >= 4 ? " ot" : "") + '" data-q="' + (qi + 1) + '">' +
+      (qi < 4 ? "Q" + (qi + 1) : "OT" + (qi - 3)) + '</span>'
+    ).join("");
+    qEls = quartersEl.querySelectorAll(".sa-q");
 
     /* 逐节揭示：quarters 为累计比分 */
     const qs = r.quarters;
@@ -2144,9 +2146,10 @@ function runSimAnimation(save, totalGames, opts) {
     function revealQuarter() {
       if (instantSkip) return;
       if (qIdx >= qs.length) {
-        /* 全场结束：显示胜负 */
+        /* 全场结束：显示胜负（加时赛标注） */
         stage.classList.add(r.win ? "win" : "loss");
-        resultEl.textContent = r.win ? "✓ 胜利" : "✗ 失利";
+        const otTag = qs.length > 4 ? "（加时" + (qs.length - 4) + "）" : "";
+        resultEl.textContent = r.win ? "✓ 胜利" + otTag : "✗ 失利" + otTag;
         resultEl.classList.add(r.win ? "win" : "loss");
         /* 更新最近赛果 */
         renderRecent();
@@ -2397,7 +2400,7 @@ function renderStatsBody() {
   };
   const sc = sim.score();
   const body =
-    '<div class="box-score-summary">' + esc(sim.teams[0].info.name) + ' <b>' + sc[0] + '</b> : <b>' + sc[1] + '</b> ' + esc(sim.teams[1].info.name) + ' · Q' + sim.q + ' ' + Math.max(0, Math.floor(sim.clock / 60)) + ":" + String(Math.floor(Math.max(0, sim.clock) % 60)).padStart(2, "0") + '</div>' +
+    '<div class="box-score-summary">' + esc(sim.teams[0].info.name) + ' <b>' + sc[0] + '</b> : <b>' + sc[1] + '</b> ' + esc(sim.teams[1].info.name) + ' · ' + periodLabel(sim.q) + ' ' + Math.max(0, Math.floor(sim.clock / 60)) + ":" + String(Math.floor(Math.max(0, sim.clock) % 60)).padStart(2, "0") + '</div>' +
     renderSide(sim.teams[0], sim.teams[0].info.name) +
     renderSide(sim.teams[1], sim.teams[1].info.name);
   $("#stats-body").innerHTML = body;
@@ -2432,7 +2435,7 @@ function renderMatchBoard() {
   const sc = m.sim.score();
   $("#m-score").textContent = sc[0] + " - " + sc[1];
   const clock = Math.max(0, m.sim.clock);
-  $("#m-clock").textContent = "Q" + m.sim.q + " " + Math.floor(clock / 60) + ":" + String(Math.floor(clock % 60)).padStart(2, "0");
+  $("#m-clock").textContent = periodLabel(m.sim.q) + " " + Math.floor(clock / 60) + ":" + String(Math.floor(clock % 60)).padStart(2, "0");
   $("#mc-timeout").textContent = "暂停 " + m.sim.teams[0].timeouts;
 }
 const FEED_ICONS = { score: "🏀", miss: "✗", reb: "↺", to: "⚠", ft: "🎯", blk: "🛡", sub: "⇄", period: "⏱", timeout: "T", tac: "📋", final: "🏁" };
@@ -2729,12 +2732,13 @@ function openScheduleModal(i) {
   const win = g.result === "W";
   let qRows = "";
   if (g.quarters && g.quarters.length) {
-    const qLabels = ["Q1", "Q2", "Q3", "Q4"];
     let prev = [0, 0];
     qRows = g.quarters.map((qs, qi) => {
       const single = [qs[0] - prev[0], qs[1] - prev[1]];
       prev = qs.slice();
-      return '<tr><td class="sch-q-label">' + qLabels[qi] + '</td><td>' + single[0] + '</td><td>' + single[1] + '</td></tr>';
+      const label = qi < 4 ? "Q" + (qi + 1) : "OT" + (qi - 3);
+      const otCls = qi >= 4 ? ' class="sch-q-ot"' : "";
+      return '<tr' + otCls + '><td class="sch-q-label">' + label + '</td><td>' + single[0] + '</td><td>' + single[1] + '</td></tr>';
     }).join("");
   }
   /* 球员数据（双方技术统计） */

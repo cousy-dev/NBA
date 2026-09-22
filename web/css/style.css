@@ -664,6 +664,8 @@ body {
 .sch-q-table th, .sch-q-table td { padding: 6px; text-align: center; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .sch-q-table th { color: var(--muted); font-size: 11px; }
 .sch-q-label { color: var(--muted); }
+tr.sch-q-ot td { color: #d6424b; font-weight: 700; }
+tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .sch-q-total td { font-size: 15px; border-bottom: none; }
 /* 球员数据统计表 */
 .sch-box { margin-bottom: 14px; }
@@ -1212,6 +1214,9 @@ body {
 .sa-q { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 6px; background: var(--card2); color: var(--muted); border: 1px solid var(--line); transition: all .2s; }
 .sa-q.cur { background: var(--gold); color: #fff; border-color: var(--gold); animation: saPulse .5s ease infinite alternate; }
 .sa-q.on { background: rgba(255,200,0,.15); color: var(--gold); border-color: rgba(255,200,0,.4); }
+.sa-q.ot { border-style: dashed; }
+.sa-q.ot.on { background: rgba(214,66,75,.15); color: #d6424b; border-color: rgba(214,66,75,.5); }
+.sa-q.ot.cur { background: #d6424b; border-color: #d6424b; }
 @keyframes saPulse { from { transform: scale(1); } to { transform: scale(1.08); } }
 .sa-result { font-size: 16px; font-weight: 800; min-height: 22px; letter-spacing: 2px; }
 .sa-result.win { color: #2d8a5a; animation: saPop .3s ease; }
