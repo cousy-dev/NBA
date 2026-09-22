@@ -1563,7 +1563,8 @@ RENDERERS.hub = function () {
       "  </div>" + seriesTag +
       '<div class="ng-meta">对手实力 ' + oppStr + " · " + "★".repeat(stars(parseFloat(oppStr))) + "</div>" +
       '<div class="ng-btns"><button class="btn btn-primary" id="btn-play">开始比赛</button>' +
-      '<button class="btn btn-outline" id="btn-quick">快速模拟</button></div>' +
+      '<button class="btn btn-outline" id="btn-quick">快速模拟</button>' +
+      '<button class="btn btn-outline" id="btn-quick-round">模拟此轮</button></div>' +
       "</div>";
   } else {
     /* 常规赛：日历视图 + 下一场卡片 */
@@ -1762,6 +1763,8 @@ RENDERERS.hub = function () {
   if (bq) bq.onclick = quickSimGame;
   const bqRest = $("#btn-quick-rest");
   if (bqRest) bqRest.onclick = quickSimToPlayoffs;
+  const bqRound = $("#btn-quick-round");
+  if (bqRound) bqRound.onclick = quickSimRound;
   /* 球队名单按钮 → 切到阵容 tab */
   const brl = $("#btn-roster-list");
   if (brl) brl.onclick = () => { hubTab = "roster"; RENDERERS.hub(); };
@@ -1950,7 +1953,23 @@ function quickSimToPlayoffs() {
   const save = state.save;
   const remaining = save.schedule.length - save.gameNo;
   if (remaining <= 0) { toast("常规赛已结束"); return; }
-  runSimAnimation(save, remaining, { single: false });
+  runSimAnimation(save, remaining, { single: false, mode: "regular" });
+}
+
+/* 模拟此轮：自动模拟当前季后赛系列赛剩余比赛（直至某方 4 胜） */
+function quickSimRound() {
+  const save = state.save;
+  const ps = save.playoffs;
+  if (!ps || ps.done || !ps.userSeries) { toast("当前无进行中的系列赛"); return; }
+  const ser = ps.userSeries;
+  if (ser.done) { toast("当前系列赛已结束"); return; }
+  /* 剩余最多场次：7 场制，减去已打场数 */
+  const maxGames = 7 - (ser.wa + ser.wb);
+  runSimAnimation(save, maxGames, {
+    single: false,
+    mode: "round",
+    stopCheck: () => ser.done
+  });
 }
 
 /* 动画核心：逐场模拟，每场逐节揭示比分
@@ -2034,17 +2053,20 @@ function runSimAnimation(save, totalGames, opts) {
     RENDERERS.hub(); activate("hub", true);
   }
 
-  /* 立即跳过：无动画模拟剩余所有场（批量模式遇季后赛即停） */
+  /* 立即跳过：无动画模拟剩余所有场
+     - 常规赛模式：到达季后赛即止
+     - 系列赛模式：该轮系列赛分出胜负即止 */
   function skipRest() {
     instantSkip = true;
     while (idx < totalGames) {
       const r = simulateOne(save);
       if (!r) break;
-      if (!opts.single && r.playoff) break; /* 模拟到季后赛：到达季后赛即止 */
+      if (opts.mode === "regular" && r.playoff) break;
       idx++;
       if (r.win) wins++; else losses++;
       recent.push(r);
       if (recent.length > 8) recent.shift();
+      if (opts.mode === "round" && opts.stopCheck && opts.stopCheck()) break;
     }
     finishAll();
   }
@@ -2089,10 +2111,16 @@ function runSimAnimation(save, totalGames, opts) {
     const sc = sim.score();
     const win = sc[0] > sc[1];
     completeGame(sim, win);
+    /* 季后赛：赛后读取更新后的系列赛大比分 */
+    let postScore = null;
+    if (gi.playoff && sv.playoffs && sv.playoffs.userSeries) {
+      postScore = [sv.playoffs.userSeries.wa, sv.playoffs.userSeries.wb];
+    }
     return {
       opp: gi.opp, home: gi.home, win, sc,
       playoff: !!gi.playoff,
       seriesScore: gi.seriesScore || null,
+      postSeriesScore: postScore,
       label: gi.label || "",
       quarters: sim.quarterScores || [[sc[0], sc[1]]]
     };
@@ -2103,8 +2131,10 @@ function runSimAnimation(save, totalGames, opts) {
     if (stopped || idx >= totalGames) { finishAll(); return; }
     const r = simulateOne(save);
     if (!r) { finishAll(); return; }
-    /* 批量模式（模拟到季后赛）到达季后赛即止 */
-    if (!opts.single && r.playoff) { finishAll(); return; }
+    /* 常规赛批量模式（模拟到季后赛）到达季后赛即止 */
+    if (!opts.single && opts.mode === "regular" && r.playoff) { finishAll(); return; }
+    /* 系列赛模式：若该场后系列赛已结束，仍播完本场动画再退出 */
+    const seriesDone = opts.mode === "round" && opts.stopCheck && opts.stopCheck();
     idx++;
     if (r.win) wins++; else losses++;
     recent.push({ opp: r.opp, win: r.win, sc: r.sc });
@@ -2117,12 +2147,15 @@ function runSimAnimation(save, totalGames, opts) {
     resultEl.textContent = "";
     resultEl.className = "sa-result";
     oppEl.innerHTML = teamLogoHtml(r.opp) + "<span>" + esc(teamName(r.opp)) + "</span>";
-    stage.classList.remove("win", "loss");
-    /* 季后赛：显示系列赛比分与轮次标签 */
-    if (r.playoff && r.seriesScore) {
+    stage.classList.remove("win", "loss", "series-clinched");
+    /* 季后赛：显示系列赛比分与轮次标签（优先用赛后大比分） */
+    if (r.playoff) {
       titleEl.textContent = "季后赛模拟中";
+      const ss = r.postSeriesScore || r.seriesScore;
+      const clinched = seriesDone ? ' <span class="sa-clinched">' +
+        (ss && ss[0] === 4 ? "🎉 晋级下一轮" : "系列赛结束") + "</span>" : "";
       seriesEl.innerHTML = esc(r.label || "季后赛") + ' · 系列赛 <b>' +
-        r.seriesScore[0] + " - " + r.seriesScore[1] + '</b> <small>（4 胜晋级）</small>';
+        ss[0] + " - " + ss[1] + '</b> <small>（4 胜晋级）</small>' + clinched;
       seriesEl.style.display = "";
     } else {
       titleEl.textContent = "比赛模拟中";
@@ -2148,15 +2181,16 @@ function runSimAnimation(save, totalGames, opts) {
       if (qIdx >= qs.length) {
         /* 全场结束：显示胜负（加时赛标注） */
         stage.classList.add(r.win ? "win" : "loss");
+        if (seriesDone) stage.classList.add("series-clinched");
         const otTag = qs.length > 4 ? "（加时" + (qs.length - 4) + "）" : "";
         resultEl.textContent = r.win ? "✓ 胜利" + otTag : "✗ 失利" + otTag;
         resultEl.classList.add(r.win ? "win" : "loss");
         /* 更新最近赛果 */
         renderRecent();
-        /* 单场停留久一点，批量自动推进 */
-        const wait = opts.single ? 900 : 650;
+        /* 单场/系列赛终结停留久一点，批量自动推进 */
+        const wait = (opts.single || seriesDone) ? 1100 : 650;
         setTimeout(() => {
-          if (idx >= totalGames || state._regularJustEnded) finishAll();
+          if (idx >= totalGames || state._regularJustEnded || seriesDone) finishAll();
           else playNextGame();
         }, wait);
         return;

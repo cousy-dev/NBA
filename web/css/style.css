@@ -1195,6 +1195,8 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .sa-series { font-size: 11.5px; font-weight: 700; color: var(--gold); margin-bottom: 10px; }
 .sa-series b { font-size: 14px; }
 .sa-series small { color: var(--muted); font-weight: 400; }
+.sa-clinched { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 6px; background: linear-gradient(135deg, #ffc800, #ff9500); color: #3a2400; font-size: 11px; font-weight: 800; animation: saPop .4s ease; }
+.sa-stage.series-clinched { border-color: rgba(255,200,0,.8); box-shadow: 0 0 24px rgba(255,200,0,.25) inset; }
 .sa-stage.win { border-color: rgba(76,175,80,.6); background: rgba(76,175,80,.06); }
 .sa-stage.loss { border-color: rgba(214,66,75,.5); background: rgba(214,66,75,.05); }
 .sa-teams { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
