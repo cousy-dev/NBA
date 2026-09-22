@@ -1976,6 +1976,7 @@ function runSimAnimation(save, totalGames, opts) {
         '<div class="sa-record"><span class="sa-w">胜 <b id="sa-wins">0</b></span><span class="sa-l">负 <b id="sa-losses">0</b></span></div>' +
       '</div>' +
       '<div class="sa-stage" id="sa-stage">' +
+        '<div class="sa-series" id="sa-series"></div>' +
         '<div class="sa-teams">' +
           '<div class="sa-team home">' + myLogo + '<span>' + esc(myName) + '</span></div>' +
           '<div class="sa-vs">VS</div>' +
@@ -2013,6 +2014,8 @@ function runSimAnimation(save, totalGames, opts) {
   const winsEl = $id("sa-wins");
   const lossesEl = $id("sa-losses");
   const recentEl = $id("sa-recent");
+  const seriesEl = $id("sa-series");
+  const titleEl = ov.querySelector(".sa-title");
 
   function closeOverlay() {
     ov.classList.add("closing");
@@ -2033,12 +2036,13 @@ function runSimAnimation(save, totalGames, opts) {
     RENDERERS.hub(); activate("hub", true);
   }
 
-  /* 立即跳过：无动画模拟剩余所有场 */
+  /* 立即跳过：无动画模拟剩余所有场（批量模式遇季后赛即停） */
   function skipRest() {
     instantSkip = true;
     while (idx < totalGames) {
       const r = simulateOne(save);
       if (!r) break;
+      if (!opts.single && r.playoff) break; /* 模拟到季后赛：到达季后赛即止 */
       idx++;
       if (r.win) wins++; else losses++;
       recent.push(r);
@@ -2078,10 +2082,10 @@ function runSimAnimation(save, totalGames, opts) {
     tick();
   }
 
-  /* 模拟一场并返回结果 */
+  /* 模拟一场并返回结果（常规赛+季后赛通用；批量模式遇季后赛由调用方停止） */
   function simulateOne(sv) {
     const gi = currentGame(sv);
-    if (!gi || gi.playoff) return null;
+    if (!gi) return null;
     const sim = buildSimFor(gi);
     sim.skipToEnd();
     const sc = sim.score();
@@ -2089,6 +2093,9 @@ function runSimAnimation(save, totalGames, opts) {
     completeGame(sim, win);
     return {
       opp: gi.opp, home: gi.home, win, sc,
+      playoff: !!gi.playoff,
+      seriesScore: gi.seriesScore || null,
+      label: gi.label || "",
       quarters: sim.quarterScores || [[sc[0], sc[1]]]
     };
   }
@@ -2098,6 +2105,8 @@ function runSimAnimation(save, totalGames, opts) {
     if (stopped || idx >= totalGames) { finishAll(); return; }
     const r = simulateOne(save);
     if (!r) { finishAll(); return; }
+    /* 批量模式（模拟到季后赛）到达季后赛即止 */
+    if (!opts.single && r.playoff) { finishAll(); return; }
     idx++;
     if (r.win) wins++; else losses++;
     recent.push({ opp: r.opp, win: r.win, sc: r.sc });
@@ -2111,6 +2120,17 @@ function runSimAnimation(save, totalGames, opts) {
     resultEl.className = "sa-result";
     oppEl.innerHTML = teamLogoHtml(r.opp) + "<span>" + esc(teamName(r.opp)) + "</span>";
     stage.classList.remove("win", "loss");
+    /* 季后赛：显示系列赛比分与轮次标签 */
+    if (r.playoff && r.seriesScore) {
+      titleEl.textContent = "季后赛模拟中";
+      seriesEl.innerHTML = esc(r.label || "季后赛") + ' · 系列赛 <b>' +
+        r.seriesScore[0] + " - " + r.seriesScore[1] + '</b> <small>（4 胜晋级）</small>';
+      seriesEl.style.display = "";
+    } else {
+      titleEl.textContent = "比赛模拟中";
+      seriesEl.innerHTML = esc(r.label || ("常规赛 第 " + (save.gameNo) + " 场"));
+      seriesEl.style.display = "";
+    }
 
     /* 重置比分和节次 */
     shEl.textContent = "0"; saEl.textContent = "0";
