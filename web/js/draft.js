@@ -224,27 +224,84 @@ function buildExpansionAiRosters(selectedIds) {
   return rosters;
 }
 
-/* 选秀顺位：用户顺位基于上赛季战绩（越差越前，季后赛出局越早越前） */
+/* NBA 式乐透抽签概率表（14 支球队，前 4 顺位抽签）
+   按战绩从最差到最好排列，对应每队获得状元签的概率（单位：%）
+   2019 NBA 新规：战绩最差 3 队状元概率均为 14%，之后逐队递减 */
+const LOTTERY_ODDS = [
+  14.0, 14.0, 14.0, 12.5, 10.5, 9.0, 7.5, 6.0, 4.5, 3.0, 2.0, 1.5, 1.0, 0.5
+];
+
+/* 执行一次乐透抽签：从 14 队中按概率抽出 1 队获得某顺位
+   已被抽中的队不再参与后续抽签 */
+function drawLotteryPick(lotteryTeams) {
+  const total = lotteryTeams.reduce((s, t) => s + t.odds, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < lotteryTeams.length; i++) {
+    r -= lotteryTeams[i].odds;
+    if (r <= 0) return lotteryTeams[i];
+  }
+  return lotteryTeams[lotteryTeams.length - 1];
+}
+
+/* 选秀顺位：NBA 式乐透抽签
+   - 乐透区（14 支未进季后赛球队）：前 4 顺位抽签决定，5-14 按战绩倒序
+   - 季后赛区（16 队）：按战绩倒序（战绩越好顺位越靠后） */
 function draftOrder(save) {
   const my = myAbbr(save);
   const teams = TEAMS.map(t => {
     const s = save.standings[t.abbr] || { w: 0, l: 0 };
     const gp = s.w + s.l;
     const winPct = gp ? s.w / gp : 0.5;
-    /* 用户队用真实战绩，AI 队也用战绩排序 */
     return { abbr: t.abbr, winPct, str: teamStrength(t.abbr), w: s.w, l: s.l };
   });
-  /* 乐透抽签：战绩最差 14 队随机前 4（简化） */
-  const lottery = teams.filter(t => t.winPct < 0.5 || (t.abbr !== my && t.winPct < 0.5)).sort((a, b) => a.winPct - b.winPct);
-  const playoff = teams.filter(t => !lottery.includes(t)).sort((a, b) => b.winPct - a.winPct);
-  /* 简化乐透：最差 3 队随机排前 3 */
-  const lottoTop = lottery.slice(0, 3);
-  shuffleArr(lottoTop);
-  const rest = lottery.slice(3).sort((a, b) => a.winPct - b.winPct || a.str - b.str);
-  const order = lottoTop.concat(rest).concat(playoff);
-  /* 用户位置 */
+
+  /* 分离乐透区（14 支未进季后赛）和季后赛区（16 支）
+     若 save.playoffs 存在，用 playoffResults 判断；否则按战绩前 16 进季后赛 */
+  const lotteryTeams = [];
+  const playoffTeams = [];
+  if (save.playoffs && save.playoffs.standingsSnapshot) {
+    /* 用快照判断 */
+    teams.forEach(t => {
+      const madePlayoffs = save.playoffs.standingsSnapshot && save.playoffs.standingsSnapshot[t.abbr] && save.playoffs.standingsSnapshot[t.abbr].madePlayoffs;
+      if (madePlayoffs) playoffTeams.push(t);
+      else lotteryTeams.push(t);
+    });
+  } else {
+    /* 无快照：按战绩前 16 进季后赛，其余 14 进乐透 */
+    const sorted = [...teams].sort((a, b) => b.winPct - a.winPct);
+    sorted.forEach((t, i) => {
+      if (i < 16) playoffTeams.push(t);
+      else lotteryTeams.push(t);
+    });
+  }
+
+  /* 乐透区按战绩从最差到最好排序 */
+  lotteryTeams.sort((a, b) => a.winPct - b.winPct);
+  /* 给每队分配乐透概率 */
+  lotteryTeams.forEach((t, i) => {
+    t.odds = LOTTERY_ODDS[i] || 0;
+  });
+
+  /* 抽前 4 顺位 */
+  const lottoPool = lotteryTeams.slice();
+  const top4 = [];
+  for (let i = 0; i < 4 && lottoPool.length > 0; i++) {
+    const winner = drawLotteryPick(lottoPool);
+    top4.push(winner);
+    /* 移除已中签球队 */
+    const idx = lottoPool.findIndex(t => t.abbr === winner.abbr);
+    if (idx >= 0) lottoPool.splice(idx, 1);
+  }
+
+  /* 剩余乐透球队按战绩倒序（5-14 顺位） */
+  const restLottery = lottoPool.sort((a, b) => a.winPct - b.winPct || a.str - b.str);
+
+  /* 季后赛球队按战绩倒序（战绩越好顺位越靠后） */
+  playoffTeams.sort((a, b) => b.winPct - a.winPct);
+
+  const order = top4.concat(restLottery).concat(playoffTeams);
   const userPick = order.findIndex(t => t.abbr === my) + 1;
-  return { order: order.map(t => t.abbr), userPick };
+  return { order: order.map(t => t.abbr), userPick, top4: top4.map(t => t.abbr) };
 }
 
 /* AI 选人策略：按需求 + 潜力 */
@@ -434,11 +491,25 @@ function computePickOrder(save) {
     return a.winPct - b.winPct;
   });
 
-  /* 乐透抽签：最差 3 队各有 14% 概率抽到前 4，简化为随机前 4 */
-  const lottoTop4 = lottery.slice(0, Math.min(4, lottery.length));
-  shuffleArr(lottoTop4);
-  const lottoRest = lottery.slice(4); /* 已按战绩排序 */
+  /* 乐透抽签：14 支未进季后赛球队，前 4 顺位按概率抽签，5-14 按战绩倒序 */
+  const lotteryCount = Math.min(14, lottery.length);
+  const lotteryTeams = lottery.slice(0, lotteryCount);
+  /* 分配乐透概率：最差 3 队 14%，之后逐队递减 */
+  lotteryTeams.forEach((t, i) => { t.odds = LOTTERY_ODDS[i] || 0; });
+  /* 抽前 4 顺位 */
+  const lottoPool = lotteryTeams.slice();
+  const lottoTop4 = [];
+  for (let i = 0; i < 4 && lottoPool.length > 0; i++) {
+    const winner = drawLotteryPick(lottoPool);
+    lottoTop4.push(winner);
+    const idx = lottoPool.findIndex(t => t.abbr === winner.abbr);
+    if (idx >= 0) lottoPool.splice(idx, 1);
+  }
+  /* 剩余乐透球队按战绩倒序（5-14 顺位） */
+  const lottoRest = lottoPool.sort((a, b) => a.winPct - b.winPct || a.str - b.str);
   const firstRoundOrder = lottoTop4.concat(lottoRest).concat(playoff);
+  /* 保存乐透抽签结果供 UI 展示 */
+  save.lotteryResult = lottoTop4.map((t, i) => ({ pick: i + 1, team: t.abbr, odds: t.odds }));
   /* 次轮：纯战绩倒序 */
   const secondRoundOrder = sorted.slice();
 

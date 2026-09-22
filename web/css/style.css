@@ -780,6 +780,16 @@ body {
 .dpb-hint { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 6px; }
 /* 回合制选秀：当前签位横幅 */
 .draft-otc { background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 12px 16px; margin-bottom: 10px; font-weight: 800; font-size: 14px; text-align: center; }
+/* 乐透抽签结果横幅 */
+.lottery-banner { background: linear-gradient(135deg, rgba(26,159,83,.08), rgba(255,200,0,.06)); border: 1.5px solid rgba(255,200,0,.35); border-radius: 14px; padding: 12px 16px; margin-bottom: 12px; }
+.lottery-title { font-size: 12px; font-weight: 700; color: var(--gold); margin-bottom: 8px; letter-spacing: .5px; }
+.lottery-results { display: flex; gap: 6px; flex-wrap: wrap; }
+.lottery-pick { display: flex; align-items: center; gap: 5px; background: var(--card2); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 12px; }
+.lottery-pick.me { background: rgba(214,66,75,.12); border-color: rgba(214,66,75,.45); font-weight: 700; }
+.lp-pick { color: var(--muted); }
+.lp-pick b { color: var(--gold); font-size: 14px; }
+.lp-team { color: var(--text); font-weight: 600; }
+.lp-odds { font-size: 10px; color: var(--muted); background: var(--card); padding: 1px 5px; border-radius: 5px; }
 .draft-otc.me { background: linear-gradient(90deg, rgba(168,31,46,.18), rgba(168,31,46,.06)); border-color: var(--gold); color: var(--gold); box-shadow: 0 0 14px rgba(168,31,46,.18); }
 /* 用户选秀权进度芯片 */
 .draft-my-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; justify-content: center; }

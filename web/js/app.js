@@ -3929,9 +3929,25 @@ RENDERERS.draft = function () {
   const logRows = d.draftLog.slice(-10).reverse();
   const SHOW = 30;
 
+  /* 乐透抽签结果展示（仅首轮第 1-4 顺位） */
+  const lotteryBanner = (() => {
+    const lr = save.lotteryResult;
+    if (!lr || !lr.length) return "";
+    return '<div class="lottery-banner">' +
+      '<div class="lottery-title">🎲 乐透抽签结果</div>' +
+      '<div class="lottery-results">' +
+      lr.map(l => '<div class="lottery-pick' + (l.team === my ? " me" : "") + '">' +
+        '<span class="lp-pick">#<b>' + l.pick + '</b></span>' +
+        '<span class="lp-team">' + esc(teamName(l.team)) + '</span>' +
+        (l.odds ? '<span class="lp-odds">' + l.odds.toFixed(1) + '%</span>' : '') +
+        '</div>').join("") +
+      '</div></div>';
+  })();
+
   $("#screen-draft").innerHTML =
     '<h2 class="screen-title">NBA 选秀大会</h2>' +
     '<p class="screen-sub">第 ' + save.seasonNo + " 赛季选秀 · 第 " + cur.pick + " 顺位 / 共 " + po.length + " · 进度 " + d.currentIdx + "/" + po.length + "</p>" +
+    lotteryBanner +
     '<div class="draft-otc' + (isMyTurn ? " me" : "") + '">' +
       (isMyTurn ? '🎯 轮到你了！第 ' + cur.pick + " 顺位（" + (cur.round === 1 ? "首轮" : "次轮") + "）· 从下方选择一名新秀"
                 : '⏳ 第 ' + cur.pick + " 顺位 · " + esc(teamName(cur.team)) + " 正在选秀（" + (cur.round === 1 ? "首轮" : "次轮") + "）") +
