@@ -1645,7 +1645,7 @@ RENDERERS.hub = function () {
       '  <div class="ng-btns">' +
       '    <button class="btn btn-primary" id="btn-play">开始比赛</button>' +
       '    <button class="btn btn-outline" id="btn-quick">快速模拟</button>' +
-      '    <button class="btn btn-outline" id="btn-quick-5">连模拟5场</button>' +
+      '    <button class="btn btn-outline" id="btn-quick-rest">模拟到季后赛</button>' +
       "  </div>" +
       "</div>";
   }
@@ -1735,6 +1735,7 @@ RENDERERS.hub = function () {
     "  </div>" +
     "</div>" +
     '<div class="hub-nav">' +
+    '  <button class="mc-btn primary" id="btn-roster-list">球队名单</button>' +
     '  <button class="mc-btn" id="btn-standings">联盟排名</button>' +
     (save.tradeDeadlinePassed
       ? '<button class="mc-btn disabled" disabled>交易截止</button>'
@@ -1759,8 +1760,11 @@ RENDERERS.hub = function () {
   if (bp) bp.onclick = () => startMatch(false);
   const bq = $("#btn-quick");
   if (bq) bq.onclick = quickSimGame;
-  const bq5 = $("#btn-quick-5");
-  if (bq5) bq5.onclick = () => quickSimBatch(5);
+  const bqRest = $("#btn-quick-rest");
+  if (bqRest) bqRest.onclick = quickSimToPlayoffs;
+  /* 球队名单按钮 → 切到阵容 tab */
+  const brl = $("#btn-roster-list");
+  if (brl) brl.onclick = () => { hubTab = "roster"; RENDERERS.hub(); };
   /* 主控台日历月份导航 */
   const hprev = $("#hcal-prev");
   if (hprev) hprev.onclick = () => {
@@ -1930,57 +1934,236 @@ function startMatch(quick) {
     toast("提示：暂停中可调整战术与换人");
   }
 }
-/* 快速模拟一场（hub 按钮 / 测试调用，无 DOM 依赖） */
+/* ===== 比赛模拟动画 =====
+   单场快速模拟：弹出 overlay，逐节揭示比分（Q1→Q2→Q3→Q4→全场） */
 function quickSimGame() {
   const save = state.save;
   const gi = currentGame(save);
   if (!gi) return;
-  const sim = buildSimFor(gi);
-  sim.skipToEnd();
-  const sc = sim.score();
-  const win = sc[0] > sc[1];
-  completeGame(sim, win);
-  toast((win ? "✓ 胜 " : "✗ 负 ") + sc[0] + " - " + sc[1] + " " + teamName(gi.opp));
-  if (state._regularJustEnded) {
-    state._regularJustEnded = false;
-    RENDERERS["regular-end"]();
-    state.stack = [];
-    activate("regular-end");
-    return;
-  }
-  if (save.playoffs && save.playoffs.done) { go("seasonend"); return; }
-  RENDERERS.hub(); activate("hub", true);
+  runSimAnimation(save, 1, { single: true });
 }
-/* 连模拟 N 场（最快速度，无 toast） */
-function quickSimBatch(n) {
+
+/* 模拟到季后赛：自动模拟剩余所有常规赛，每场带过渡动画 */
+function quickSimToPlayoffs() {
   const save = state.save;
-  let played = 0, lastWin = null;
-  for (let i = 0; i < n; i++) {
-    const gi = currentGame(save);
-    if (!gi) break;
-    if (gi.playoff) break; /* 季后赛不用连模拟 */
+  const remaining = save.schedule.length - save.gameNo;
+  if (remaining <= 0) { toast("常规赛已结束"); return; }
+  runSimAnimation(save, remaining, { single: false });
+}
+
+/* 动画核心：逐场模拟，每场逐节揭示比分
+   totalGames: 要模拟的总场数
+   opts.single: true=单场（结束后停留更久），false=批量（自动推进） */
+function runSimAnimation(save, totalGames, opts) {
+  opts = opts || {};
+  /* 关闭旧 overlay */
+  const old = $("#sim-anim");
+  if (old) old.remove();
+
+  const myName = save.team.displayName;
+  const myLogo = save.team.logoAbbr ? teamLogoHtml(save.team.logoAbbr) : '<div class="th-fb">🏀</div>';
+  let wins = 0, losses = 0, idx = 0, stopped = false, instantSkip = false;
+  const recent = []; /* 最近赛果 [{opp, win, sc}] */
+
+  const ov = document.createElement("div");
+  ov.id = "sim-anim";
+  ov.className = "sim-anim-overlay";
+  ov.innerHTML =
+    '<div class="sim-anim-box">' +
+      '<div class="sa-header">' +
+        '<div class="sa-title">比赛模拟中</div>' +
+        '<div class="sa-progress"><b id="sa-idx">0</b> / ' + totalGames + ' 场</div>' +
+        '<div class="sa-record"><span class="sa-w">胜 <b id="sa-wins">0</b></span><span class="sa-l">负 <b id="sa-losses">0</b></span></div>' +
+      '</div>' +
+      '<div class="sa-stage" id="sa-stage">' +
+        '<div class="sa-teams">' +
+          '<div class="sa-team home">' + myLogo + '<span>' + esc(myName) + '</span></div>' +
+          '<div class="sa-vs">VS</div>' +
+          '<div class="sa-team away" id="sa-opp"><span>对手</span></div>' +
+        '</div>' +
+        '<div class="sa-score" id="sa-score">' +
+          '<span class="sa-s-home" id="sa-sh">0</span>' +
+          '<span class="sa-dash">-</span>' +
+          '<span class="sa-s-away" id="sa-sa">0</span>' +
+        '</div>' +
+        '<div class="sa-quarters" id="sa-quarters">' +
+          '<span class="sa-q" data-q="1">Q1</span>' +
+          '<span class="sa-q" data-q="2">Q2</span>' +
+          '<span class="sa-q" data-q="3">Q3</span>' +
+          '<span class="sa-q" data-q="4">Q4</span>' +
+        '</div>' +
+        '<div class="sa-result" id="sa-result"></div>' +
+      '</div>' +
+      '<div class="sa-recent" id="sa-recent"></div>' +
+      '<div class="sa-actions">' +
+        (opts.single ? "" : '<button class="btn btn-outline sa-skip" id="sa-skip">⏩ 立即完成剩余</button>') +
+        '<button class="btn btn-outline sa-stop" id="sa-stop">' + (opts.single ? "关闭" : "停止模拟") + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+
+  const $id = id => document.getElementById(id);
+  const stage = $id("sa-stage");
+  const oppEl = $id("sa-opp");
+  const shEl = $id("sa-sh");
+  const saEl = $id("sa-sa");
+  const qEls = ov.querySelectorAll(".sa-q");
+  const resultEl = $id("sa-result");
+  const idxEl = $id("sa-idx");
+  const winsEl = $id("sa-wins");
+  const lossesEl = $id("sa-losses");
+  const recentEl = $id("sa-recent");
+
+  function closeOverlay() {
+    ov.classList.add("closing");
+    setTimeout(() => ov.remove(), 250);
+  }
+
+  function finishAll() {
+    closeOverlay();
+    /* 结算跳转 */
+    if (state._regularJustEnded) {
+      state._regularJustEnded = false;
+      RENDERERS["regular-end"]();
+      state.stack = [];
+      activate("regular-end");
+      return;
+    }
+    if (save.playoffs && save.playoffs.done) { go("seasonend"); return; }
+    RENDERERS.hub(); activate("hub", true);
+  }
+
+  /* 立即跳过：无动画模拟剩余所有场 */
+  function skipRest() {
+    instantSkip = true;
+    while (idx < totalGames) {
+      const r = simulateOne(save);
+      if (!r) break;
+      idx++;
+      if (r.win) wins++; else losses++;
+      recent.push(r);
+      if (recent.length > 8) recent.shift();
+    }
+    finishAll();
+  }
+
+  $id("sa-stop").onclick = () => {
+    stopped = true;
+    /* 停止时不关闭，让当前场动画跑完后退出 */
+    if (instantSkip) return;
+    closeOverlay();
+    if (state._regularJustEnded) {
+      state._regularJustEnded = false;
+      RENDERERS["regular-end"]();
+      state.stack = [];
+      activate("regular-end");
+    } else if (save.playoffs && save.playoffs.done) {
+      go("seasonend");
+    } else {
+      RENDERERS.hub(); activate("hub", true);
+    }
+  };
+  const skipBtn = $id("sa-skip");
+  if (skipBtn) skipBtn.onclick = skipRest;
+
+  /* 数字滚动动画：从 start → end，duration ms */
+  function countUp(el, start, end, duration) {
+    const t0 = Date.now();
+    function tick() {
+      const t = Math.min(1, (Date.now() - t0) / duration);
+      const v = Math.round(start + (end - start) * t);
+      el.textContent = v;
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    tick();
+  }
+
+  /* 模拟一场并返回结果 */
+  function simulateOne(sv) {
+    const gi = currentGame(sv);
+    if (!gi || gi.playoff) return null;
     const sim = buildSimFor(gi);
     sim.skipToEnd();
     const sc = sim.score();
     const win = sc[0] > sc[1];
     completeGame(sim, win);
-    lastWin = win;
-    played++;
-    if (state._regularJustEnded) break;
-    if (save.playoffs && save.playoffs.done) break;
+    return {
+      opp: gi.opp, home: gi.home, win, sc,
+      quarters: sim.quarterScores || [[sc[0], sc[1]]]
+    };
   }
-  if (played === 0) return;
-  /* 汇总提示 */
-  toast("快速模拟 " + played + " 场完成");
-  if (state._regularJustEnded) {
-    state._regularJustEnded = false;
-    RENDERERS["regular-end"]();
-    state.stack = [];
-    activate("regular-end");
-    return;
+
+  /* 跑一场的动画流程：显示对手 → Q1→Q4 逐节亮分 → 胜负停留 → 下一场 */
+  function playNextGame() {
+    if (stopped || idx >= totalGames) { finishAll(); return; }
+    const r = simulateOne(save);
+    if (!r) { finishAll(); return; }
+    idx++;
+    if (r.win) wins++; else losses++;
+    recent.push({ opp: r.opp, win: r.win, sc: r.sc });
+    if (recent.length > 8) recent.shift();
+
+    /* 更新顶部信息 */
+    idxEl.textContent = idx;
+    winsEl.textContent = wins;
+    lossesEl.textContent = losses;
+    resultEl.textContent = "";
+    resultEl.className = "sa-result";
+    oppEl.innerHTML = teamLogoHtml(r.opp) + "<span>" + esc(teamName(r.opp)) + "</span>";
+    stage.classList.remove("win", "loss");
+
+    /* 重置比分和节次 */
+    shEl.textContent = "0"; saEl.textContent = "0";
+    qEls.forEach(q => q.classList.remove("on", "cur"));
+
+    /* 逐节揭示：quarters 为累计比分 */
+    const qs = r.quarters;
+    let qIdx = 0;
+    const Q_DELAY = opts.single ? 380 : 320; /* 每节间隔 ms */
+
+    function revealQuarter() {
+      if (instantSkip) return;
+      if (qIdx >= qs.length) {
+        /* 全场结束：显示胜负 */
+        stage.classList.add(r.win ? "win" : "loss");
+        resultEl.textContent = r.win ? "✓ 胜利" : "✗ 失利";
+        resultEl.classList.add(r.win ? "win" : "loss");
+        /* 更新最近赛果 */
+        renderRecent();
+        /* 单场停留久一点，批量自动推进 */
+        const wait = opts.single ? 900 : 650;
+        setTimeout(() => {
+          if (idx >= totalGames || state._regularJustEnded) finishAll();
+          else playNextGame();
+        }, wait);
+        return;
+      }
+      /* 高亮当前节 */
+      if (qEls[qIdx]) qEls[qIdx].classList.add("cur");
+      const prev = qIdx > 0 ? qs[qIdx - 1] : [0, 0];
+      const cur = qs[qIdx];
+      countUp(shEl, prev[0], cur[0], Q_DELAY - 60);
+      countUp(saEl, prev[1], cur[1], Q_DELAY - 60);
+      setTimeout(() => {
+        if (qEls[qIdx]) { qEls[qIdx].classList.remove("cur"); qEls[qIdx].classList.add("on"); }
+        qIdx++;
+        revealQuarter();
+      }, Q_DELAY);
+    }
+    /* 显示对手后短暂停留再开始揭分 */
+    setTimeout(revealQuarter, 220);
   }
-  if (save.playoffs && save.playoffs.done) { go("seasonend"); return; }
-  RENDERERS.hub(); activate("hub", true);
+
+  function renderRecent() {
+    recentEl.innerHTML = recent.slice().reverse().map(x =>
+      '<span class="sr-chip ' + (x.win ? "w" : "l") + '">' +
+      (x.win ? "W " : "L ") + x.sc[0] + "-" + x.sc[1] + " " + esc(teamName(x.opp)) +
+      '</span>'
+    ).join("");
+  }
+
+  /* 启动 */
+  playNextGame();
 }
 /* 完场结算：数据累计 + 战绩/排名 + 联盟轮次 + 季后赛推进 + 伤病 */
 function completeGame(sim, win) {

@@ -493,6 +493,7 @@ body {
 }
 .mc-btn:active { transform: scale(.97); }
 .mc-btn.gold { border-color: rgba(168, 31, 46, .5); color: var(--gold); }
+.mc-btn.primary { background: var(--gold); color: #fff; border-color: var(--gold); }
 .mc-btn.small { flex: none; padding: 8px 14px; font-size: 12.5px; }
 .mc-btn.disabled, .mc-btn:disabled { opacity: .45; cursor: not-allowed; color: var(--muted); }
 .m-tactics { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
@@ -1172,6 +1173,53 @@ body {
 .exc-opt.ok { border-color: rgba(76,175,80,.5); background: rgba(76,175,80,.08); }
 .exc-opt.ok:hover { background: rgba(76,175,80,.18); transform: translateY(-1px); }
 .exc-opt.disabled { opacity: .4; cursor: not-allowed; }
+
+/* ===== 比赛模拟动画 overlay ===== */
+.sim-anim-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; backdrop-filter: blur(4px); animation: saFadeIn .25s ease; }
+.sim-anim-overlay.closing { animation: saFadeOut .25s ease forwards; }
+@keyframes saFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes saFadeOut { from { opacity: 1; } to { opacity: 0; } }
+.sim-anim-box { background: var(--card2); border: 1px solid var(--line); border-radius: 18px; width: min(440px, 100%); padding: 20px 18px 16px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.sa-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.sa-title { font-size: 13px; font-weight: 800; color: var(--gold); letter-spacing: 1px; }
+.sa-progress { font-size: 12px; color: var(--muted); }
+.sa-progress b { color: var(--text); font-size: 15px; }
+.sa-record { display: flex; gap: 8px; font-size: 12px; }
+.sa-record span { padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+.sa-record .sa-w { background: rgba(76,175,80,.15); color: #2d8a5a; }
+.sa-record .sa-l { background: rgba(214,66,75,.12); color: #b32636; }
+.sa-record b { font-size: 14px; }
+.sa-stage { background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 18px 14px 14px; text-align: center; transition: border-color .3s, background .3s; }
+.sa-stage.win { border-color: rgba(76,175,80,.6); background: rgba(76,175,80,.06); }
+.sa-stage.loss { border-color: rgba(214,66,75,.5); background: rgba(214,66,75,.05); }
+.sa-teams { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.sa-team { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; flex: 1; min-width: 0; }
+.sa-team img, .sa-team .team-logo, .sa-team .th-fb { width: 40px; height: 40px; }
+.sa-team span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.sa-vs { font-size: 11px; color: var(--muted); font-weight: 800; flex: none; }
+.sa-score { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 10px; }
+.sa-score span { font-size: 42px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; }
+.sa-s-home { color: var(--text); }
+.sa-s-away { color: var(--text); }
+.sa-dash { color: var(--muted) !important; font-size: 30px !important; }
+.sa-stage.win .sa-s-home { color: #2d8a5a; }
+.sa-stage.win .sa-s-away { color: var(--muted); }
+.sa-stage.loss .sa-s-home { color: #b32636; }
+.sa-quarters { display: flex; justify-content: center; gap: 6px; margin-bottom: 8px; }
+.sa-q { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 6px; background: var(--card2); color: var(--muted); border: 1px solid var(--line); transition: all .2s; }
+.sa-q.cur { background: var(--gold); color: #fff; border-color: var(--gold); animation: saPulse .5s ease infinite alternate; }
+.sa-q.on { background: rgba(255,200,0,.15); color: var(--gold); border-color: rgba(255,200,0,.4); }
+@keyframes saPulse { from { transform: scale(1); } to { transform: scale(1.08); } }
+.sa-result { font-size: 16px; font-weight: 800; min-height: 22px; letter-spacing: 2px; }
+.sa-result.win { color: #2d8a5a; animation: saPop .3s ease; }
+.sa-result.loss { color: #b32636; animation: saPop .3s ease; }
+@keyframes saPop { 0% { transform: scale(.5); opacity: 0; } 60% { transform: scale(1.15); } 100% { transform: scale(1); opacity: 1; } }
+.sa-recent { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin: 12px 0; min-height: 26px; }
+.sr-chip { font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 6px; }
+.sr-chip.w { background: rgba(76,175,80,.12); color: #2d8a5a; border: 1px solid rgba(76,175,80,.3); }
+.sr-chip.l { background: rgba(214,66,75,.1); color: #b32636; border: 1px solid rgba(214,66,75,.25); }
+.sa-actions { display: flex; gap: 8px; justify-content: center; }
+.sa-actions .btn { flex: 1; padding: 10px; font-size: 13px; }
 .exc-cancel { margin-top: 4px; }
 
 /* ===== 教练战术台 ===== */
