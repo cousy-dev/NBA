@@ -3634,67 +3634,60 @@ RENDERERS.seasonend = function () {
   const myRank = confRanking(save, confOf(my)).find(r => r.abbr === my);
   const awards = seasonAwards(save);
   const iChamp = ps && ps.champion === my;
-  const awardWinners = [
-    { icon: "MVP", c: awards.mvp[0], highlight: true, fmt: null },
-    { icon: "DPOY", c: awards.dpoy[0], fmt: st => st ? st.spg.toFixed(1) + "断 " + st.bpg.toFixed(1) + "帽" : "" },
-    { icon: "ROY", c: awards.bestRookie, fmt: null },
-    { icon: "6MOY", c: awards.sixth, fmt: st => st ? st.ppg.toFixed(1) + "分 " + st.rpg.toFixed(1) + "板 " + st.apg.toFixed(1) + "助" : "" },
-    { icon: "得分王", c: awards.scoring, fmt: null },
-    { icon: "助攻王", c: awards.assists, fmt: null },
-    { icon: "篮板王", c: awards.rebounds, fmt: null }
-  ];
-  const winnerRows = awardWinners.map(w => {
-    if (!w.c) return '<div class="aw-row"><span class="aw-rank">' + w.icon + '</span><div class="aw-name">暂无数据</div></div>';
-    const statTxt = w.fmt ? w.fmt(w.c.st) : (w.c.st ? w.c.st.ppg.toFixed(1) + "分 " + w.c.st.rpg.toFixed(1) + "板 " + w.c.st.apg.toFixed(1) + "助" : (w.c.v ? w.c.v.toFixed(1) + "分/场" : ""));
-    return '<div class="aw-row' + (w.highlight ? " me" : "") + '"><span class="aw-rank">' + w.icon + "</span>" +
-      '<div class="aw-name">' + esc(w.c.p.nameCn) + '<span class="aw-team">' + esc(teamName(w.c.p.team)) + "</span></div>" +
-      '<div class="aw-line">' + (statTxt || "") + "</div></div>";
-  }).join("");
-  /* 位置标签：2G 2F 1C */
-  const POS_LABEL = ["G", "G", "F", "F", "C"];
-  const teamCard = (title, members) => {
-    if (!members || members.length === 0) return "";
-    const rows = members.map((m, i) => {
-      const st = m.st || {};
-      const statLine = '<span class="tm-stats">' +
-        (st.ppg != null ? st.ppg.toFixed(1) + "分" : "-") + " " +
-        (st.rpg != null ? st.rpg.toFixed(1) + "板" : "-") + " " +
-        (st.apg != null ? st.apg.toFixed(1) + "助" : "-") +
-        (st.spg != null && st.bpg != null ? " · " + st.spg.toFixed(1) + "断 " + st.bpg.toFixed(1) + "帽" : "") +
-        "</span>";
-      return '<div class="tm-row' + (m.mine ? " me" : "") + '">' +
-        '<span class="tm-pos">' + POS_LABEL[i % POS_LABEL.length] + '</span>' +
-        '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
-        '<div class="tm-main">' +
-        '  <div class="tm-name">' + esc(m.p.nameCn) + '</div>' +
-        '  <div class="tm-sub"><span class="tm-team">' + esc(teamName(m.p.team)) + '</span>' + statLine + '</div>' +
-        "</div>" +
-        '</div>';
-    }).join("");
-    return '<div class="se-card tm-group"><h3>' + title + '</h3>' + rows + '</div>';
-  };
+  /* 季后赛之旅：逐轮提取用户系列赛结果 */
+  const ROUND_LABELS = ["首轮", "半决赛", "分区决赛", "总决赛"];
+  const playoffJourney = (() => {
+    if (!ps || !ps.rounds) return [];
+    const journey = [];
+    for (let ri = 0; ri <= ps.round; ri++) {
+      const rnd = ps.rounds[ri];
+      if (!rnd) continue;
+      const all = (rnd.E || []).concat(rnd.W || []);
+      const userSer = all.find(s => s && (s.a === my || s.b === my));
+      if (userSer) {
+        const iWonSer = userSer.winner === my;
+        const myWins = userSer.a === my ? userSer.wa : userSer.wb;
+        const oppWins = userSer.a === my ? userSer.wb : userSer.wa;
+        const oppAbbr = userSer.a === my ? userSer.b : userSer.a;
+        journey.push({
+          round: ri, label: ROUND_LABELS[ri] || ("轮" + ri),
+          won: iWonSer, myWins, oppWins, oppAbbr
+        });
+      }
+    }
+    return journey;
+  })();
+  const journeyHtml = playoffJourney.length ? playoffJourney.map(j => {
+    const resultIcon = j.won ? "✅" : "❌";
+    const scoreTxt = j.myWins + "-" + j.oppWins;
+    return '<div class="pj-step' + (j.won ? " won" : " lost") + '">' +
+      '<span class="pj-result">' + resultIcon + '</span>' +
+      '<span class="pj-round">' + esc(j.label) + '</span>' +
+      '<span class="pj-score">' + scoreTxt + '</span>' +
+      '<span class="pj-opp">' + esc(teamName(j.oppAbbr)) + '</span></div>';
+  }).join("") : '<div class="pj-empty">未进入季后赛</div>';
+  const champLogo = ps && ps.champion ? teamLogoHtml(ps.champion) : '';
+  const fmvpHtml = awards.fmvp ? '<div class="se-fmvp-card">' +
+    '<div class="fmvp-badge">FMVP</div>' +
+    '<div class="fmvp-info">' +
+    '  <div class="fmvp-name">' + esc(awards.fmvp.p.nameCn) + '</div>' +
+    '  <div class="fmvp-team">' + esc(teamName(awards.fmvp.p.team)) + '</div></div>' +
+    '<div class="fmvp-stats">' + awards.fmvp.st.ppg.toFixed(1) + "分 " + awards.fmvp.st.rpg.toFixed(1) + "板 " + awards.fmvp.st.apg.toFixed(1) + "助</div>" +
+    '</div>' : '';
   $("#screen-seasonend").innerHTML =
-    '<h2 class="screen-title">赛季总结</h2>' +
-    '<p class="screen-sub">第 ' + save.seasonNo + " 赛季 · 常规赛 " + st.w + "-" + st.l +
-    (myRank ? " · " + confLabel(confOf(my)) + "第" + myRank.seed + "位" : "") + "</p>" +
-    '<div class="se-card' + (iChamp ? " gold" : "") + '">' +
-    '<div class="champ-line">' + (iChamp ? "🏆 恭喜！你夺得了总冠军" : "🏆 总冠军：" + esc(teamName(ps ? ps.champion : null))) + "</div>" +
-    '<div class="ng-meta">你的季后赛结果：' + esc(ps ? (ps.userResult || "未进季后赛") : "未进季后赛") + "</div></div>" +
-    (awards.fmvp ? '<div class="se-card gold"><h3>FMVP · 总决赛 MVP</h3>' +
-      '<div class="aw-row me"><span class="aw-rank">FMVP</span>' +
-      '<div class="aw-name">' + esc(awards.fmvp.p.nameCn) + '<span class="aw-team">' + esc(teamName(awards.fmvp.p.team)) + "</span></div>" +
-      '<div class="aw-line">' + awards.fmvp.st.ppg.toFixed(1) + "分 " + awards.fmvp.st.rpg.toFixed(1) + "板 " + awards.fmvp.st.apg.toFixed(1) + "助" + "</div></div></div>" : "") +
-    '<div class="se-card"><h3>🏆 年度个人奖项</h3>' + winnerRows + "</div>" +
-    '<h3 class="section-h">最佳阵容</h3>' +
-    teamCard("最佳阵容 一阵", awards.allNBA1, "1") +
-    teamCard("最佳阵容 二阵", awards.allNBA2, "2") +
-    teamCard("最佳阵容 三阵", awards.allNBA3, "3") +
-    '<h3 class="section-h">最佳防守阵容</h3>' +
-    teamCard("最佳防守 一阵", awards.allDef1, "1") +
-    teamCard("最佳防守 二阵", awards.allDef2, "2") +
-    '<h3 class="section-h">最佳新秀阵容</h3>' +
-    teamCard("最佳新秀 一阵", awards.allRookie1, "1") +
-    teamCard("最佳新秀 二阵", awards.allRookie2, "2") +
+    '<div class="champ-hero' + (iChamp ? " mine" : "") + '">' +
+      '<div class="champ-trophy">🏆</div>' +
+      '<div class="champ-title">' + (iChamp ? "你夺得了总冠军！" : "总冠军") + '</div>' +
+      '<div class="champ-team">' + champLogo + '<span>' + esc(ps && ps.champion ? teamName(ps.champion) : "") + '</span></div>' +
+      '<div class="champ-season">第 ' + save.seasonNo + ' 赛季</div>' +
+      '<div class="champ-result">' + esc(ps ? (ps.userResult || "未进季后赛") : "未进季后赛") + '</div>' +
+    '</div>' +
+    (playoffJourney.length ? '<div class="se-card"><h3>📍 季后赛之旅</h3><div class="pj-list">' + journeyHtml + '</div></div>' : '') +
+    fmvpHtml +
+    '<div class="se-card champ-stats">' +
+      '<div class="cs-item"><span class="cs-label">常规赛战绩</span><span class="cs-val">' + st.w + "-" + st.l + '</span></div>' +
+      (myRank ? '<div class="cs-item"><span class="cs-label">分区排名</span><span class="cs-val">' + confLabel(confOf(my)) + '第' + myRank.seed + '</span></div>' : '') +
+    '</div>' +
     '<button class="btn btn-primary" id="btn-newseason">开启第 ' + (save.seasonNo + 1) + " 赛季</button>" +
     '<button class="btn btn-outline" id="btn-se-trade">休赛期交易</button>' +
     '<button class="btn btn-outline" id="se-hub">返回经理室</button>';

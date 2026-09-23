@@ -691,6 +691,46 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .se-card h3 { margin: 0 0 12px; font-size: 15px; }
 .se-card.gold { border-color: var(--gold); }
 
+/* 总冠军华丽横幅 */
+.champ-hero { text-align: center; padding: 36px 20px 30px; border-radius: 20px; margin-bottom: 16px; background: linear-gradient(135deg, #1a1a2e, #2d1b3d); color: #fff; position: relative; overflow: hidden; }
+.champ-hero::before { content: ""; position: absolute; top: -40%; left: -20%; width: 60%; height: 80%; background: radial-gradient(ellipse, rgba(255,215,0,.15), transparent 60%); }
+.champ-hero::after { content: ""; position: absolute; bottom: -30%; right: -15%; width: 50%; height: 70%; background: radial-gradient(ellipse, rgba(168,31,46,.20), transparent 60%); }
+.champ-hero.mine { background: linear-gradient(135deg, #4a0e1f, #6b1b30, #2d1b3d); }
+.champ-hero.mine::before { background: radial-gradient(ellipse, rgba(255,215,0,.28), transparent 60%); }
+.champ-trophy { font-size: 64px; line-height: 1; margin-bottom: 12px; position: relative; z-index: 1; filter: drop-shadow(0 4px 12px rgba(255,215,0,.3)); }
+.champ-hero.mine .champ-trophy { animation: trophy-shine 2s ease-in-out infinite; }
+@keyframes trophy-shine { 0%, 100% { filter: drop-shadow(0 4px 12px rgba(255,215,0,.3)); transform: scale(1); } 50% { filter: drop-shadow(0 6px 20px rgba(255,215,0,.6)); transform: scale(1.06); } }
+.champ-title { font-size: 24px; font-weight: 900; margin-bottom: 14px; position: relative; z-index: 1; text-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.champ-team { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 17px; font-weight: 800; margin-bottom: 8px; position: relative; z-index: 1; }
+.champ-team img { width: 40px; height: 40px; object-fit: contain; }
+.champ-season { font-size: 13px; color: rgba(255,255,255,.55); margin-bottom: 6px; position: relative; z-index: 1; }
+.champ-result { display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 14px; border-radius: 20px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15); position: relative; z-index: 1; }
+
+/* 季后赛之旅 */
+.pj-list { display: flex; flex-direction: column; gap: 8px; }
+.pj-step { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--card2); border-left: 3px solid var(--line); }
+.pj-step.won { border-left-color: var(--green); background: rgba(45,138,90,.06); }
+.pj-step.lost { border-left-color: var(--red); background: rgba(179,38,54,.06); }
+.pj-result { font-size: 16px; flex: none; }
+.pj-round { font-weight: 800; font-size: 13px; min-width: 60px; }
+.pj-score { font-weight: 900; font-size: 15px; color: var(--gold); flex: none; font-variant-numeric: tabular-nums; }
+.pj-opp { margin-left: auto; color: var(--muted); font-size: 12.5px; text-align: right; }
+.pj-empty { text-align: center; color: var(--muted); padding: 14px; font-size: 13px; }
+
+/* FMVP 卡片 */
+.se-fmvp-card { display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, rgba(168,31,46,.08), rgba(168,31,46,.03)); border: 1.5px solid rgba(168,31,46,.35); border-radius: 14px; padding: 14px 16px; margin: 12px 0; }
+.fmvp-badge { min-width: 56px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, #c92a3f, #8a1825); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 12px; letter-spacing: .5px; flex-shrink: 0; }
+.fmvp-info { flex: 1; min-width: 0; }
+.fmvp-name { font-weight: 800; font-size: 15px; }
+.fmvp-team { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.fmvp-stats { font-weight: 800; color: var(--gold); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* 赛季统计卡片 */
+.champ-stats { display: flex; gap: 16px; }
+.cs-item { flex: 1; text-align: center; }
+.cs-label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.cs-val { display: block; font-size: 18px; font-weight: 900; color: var(--gold); }
+
 /* 奖项行（常规赛结束 / 赛季总结共用） */
 .aw-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
 .aw-row:last-child { border-bottom: none; }
