@@ -589,8 +589,12 @@ function doAging(save) {
     else if (adjAge >= 40) chance = 0.45;
     else if (adjAge >= 38) chance = 0.22;
     else if (adjAge >= 36) chance = 0.08;
-    if (currentOvr < 60) chance += 0.15;
-    if (currentOvr < 50) chance += 0.20;
+    /* 低 OVR 退役加成仅适用于 30 岁以上老将；年轻球员（含新秀）即使 OVR 低也不退役，
+       他们有成长空间，不应因能力值低而消失 */
+    if (adjAge >= 30) {
+      if (currentOvr < 60) chance += 0.15;
+      if (currentOvr < 50) chance += 0.20;
+    }
     if (chance > 0 && Math.random() < chance) {
       save.retired[id] = save.seasonNo;
       save.retireLog.push({ id, name: p.nameCn, team: p.team, age: adjAge, ovr: currentOvr });

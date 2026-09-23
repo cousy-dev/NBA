@@ -407,7 +407,12 @@ function decrementContracts(save) {
 function _genExtraFA(save) {
   const rosterIds = new Set(save.roster.map(r => r.id));
   const faIds = new Set(save.faPool.map(f => f.id));
-  const avail = PLAYERS_RATED.players.filter(p => !rosterIds.has(p.id) && !faIds.has(p.id));
+  /* 排除已在 AI 队名单中的球员，防止 AI 球员误流入自由市场 */
+  const aiRosterIds = new Set();
+  if (save.aiRosters) {
+    Object.values(save.aiRosters).forEach(arr => (arr || []).forEach(id => aiRosterIds.add(id)));
+  }
+  const avail = PLAYERS_RATED.players.filter(p => !rosterIds.has(p.id) && !faIds.has(p.id) && !aiRosterIds.has(p.id));
   const n = 15 + Math.floor(Math.random() * 11);
   const shuffled = avail.slice().sort(() => Math.random() - 0.5);
   shuffled.slice(0, n).forEach(p => {
@@ -727,7 +732,7 @@ function simAIFreeAgency(save) {
       let roster = playersByTeam(t.abbr).map(p => p.id);
       roster = roster.filter(id => {
         const p = PLAYERS_RATED.players.find(x => x.id === id);
-        return p && p.team === t.abbr;
+        return p && p.team === t.abbr && !save.retired[id];
       });
       save.aiRosters[t.abbr] = roster;
     }

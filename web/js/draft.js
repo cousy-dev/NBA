@@ -379,6 +379,21 @@ function processPick(save, rookie, teamAbbr, pickNumber, results) {
   }
   if (teamAbbr === myAbbr(save)) {
     signRookie(save, rookie);
+  } else {
+    /* AI 队选中新秀：加入该队 aiRosters，防止新秀"无队可归"被误清理或流入自由市场 */
+    if (!save.aiRosters) save.aiRosters = {};
+    if (!save.aiRosters[teamAbbr]) {
+      /* 非扩张模式首次选人：先加载该队原有阵容（排除已退役），再加入新秀 */
+      save.aiRosters[teamAbbr] = playersByTeam(teamAbbr)
+        .map(p => p.id)
+        .filter(id => {
+          const p = PLAYERS_RATED.players.find(x => x.id === id);
+          return p && p.team === teamAbbr && !save.retired[id];
+        });
+    }
+    if (!save.aiRosters[teamAbbr].includes(rookie.id)) {
+      save.aiRosters[teamAbbr].push(rookie.id);
+    }
   }
   results.push({ pick: pickNumber, abbr: teamAbbr, rookie });
 }
