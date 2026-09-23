@@ -351,18 +351,21 @@ function processOptions(save) {
       if (Math.random() < jumpProb) {
         r.years = 0; /* 跳出，标记到期 */
       } else {
-        r.years = 1; r.salary = r.optionSalary || r.salary;
+        r.salary = r.optionSalary || r.salary;
         r.optionType = null; r.optionYear = 0;
+        r._skipDecYears = true; /* 执行了选项，跳过后续 years-1 */
       }
     } else if (r.optionType === "team") {
       /* 球队选项：高 OVR 执行保留，低 OVR 放弃 */
       const execProb = ovr >= 88 ? 0.95 : ovr >= 80 ? 0.75 : ovr >= 70 ? 0.50 : 0.25;
       if (Math.random() < execProb) {
-        r.years = 1; r.salary = r.optionSalary || r.salary;
+        r.salary = r.optionSalary || r.salary;
+        r.optionType = null; r.optionYear = 0;
+        r._skipDecYears = true; /* 执行了选项，跳过后续 years-1 */
       } else {
         r.years = 0; /* 放弃，进入 FA */
+        r.optionType = null; r.optionYear = 0;
       }
-      r.optionType = null; r.optionYear = 0;
     }
   });
 }
@@ -377,7 +380,11 @@ function decrementContracts(save) {
   const myAbbr = (function(){ try { return save.team.abbr || "CUS"; } catch(e){ return "CUS"; } })();
   save.roster = save.roster.filter(r => {
     if (r.years <= 0) { expired.push(r); return false; }
-    r.years = (r.years || 1) - 1;
+    /* 执行了选项的球员跳过 years-1（选项年已被 processOptions 标记保留） */
+    if (!r._skipDecYears) {
+      r.years = (r.years || 1) - 1;
+    }
+    r._skipDecYears = false; /* 清除临时标记 */
     if (r.years <= 0) { expired.push(r); return false; }
     /* 续约/签约的球员 birdYears 累计 +1 */
     r.birdYears = (r.birdYears || 0) + 1;
