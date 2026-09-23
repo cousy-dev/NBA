@@ -939,7 +939,7 @@ RENDERERS.freeagent = function () {
       '  <span class="r-idx">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '  <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
-      '  <div class="r-meta">' + fmtM(x.sal) + " · " + (r.years || 1) + "年 " + optTag + "</div>" +
+      '  <div class="r-meta">' + esc(posLabel(x.p)) + " · " + fmtM(x.sal) + " · " + (r.years || 1) + "年 " + optTag + "</div>" +
       '  <button class="fa-release" data-id="' + x.p.id + '">释放</button>' +
       "</div>";
   }).join("");
