@@ -548,8 +548,15 @@ function computePickOrder(save) {
      防止第15支非季后赛球队丢失首轮签 */
   const lottoExtra = lottery.slice(lotteryCount).sort((a, b) => a.winPct - b.winPct || a.str - b.str);
   const firstRoundOrder = lottoTop4.concat(lottoRest).concat(lottoExtra).concat(playoff);
-  /* 保存乐透抽签结果供 UI 展示 */
-  save.lotteryResult = lottoTop4.map((t, i) => ({ pick: i + 1, team: t.abbr, odds: t.odds }));
+  /* 保存乐透抽签完整数据供 UI 动画展示：
+     - teams: 14 支乐透球队（按战绩倒序）及其抽签概率
+     - top4: 抽中的前 4 顺位（顺序揭示）
+     - restOrder: 剩余乐透球队按战绩倒序（5-14 顺位） */
+  save.lotteryResult = {
+    teams: lotteryTeams.map(t => ({ team: t.abbr, winPct: t.winPct, w: t.w, l: t.l, odds: t.odds })),
+    top4: lottoTop4.map(t => ({ team: t.abbr, odds: t.odds })),
+    restOrder: lottoRest.map(t => ({ team: t.abbr, winPct: t.winPct, w: t.w, l: t.l }))
+  };
   /* 次轮：纯战绩倒序 */
   const secondRoundOrder = sorted.slice();
 

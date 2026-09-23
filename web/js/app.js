@@ -4412,11 +4412,156 @@ RENDERERS.scout = function () {
   });
 };
 
+/* ===== 乐透抽签动画展示 ===== */
+/* 展示 14 支乐透球队的抽签过程：逐个揭示前 4 顺位，再显示完整顺序 */
+function renderLotteryReveal(save, d, my) {
+  const lr = save.lotteryResult;
+  if (!lr || !lr.teams) { d.lotteryRevealed = true; RENDERERS.draft(); return; }
+
+  /* 抽签阶段：intro（展示球队列表）→ revealing（逐个揭示前4）→ complete（显示完整顺序） */
+  if (!d.lotteryPhase) d.lotteryPhase = "intro";
+  if (!d.revealedTop4) d.revealedTop4 = [];
+
+  const screen = $("#screen-draft");
+
+  if (d.lotteryPhase === "intro") {
+    /* 展示 14 支乐透球队列表 + 开始按钮 */
+    screen.innerHTML =
+      '<div class="lottery-reveal">' +
+      '<h2 class="screen-title">🎲 乐透抽签</h2>' +
+      '<p class="screen-sub">第 ' + save.seasonNo + ' 赛季选秀 · 14 支未进季后赛的球队参与抽签，前 4 顺位由概率决定</p>' +
+      '<div class="lottery-team-list">' +
+      lr.teams.map((t, i) => {
+        const isMe = t.team === my;
+        const preSeed = i + 1; /* 按战绩排名的种子序号 */
+        return '<div class="lottery-team-row' + (isMe ? " me" : "") + '">' +
+          '<span class="lt-seed">#' + preSeed + '</span>' +
+          '<span class="lt-name">' + esc(teamName(t.team)) + (isMe ? ' (你的球队)' : "") + '</span>' +
+          '<span class="lt-record">' + (t.w || 0) + '-' + (t.l || 0) + '</span>' +
+          '<span class="lt-odds">' + (t.odds || 0).toFixed(1) + '%</span>' +
+          '</div>';
+      }).join("") +
+      '</div>' +
+      '<div class="lottery-actions">' +
+        '<button class="btn btn-primary" id="btn-start-lottery">🎲 开始抽签</button>' +
+      '</div>' +
+      '<div class="lottery-hint">抽签将逐个揭示前 4 顺位，剩余球队按战绩倒序排列</div>' +
+      '</div>';
+
+    const btn = $("#btn-start-lottery");
+    if (btn) btn.onclick = () => {
+      d.lotteryPhase = "revealing";
+      d.revealedTop4 = [];
+      renderLotteryReveal(save, d, my);
+    };
+    return;
+  }
+
+  if (d.lotteryPhase === "revealing") {
+    /* 逐个揭示前 4 顺位 */
+    const idx = d.revealedTop4.length;
+    if (idx >= lr.top4.length) {
+      /* 全部揭示完成，等用户点确认 */
+      d.lotteryPhase = "complete";
+      renderLotteryReveal(save, d, my);
+      return;
+    }
+
+    /* 揭示第 idx+1 顺位 */
+    const pick = lr.top4[idx];
+    const isMe = pick.team === my;
+    const originalSeed = lr.teams.findIndex(t => t.team === pick.team) + 1;
+    const jump = originalSeed - (idx + 1); /* 顺位变化：正数=上升，负数=下降 */
+
+    screen.innerHTML =
+      '<div class="lottery-reveal">' +
+      '<h2 class="screen-title">🎲 乐透抽签</h2>' +
+      '<div class="lottery-draw-area">' +
+        '<div class="lottery-draw-pick">第 ' + (idx + 1) + ' 顺位</div>' +
+        '<div class="lottery-draw-team' + (isMe ? " me" : "") + '">' +
+          '<div class="ldd-animation">🎲🎲🎲</div>' +
+          '<div class="ldd-team-name">' + esc(teamName(pick.team)) + '</div>' +
+          (isMe ? '<div class="ldd-me-tag">🎉 你的球队！</div>' : '') +
+          '<div class="ldd-odds">抽签概率 ' + (pick.odds || 0).toFixed(1) + '% · 原种子 #' + originalSeed +
+          (jump > 0 ? ' ↑上升' + jump + '位' : jump < 0 ? ' ↓下降' + Math.abs(jump) + '位' : ' 持平') + '</div>' +
+        '</div>' +
+      '</div>' +
+      /* 已揭示的前4 */
+      '<div class="lottery-revealed-list">' +
+      d.revealedTop4.map((p, i) => {
+        const pm = p.team === my;
+        const ps = lr.teams.findIndex(t => t.team === p.team) + 1;
+        return '<div class="lottery-revealed-row' + (pm ? " me" : "") + '">' +
+          '<span class="lr-pick">#' + (i + 1) + '</span>' +
+          '<span class="lr-team">' + esc(teamName(p.team)) + '</span>' +
+          '<span class="lr-odds">' + (p.odds || 0).toFixed(1) + '%</span>' +
+          '<span class="lr-jump">原#' + ps + '</span>' +
+          '</div>';
+      }).join("") +
+      '</div>' +
+      '<div class="lottery-actions">' +
+        (idx < lr.top4.length - 1
+          ? '<button class="btn btn-primary" id="btn-next-pick">揭示下一顺位 ▶</button>'
+          : '<button class="btn btn-primary" id="btn-show-full">查看完整顺位 ▶</button>') +
+      '</div>' +
+      '</div>';
+
+    const nextBtn = $("#btn-next-pick");
+    if (nextBtn) nextBtn.onclick = () => {
+      d.revealedTop4.push(pick);
+      renderLotteryReveal(save, d, my);
+    };
+    const showBtn = $("#btn-show-full");
+    if (showBtn) showBtn.onclick = () => {
+      d.revealedTop4.push(pick);
+      d.lotteryPhase = "complete";
+      renderLotteryReveal(save, d, my);
+    };
+    return;
+  }
+
+  if (d.lotteryPhase === "complete") {
+    /* 展示完整乐透顺位 1-14 */
+    /* 构建完整 1-14 顺位：前 4 是 top4，后 10 是 restOrder */
+    const fullOrder = lr.top4.map((t, i) => ({ team: t.team, odds: t.odds, pick: i + 1, isLotto: true }))
+      .concat(lr.restOrder.map((t, i) => ({ team: t.team, odds: 0, pick: i + 5, isLotto: false })));
+
+    screen.innerHTML =
+      '<div class="lottery-reveal">' +
+      '<h2 class="screen-title">🎲 乐透抽签结果</h2>' +
+      '<p class="screen-sub">第 ' + save.seasonNo + ' 赛季选秀顺位（乐透区 1-14）</p>' +
+      '<div class="lottery-full-list">' +
+      fullOrder.map(item => {
+        const isMe = item.team === my;
+        const origSeed = lr.teams.findIndex(t => t.team === item.team) + 1;
+        const jump = origSeed - item.pick;
+        return '<div class="lottery-full-row' + (isMe ? " me" : "") + (item.isLotto ? " lotto" : "") + '">' +
+          '<span class="lf-pick">#' + item.pick + '</span>' +
+          '<span class="lf-team">' + esc(teamName(item.team)) + (isMe ? ' (你)' : "") + '</span>' +
+          '<span class="lf-orig">原#' + origSeed + (jump > 0 ? ' ↑' + jump : jump < 0 ? ' ↓' + Math.abs(jump) : '') + '</span>' +
+          (item.odds ? '<span class="lf-odds">' + item.odds.toFixed(1) + '%</span>' : '<span class="lf-odds muted">按战绩</span>') +
+          '</div>';
+      }).join("") +
+      '</div>' +
+      '<div class="lottery-actions">' +
+        '<button class="btn btn-primary" id="btn-enter-draft">进入选秀大会 ▶</button>' +
+      '</div>' +
+      '</div>';
+
+    const enterBtn = $("#btn-enter-draft");
+    if (enterBtn) enterBtn.onclick = () => {
+      d.lotteryRevealed = true;
+      RENDERERS.draft();
+    };
+    return;
+  }
+}
+
 /* ===== NBA 选秀 ===== */
 /* 回合制交互式选秀：用户在属于自己的每个选秀签位上各选一次新秀，
    其余 AI 签位可手动「AI 自动选人」逐支触发，也可「跳到我的下一顺位」自动模拟。
    选秀权可通过交易获得多个，因此用户可能有多次选人机会。 */
-state.draft = { class_: null, pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null };
+state.draft = { class_: null, pickOrder: null, currentIdx: 0, pickedIds: null, results: null, draftLog: null, lotteryRevealed: false };
 RENDERERS.draft = function () {
   const save = state.save;
   const d = state.draft;
@@ -4428,6 +4573,7 @@ RENDERERS.draft = function () {
     d.pickedIds = new Set();
     d.results = [];
     d.draftLog = [];
+    d.lotteryRevealed = false;
   }
   const po = d.pickOrder;
 
@@ -4444,6 +4590,11 @@ RENDERERS.draft = function () {
   /* 全部签位走完 → 结算 */
   if (d.currentIdx >= po.length) { finishDraft(save, d); return; }
 
+  /* 乐透抽签动画：首次进入选秀时展示 */
+  if (save.lotteryResult && !d.lotteryRevealed) {
+    return renderLotteryReveal(save, d, my);
+  }
+
   const cur = po[d.currentIdx];
   const isMyTurn = cur.team === my;
   const avail = d.class_.filter(r => !d.pickedIds.has(r.id));
@@ -4455,15 +4606,15 @@ RENDERERS.draft = function () {
   const logRows = d.draftLog.slice(-10).reverse();
   const SHOW = 30;
 
-  /* 乐透抽签结果展示（仅首轮第 1-4 顺位） */
+  /* 乐透抽签结果展示（顶部摘要） */
   const lotteryBanner = (() => {
     const lr = save.lotteryResult;
-    if (!lr || !lr.length) return "";
+    if (!lr || !lr.top4 || !lr.top4.length) return "";
     return '<div class="lottery-banner">' +
       '<div class="lottery-title">🎲 乐透抽签结果</div>' +
       '<div class="lottery-results">' +
-      lr.map(l => '<div class="lottery-pick' + (l.team === my ? " me" : "") + '">' +
-        '<span class="lp-pick">#<b>' + l.pick + '</b></span>' +
+      lr.top4.map((l, i) => '<div class="lottery-pick' + (l.team === my ? " me" : "") + '">' +
+        '<span class="lp-pick">#<b>' + (i + 1) + '</b></span>' +
         '<span class="lp-team">' + esc(teamName(l.team)) + '</span>' +
         (l.odds ? '<span class="lp-odds">' + l.odds.toFixed(1) + '%</span>' : '') +
         '</div>').join("") +
