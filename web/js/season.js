@@ -487,7 +487,7 @@ function advancePlayoffs(save) {
   ps.rounds[ps.round + 1] = next;
   ps.round++;
   syncUserSeries(save);
-  if (!ps.userSeries) finishAllAI(save);
+  /* 用户已淘汰/缺席时不再自动模拟剩余轮次 —— 改由经理室「模拟剩余季后赛」按钮手动触发 */
 }
 /* 用户已淘汰/缺席：AI 一路模拟到冠军（防死循环保护） */
 function finishAllAI(save) {

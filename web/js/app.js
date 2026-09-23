@@ -1509,11 +1509,8 @@ function confLabel(c) { return c === "E" ? "东部" : "西部"; }
 /* 当前比赛信息（常规赛 / 季后赛 / 无） */
 function currentGame(save) {
   if (save.playoffs && !save.playoffs.done) {
-    /* 自愈：用户系列赛已结束但轮次未推进（遗留卡死）→ 结算 AI 系列赛并推进 */
-    if (!save.playoffs.userSeries || save.playoffs.userSeries.done) {
-      playoffProgress(save);
-      writeSave(save);
-    }
+    /* 同步用户系列赛引用（刷新后可能指向旧轮次），不再自动模拟 AI 比赛 */
+    syncUserSeries(save);
     if (save.playoffs.done || !save.playoffs.userSeries) return null;
     const gi = playoffGameInfo(save);
     return Object.assign({ playoff: true }, gi);
@@ -1580,7 +1577,8 @@ RENDERERS.hub = function () {
       '<button class="btn btn-primary" id="btn-seasonend">查看赛季总结</button></div>';
   } else if (!gi) {
     if (save.playoffs && !save.playoffs.done) {
-      gameHtml = '<div class="next-game"><div class="ng-label">你已被淘汰，关注剩余季后赛</div></div>';
+      gameHtml = '<div class="next-game"><div class="ng-label">你已被淘汰，关注剩余季后赛</div>' +
+        '<div class="ng-btns"><button class="btn btn-primary" id="btn-sim-playoffs">模拟剩余季后赛</button></div></div>';
     } else {
       gameHtml = '<div class="next-game"><div class="ng-label">暂无比赛安排</div></div>';
     }
@@ -1856,6 +1854,18 @@ RENDERERS.hub = function () {
   if (bh) bh.onclick = () => go("hof");
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
+  /* 模拟剩余季后赛（用户已淘汰但季后赛未结束时手动触发） */
+  const bsp = $("#btn-sim-playoffs");
+  if (bsp) bsp.onclick = () => {
+    const s = state.save;
+    if (s.playoffs && !s.playoffs.done) {
+      finishAllAI(s);
+      writeSave(s);
+      toast(s.playoffs.champion === my ? "🏆 你夺得了总冠军！" : "🏆 总冠军：" + teamName(s.playoffs.champion));
+      RENDERERS.hub();
+      activate("hub", true);
+    }
+  };
   /* 经理室子tab切换 */
   $$("#screen-hub .hub-tab").forEach(tab => {
     tab.onclick = () => { hubTab = tab.dataset.tab; RENDERERS.hub(); };
