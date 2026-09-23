@@ -731,6 +731,34 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .cs-label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 .cs-val { display: block; font-size: 18px; font-weight: 900; color: var(--gold); }
 
+/* 赛季总结 - 本队荣誉 */
+.hon-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,.05); }
+.hon-item:last-child { border-bottom: none; }
+.hon-item.team { background: rgba(168,31,46,.04); border-radius: 8px; padding: 8px 10px; margin: 4px 0; border-bottom: none; }
+.hon-badge { min-width: 32px; height: 22px; border-radius: 6px; background: var(--card2); border: 1px solid var(--line); font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.hon-badge.team-h { background: linear-gradient(135deg, rgba(168,31,46,.18), rgba(168,31,46,.08)); border-color: rgba(168,31,46,.3); color: var(--gold); }
+.hon-label { font-weight: 700; font-size: 13.5px; flex-shrink: 0; }
+.hon-name { margin-left: auto; color: var(--muted); font-size: 12.5px; text-align: right; }
+
+/* 荣誉室 */
+.tr-stats { display: flex; gap: 12px; margin-bottom: 16px; }
+.tr-stat-item { flex: 1; text-align: center; background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 16px 8px; }
+.tr-stat-val { display: block; font-size: 32px; font-weight: 900; color: var(--gold); line-height: 1; }
+.tr-stat-val.champ { background: linear-gradient(135deg, #ffd700, #b8860b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.tr-stat-label { display: block; font-size: 11px; color: var(--muted); margin-top: 6px; font-weight: 600; }
+.tr-season-card { background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+.tr-season-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(0,0,0,.06); }
+.tr-season-no { font-weight: 900; font-size: 15px; }
+.tr-team-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.tr-trophy-badge { font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 10px; background: rgba(59,130,246,.12); color: #2563eb; border: 1px solid rgba(59,130,246,.2); }
+.tr-trophy-badge.champ { background: linear-gradient(135deg, rgba(255,215,0,.18), rgba(184,134,11,.12)); color: #b8860b; border-color: rgba(255,215,0,.35); }
+.tr-player-list { display: flex; flex-direction: column; gap: 4px; }
+.tr-hon-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.tr-hon-label { font-weight: 700; font-size: 12.5px; color: var(--text); min-width: 100px; }
+.tr-hon-name { font-size: 12.5px; color: var(--muted); }
+.tr-empty { color: var(--muted); font-size: 12px; padding: 6px 0; }
+.tr-big-empty { text-align: center; color: var(--muted); padding: 40px 20px; font-size: 14px; }
+
 /* 奖项行（常规赛结束 / 赛季总结共用） */
 .aw-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
 .aw-row:last-child { border-bottom: none; }

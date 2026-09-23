@@ -387,6 +387,44 @@ function seasonAwards(save) {
 }
 function avgPts(real, id) { const r = real[id]; return r && r.g ? r.pts / r.g : 0; }
 
+/* ===== 赛季荣誉持久化 ===== */
+/* 将本赛季本队获得的荣誉保存到 save.honors（带去重，同赛季只保存一次） */
+function saveSeasonHonors(save, awards) {
+  if (!save.honors) save.honors = [];
+  if (save.honors.some(h => h.season === save.seasonNo)) return;
+  const my = myAbbr(save);
+  const list = [];
+  /* 球队荣誉：总冠军 + 季后赛成绩 */
+  if (save.playoffs) {
+    if (save.playoffs.champion === my)
+      list.push({ season: save.seasonNo, cat: "team", type: "champion", label: "总冠军" });
+    const ur = save.playoffs.userResult;
+    if (ur && ur !== "夺冠" && ur !== "未进季后赛")
+      list.push({ season: save.seasonNo, cat: "team", type: "playoff", label: ur });
+  }
+  /* 球员个人荣誉 */
+  const add = (type, label, c) => {
+    if (c && c.mine)
+      list.push({ season: save.seasonNo, cat: "player", type, label, playerId: c.p.id, name: c.p.nameCn });
+  };
+  add("MVP", "MVP", awards.mvp[0]);
+  add("DPOY", "最佳防守球员", awards.dpoy[0]);
+  add("ROY", "最佳新秀", awards.bestRookie);
+  add("6MOY", "最佳第六人", awards.sixth);
+  add("scoring", "得分王", awards.scoring);
+  add("assists", "助攻王", awards.assists);
+  add("rebounds", "篮板王", awards.rebounds);
+  add("FMVP", "总决赛MVP", awards.fmvp);
+  awards.allNBA1.forEach(c => add("AllNBA1", "最佳阵容一阵", c));
+  awards.allNBA2.forEach(c => add("AllNBA2", "最佳阵容二阵", c));
+  awards.allNBA3.forEach(c => add("AllNBA3", "最佳阵容三阵", c));
+  awards.allDef1.forEach(c => add("AllDef1", "最佳防守一阵", c));
+  awards.allDef2.forEach(c => add("AllDef2", "最佳防守二阵", c));
+  awards.allRookie1.forEach(c => add("AllRookie1", "最佳新秀一阵", c));
+  awards.allRookie2.forEach(c => add("AllRookie2", "最佳新秀二阵", c));
+  save.honors.push(...list);
+}
+
 /* ===== 季后赛 ===== */
 function buildPlayoffs(save) {
   const mk = list => {

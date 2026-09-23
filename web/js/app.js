@@ -287,6 +287,7 @@ function currentStep() {
     case "awards": return ["奖项追踪", 1, 1];
     case "retired": return ["退役球员", 1, 1];
     case "hof": return ["名人堂", 1, 1];
+    case "trophyroom": return ["荣誉室", 1, 1];
     case "freeagent": return ["自由市场", 1, 1];
     case "standings": return ["联盟排名", 1, 1];
     case "schedule": return ["赛程战报", 1, 1];
@@ -1780,6 +1781,7 @@ RENDERERS.hub = function () {
     '<button class="mc-btn" id="btn-awards">奖项追踪</button>' +
     '<button class="mc-btn" id="btn-retired">退役球员</button>' +
     '<button class="mc-btn" id="btn-hof">名人堂</button>' +
+    '<button class="mc-btn" id="btn-trophyroom">荣誉室</button>' +
     "</div>" +
     '<div class="hub-tabs">' +
     '  <button class="hub-tab' + (hubTab === "overview" ? " active" : "") + '" data-tab="overview">概览</button>' +
@@ -1852,6 +1854,8 @@ RENDERERS.hub = function () {
   if (br) br.onclick = () => go("retired");
   const bh = $("#btn-hof");
   if (bh) bh.onclick = () => go("hof");
+  const btroom = $("#btn-trophyroom");
+  if (btroom) btroom.onclick = () => go("trophyroom");
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
   /* 模拟剩余季后赛（用户已淘汰但季后赛未结束时手动触发） */
@@ -3633,7 +3637,11 @@ RENDERERS.seasonend = function () {
   const st = save.standings[my] || { w: 0, l: 0 };
   const myRank = confRanking(save, confOf(my)).find(r => r.abbr === my);
   const awards = seasonAwards(save);
+  saveSeasonHonors(save, awards);
+  writeSave(save);
   const iChamp = ps && ps.champion === my;
+  /* 本赛季本队荣誉（从 save.honors 提取本赛季记录） */
+  const seasonHonors = (save.honors || []).filter(h => h.season === save.seasonNo);
   /* 季后赛之旅：逐轮提取用户系列赛结果 */
   const ROUND_LABELS = ["首轮", "半决赛", "分区决赛", "总决赛"];
   const playoffJourney = (() => {
@@ -3684,6 +3692,12 @@ RENDERERS.seasonend = function () {
     '</div>' +
     (playoffJourney.length ? '<div class="se-card"><h3>📍 季后赛之旅</h3><div class="pj-list">' + journeyHtml + '</div></div>' : '') +
     fmvpHtml +
+    (seasonHonors.length ? '<div class="se-card honors-card"><h3>🏅 本队赛季荣誉</h3>' +
+      seasonHonors.map(h => {
+        if (h.cat === "team")
+          return '<div class="hon-item team"><span class="hon-badge team-h">球队</span><span class="hon-label">' + esc(h.label) + '</span></div>';
+        return '<div class="hon-item"><span class="hon-badge">' + esc(h.cat === "player" ? "球员" : "") + '</span><span class="hon-label">' + esc(h.label) + '</span><span class="hon-name">' + esc(h.name || "") + '</span></div>';
+      }).join("") + '</div>' : '') +
     '<div class="se-card champ-stats">' +
       '<div class="cs-item"><span class="cs-label">常规赛战绩</span><span class="cs-val">' + st.w + "-" + st.l + '</span></div>' +
       (myRank ? '<div class="cs-item"><span class="cs-label">分区排名</span><span class="cs-val">' + confLabel(confOf(my)) + '第' + myRank.seed + '</span></div>' : '') +
@@ -3719,6 +3733,43 @@ RENDERERS.seasonend = function () {
   $("#se-hub").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
   const seTrade = $("#btn-se-trade");
   if (seTrade) seTrade.onclick = () => go("trade");
+};
+
+/* ===== 荣誉室 ===== */
+RENDERERS.trophyroom = function () {
+  const save = state.save;
+  const my = myAbbr(save);
+  const honors = save.honors || [];
+  /* 统计 */
+  const champCount = honors.filter(h => h.type === "champion").length;
+  const playerAwardCount = honors.filter(h => h.cat === "player").length;
+  /* 按赛季分组（最新在前） */
+  const seasons = [...new Set(honors.map(h => h.season))].sort((a, b) => b - a);
+  const seasonHtml = seasons.length ? seasons.map(sn => {
+    const items = honors.filter(h => h.season === sn);
+    const teamH = items.filter(h => h.cat === "team");
+    const playerH = items.filter(h => h.cat === "player");
+    const teamBadges = teamH.map(h => '<span class="tr-trophy-badge' + (h.type === "champion" ? " champ" : "") + '">' + esc(h.label) + '</span>').join("");
+    const playerRows = playerH.map(h =>
+      '<div class="tr-hon-row"><span class="tr-hon-label">' + esc(h.label) + '</span><span class="tr-hon-name">' + esc(h.name || "") + '</span></div>'
+    ).join("");
+    return '<div class="tr-season-card">' +
+      '<div class="tr-season-head"><span class="tr-season-no">第 ' + sn + ' 赛季</span>' +
+      (teamBadges ? '<span class="tr-team-badges">' + teamBadges + '</span>' : '') + '</div>' +
+      (playerRows ? '<div class="tr-player-list">' + playerRows + '</div>' : '<div class="tr-empty">无球员荣誉</div>') +
+      '</div>';
+  }).join("") : '<div class="tr-big-empty">暂无荣誉记录，继续征战获取属于你的荣誉</div>';
+  $("#screen-trophyroom").innerHTML =
+    '<h2 class="screen-title">荣誉室</h2>' +
+    '<p class="screen-sub">' + esc(save.team.displayName || "") + ' · 历史荣誉</p>' +
+    '<div class="tr-stats">' +
+      '<div class="tr-stat-item"><span class="tr-stat-val champ">' + champCount + '</span><span class="tr-stat-label">总冠军</span></div>' +
+      '<div class="tr-stat-item"><span class="tr-stat-val">' + playerAwardCount + '</span><span class="tr-stat-label">球员荣誉</span></div>' +
+      '<div class="tr-stat-item"><span class="tr-stat-val">' + seasons.length + '</span><span class="tr-stat-label">参赛赛季</span></div>' +
+    '</div>' +
+    seasonHtml +
+    '<button class="btn btn-outline" id="tr-back">返回经理室</button>';
+  $("#tr-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
 };
 
 /* ===== 交易中心 ===== */
