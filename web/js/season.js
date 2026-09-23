@@ -27,9 +27,18 @@ function getExpYears(p, seasonNo) {
   if (p.age) return Math.max(0, p.age - 20);
   return 0;
 }
-/* 新秀判断：expYears === 0 或显式标记 isRookie（自定义新秀） */
+/* 新秀判断：仅进入联盟的第一个赛季（gameYear === draftYear）。
+   注意不能用永久的 p.isRookie 标记 —— 该标记只用于运行时球员清理（purgeRuntimePlayers），
+   若据此判新秀，自定义新秀（含传奇）会一辈子都是新秀，年年进新秀一阵 */
 function isRookiePlayer(p, seasonNo) {
-  return (p && p.isRookie) || getExpYears(p, seasonNo) === 0;
+  if (!p) return false;
+  const sn = seasonNo || 1;
+  if (p.draftYear && p.draftYear > 1980) {
+    const gameYear = BASE_GAME_YEAR + sn - 1;
+    return gameYear <= p.draftYear;
+  }
+  /* 旧档兼容：无 draftYear 的自定义球员才用 isRookie 兜底 */
+  return !!p.isRookie;
 }
 
 /* ===== 赛程生成：82 场，每对手主客各一次 + 24 场随机 ===== */
@@ -258,6 +267,28 @@ function leagueEst() {
   return LEAGUE_EST;
 }
 
+/* 球员当赛季快照：基础 OVR + 老化修正（ovrAdj），属性等比缩放。
+   不含士气（士气是单场波动，奖项评估看整季真实水平）。
+   成长/衰退中的球员（尤其潜力 99 的传奇新秀）奖项界面必须用此快照，
+   否则 OVR 和估算数据永远停留在新秀年 */
+function curSeasonPlayer(p0, save) {
+  const oa = (save.ovrAdj && save.ovrAdj[p0.id]) || 0;
+  if (!oa) return p0;
+  const baseOvr = p0.ovr || 70;
+  const k = (baseOvr + oa) / baseOvr;
+  const scale = obj => {
+    if (!obj) return obj;
+    const out = {};
+    Object.keys(obj).forEach(key => { out[key] = Math.max(20, Math.round(obj[key] * k)); });
+    return out;
+  };
+  return Object.assign({}, p0, { ovr: baseOvr + oa, attrs: scale(p0.attrs), mgr: scale(p0.mgr) });
+}
+/* 当赛季估算数据：有老化修正则按当前 OVR 重算，否则用缓存 */
+function curEstStats(p0, pCur, est) {
+  return pCur === p0 ? est.get(p0.id) : estStats(pCur);
+}
+
 /* ===== 赛季中实时奖项排行 ===== */
 function liveAwardRanks(save) {
   const real = save.playerStats || {};
@@ -269,8 +300,9 @@ function liveAwardRanks(save) {
   const mineSorted = loadMyPlayers(save).slice().sort((a, b) => b.p.ovr - a.p.ovr);
   const starterIds = new Set(mineSorted.slice(0, 5).map(x => x.p.id));
 
-  const candidates = PLAYERS_RATED.players.map(p => {
-    let st = est.get(p.id);
+  const candidates = PLAYERS_RATED.players.map(p0 => {
+    const p = curSeasonPlayer(p0, save);
+    let st = curEstStats(p0, p, est);
     const rs = real[p.id];
     const isMine = myIds.has(p.id);
     /* 用户球员有真实数据且打了足够场次，用真实数据 */
@@ -309,8 +341,9 @@ function seasonAwards(save) {
   const real = save.playerStats || {};
   const myIds = new Set(save.roster.map(r => r.id));
   const est = leagueEst();
-  const candidates = PLAYERS_RATED.players.map(p => {
-    let st = est.get(p.id);
+  const candidates = PLAYERS_RATED.players.map(p0 => {
+    const p = curSeasonPlayer(p0, save);
+    let st = curEstStats(p0, p, est);
     const rs = real[p.id];
     if (rs && rs.g >= 20 && myIds.has(p.id)) {
       st = { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g };
@@ -318,7 +351,7 @@ function seasonAwards(save) {
     let winPct = 0.45;
     const teamSt = save.standings[p.team];
     if (teamSt) { const gp = teamSt.w + teamSt.l; if (gp) winPct = teamSt.w / gp; }
-    return { p, st, mvp: st.ppg + st.rpg * 1.2 + st.apg * 1.5 + winPct * 10, dpoy: (st.spg * 2 + st.bpg * 2.2) + p.attrs.def * 0.25, mine: myIds.has(p.id) };
+    return { p, st, mvp: st.ppg + st.rpg * 1.2 + st.apg * 1.5 + winPct * 10, dpoy: (st.spg * 2 + st.bpg * 2.2) + (p.attrs ? p.attrs.def : p.ovr * 0.3) * 0.25, mine: myIds.has(p.id) };
   });
   const mvp = candidates.slice().sort((a, b) => b.mvp - a.mvp).slice(0, 5);
   const dpoy = candidates.slice().sort((a, b) => b.dpoy - a.dpoy).slice(0, 3);
@@ -329,7 +362,9 @@ function seasonAwards(save) {
   /* 第六人：全联盟各队替补中得分最高者（非首发5人之外） */
   /* 超级第六人 = 能力强但被放替补的球员，上场时间不少、得分高 */
   const allRosters = {};
-  TEAMS.forEach(t => { allRosters[t.abbr] = playersByTeam(t.abbr).map(p => p.id); });
+  TEAMS.forEach(t => {
+    allRosters[t.abbr] = (save.aiRosters && save.aiRosters[t.abbr]) || playersByTeam(t.abbr).map(p => p.id);
+  });
   const myAbbrLocal = myAbbr(save);
   if (!allRosters[myAbbrLocal]) allRosters[myAbbrLocal] = save.roster.map(r => r.id);
   const sixthCandidates = [];
@@ -339,10 +374,11 @@ function seasonAwards(save) {
     const sortedByPts = ids.slice().sort((a, b) => avgPts(real, b) - avgPts(real, a));
     const starterIds = sortedByPts.slice(0, 5);
     sortedByPts.slice(5).forEach(id => {
-      const p = PLAYERS_RATED.players.find(x => x.id === id);
-      if (!p) return;
+      const p0 = PLAYERS_RATED.players.find(x => x.id === id);
+      if (!p0) return;
+      const p = curSeasonPlayer(p0, save);
       const rs = real[id];
-      const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : est.get(id);
+      const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : curEstStats(p0, p, est);
       if (!st) return;
       sixthCandidates.push({ p, st, mine: myIds.has(id) });
     });
@@ -405,13 +441,13 @@ function seasonAwards(save) {
   let fmvp = null;
   if (save.playoffs && save.playoffs.done && save.playoffs.champion) {
     const champAbbr = save.playoffs.champion;
-    const champRoster = playersByTeam(champAbbr);
-    const champIds = champRoster.map(p => p.id);
+    const champIds = (save.aiRosters && save.aiRosters[champAbbr]) || playersByTeam(champAbbr).map(p => p.id);
     fmvp = champIds.map(id => {
-      const p = PLAYERS_RATED.players.find(x => x.id === id);
-      if (!p) return null;
+      const p0 = PLAYERS_RATED.players.find(x => x.id === id);
+      if (!p0) return null;
+      const p = curSeasonPlayer(p0, save);
       const rs = real[id];
-      const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : est.get(id);
+      const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : curEstStats(p0, p, est);
       if (!st) return null;
       const score = st.ppg * 1.0 + st.rpg * 0.7 + st.apg * 0.8 + (st.spg + st.bpg) * 1.5;
       const mine = myIds.has(id);
