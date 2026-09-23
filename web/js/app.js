@@ -4674,7 +4674,7 @@ RENDERERS.draft = function () {
       } else if (job) {
         intel = '<div class="dr-intel muted">🔭 考察未完成（差 ' + job.gamesLeft + ' 场）</div>';
       }
-      return '<div class="draft-row' + (isMyTurn ? " selectable" : " locked") + (rep ? " has-intel" : "") + '" data-id="' + r.id + '">' +
+      return '<div class="draft-row' + (isMyTurn ? " selectable" : " locked") + (rep ? " has-intel" : "") + (r.isLegend ? " legend-row" : "") + '" data-id="' + r.id + '">' +
       '  <span class="dr-rank">' + (i + 1) + "</span>" +
       '  <div class="dr-info">' +
       '    <div class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r)) + "</span>" +

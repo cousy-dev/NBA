@@ -189,10 +189,181 @@ function genDraftClass(save) {
     const seed = i / n;
     class_.push(genRookie(seed, save));
   }
+
+  /* 彩蛋：每年随机注入一名 NBA 75 大传奇巨星新秀版（潜力99，名字与巨星一致） */
+  if (save) {
+    const legend = pickLegend(save);
+    if (legend) {
+      const legendRookie = genLegendRookie(legend, save);
+      /* 替换掉班底中 OVR 最低的一个普通新秀，保持总人数不变 */
+      let minIdx = 0, minOvr = 99;
+      for (let i = 0; i < class_.length; i++) {
+        if (class_[i].ovr < minOvr && !class_[i].isLegend) { minOvr = class_[i].ovr; minIdx = i; }
+      }
+      class_[minIdx] = legendRookie;
+    }
+  }
+
   /* 打乱展示顺序：避免玩家总是选第一位就拿到最高潜力新秀；
      AI 选人时仍按潜力+需求排序，公平性不变 */
   shuffleArr(class_);
   return class_;
+}
+
+/* ===== NBA 75 大传奇巨星彩蛋 ===== */
+/* 每年选秀随机生成一名传奇巨星的新秀版：名字与巨星一致，OVR 为巨星新秀期估值，潜力恒定 99 */
+const NBA_LEGENDS_75 = [
+  { name: "迈克尔·乔丹", pos: "SG", ovr: 78, h: 198, w: 98 },
+  { name: "勒布朗·詹姆斯", pos: "SF", ovr: 80, h: 206, w: 113 },
+  { name: "卡里姆·阿卜杜勒-贾巴尔", pos: "C", ovr: 80, h: 218, w: 102 },
+  { name: "埃尔文·约翰逊", pos: "PG", ovr: 78, h: 206, w: 99 },
+  { name: "拉里·伯德", pos: "SF", ovr: 77, h: 206, w: 100 },
+  { name: "比尔·拉塞尔", pos: "C", ovr: 76, h: 208, w: 98 },
+  { name: "威尔特·张伯伦", pos: "C", ovr: 80, h: 216, w: 125 },
+  { name: "科比·布莱恩特", pos: "SG", ovr: 72, h: 198, w: 96 },
+  { name: "沙奎尔·奥尼尔", pos: "C", ovr: 79, h: 216, w: 147 },
+  { name: "蒂姆·邓肯", pos: "PF", ovr: 78, h: 211, w: 113 },
+  { name: "哈基姆·奥拉朱旺", pos: "C", ovr: 77, h: 213, w: 115 },
+  { name: "奥斯卡·罗伯特森", pos: "PG", ovr: 77, h: 196, w: 97 },
+  { name: "凯文·杜兰特", pos: "SF", ovr: 76, h: 208, w: 109 },
+  { name: "斯蒂芬·库里", pos: "PG", ovr: 72, h: 188, w: 84 },
+  { name: "尼古拉·约基奇", pos: "C", ovr: 65, h: 211, w: 129 },
+  { name: "扬尼斯·阿德托昆博", pos: "PF", ovr: 62, h: 211, w: 110 },
+  { name: "德克·诺维茨基", pos: "PF", ovr: 65, h: 213, w: 111 },
+  { name: "查尔斯·巴克利", pos: "PF", ovr: 72, h: 198, w: 114 },
+  { name: "卡尔·马龙", pos: "PF", ovr: 70, h: 206, w: 113 },
+  { name: "约翰·斯托克顿", pos: "PG", ovr: 65, h: 185, w: 79 },
+  { name: "大卫·罗宾逊", pos: "C", ovr: 75, h: 216, w: 106 },
+  { name: "帕特里克·尤因", pos: "C", ovr: 76, h: 213, w: 109 },
+  { name: "阿伦·艾弗森", pos: "PG", ovr: 75, h: 183, w: 75 },
+  { name: "德韦恩·韦德", pos: "SG", ovr: 72, h: 193, w: 100 },
+  { name: "伊塞亚·托马斯", pos: "PG", ovr: 73, h: 185, w: 82 },
+  { name: "杰里·韦斯特", pos: "SG", ovr: 75, h: 191, w: 84 },
+  { name: "埃尔金·贝勒", pos: "SF", ovr: 75, h: 196, w: 102 },
+  { name: "鲍勃·库西", pos: "PG", ovr: 70, h: 185, w: 77 },
+  { name: "鲍勃·佩蒂特", pos: "PF", ovr: 73, h: 206, w: 100 },
+  { name: "乔治·麦肯", pos: "C", ovr: 72, h: 208, w: 106 },
+  { name: "摩西·马龙", pos: "C", ovr: 70, h: 208, w: 102 },
+  { name: "朱利叶斯·欧文", pos: "SF", ovr: 74, h: 201, w: 100 },
+  { name: "里克·巴里", pos: "SF", ovr: 73, h: 201, w: 95 },
+  { name: "约翰·哈夫利切克", pos: "SF", ovr: 68, h: 196, w: 93 },
+  { name: "凯文·加内特", pos: "PF", ovr: 68, h: 211, w: 109 },
+  { name: "加里·佩顿", pos: "PG", ovr: 70, h: 193, w: 84 },
+  { name: "贾森·基德", pos: "PG", ovr: 72, h: 193, w: 95 },
+  { name: "史蒂夫·纳什", pos: "PG", ovr: 65, h: 188, w: 82 },
+  { name: "克里斯·保罗", pos: "PG", ovr: 73, h: 183, w: 79 },
+  { name: "雷·阿伦", pos: "SG", ovr: 70, h: 196, w: 93 },
+  { name: "保罗·皮尔斯", pos: "SF", ovr: 70, h: 201, w: 107 },
+  { name: "克莱德·德雷克斯勒", pos: "SG", ovr: 70, h: 201, w: 100 },
+  { name: "多米尼克·威尔金斯", pos: "SF", ovr: 72, h: 198, w: 102 },
+  { name: "斯科蒂·皮蓬", pos: "SF", ovr: 65, h: 203, w: 102 },
+  { name: "丹尼斯·罗德曼", pos: "PF", ovr: 60, h: 201, w: 100 },
+  { name: "比尔·沃顿", pos: "C", ovr: 74, h: 211, w: 95 },
+  { name: "特雷西·麦克格雷迪", pos: "SG", ovr: 65, h: 203, w: 100 },
+  { name: "文斯·卡特", pos: "SG", ovr: 70, h: 198, w: 100 },
+  { name: "德怀特·霍华德", pos: "C", ovr: 73, h: 211, w: 120 },
+  { name: "卡梅隆·安东尼", pos: "SF", ovr: 73, h: 203, w: 104 },
+  { name: "沃尔特·弗雷泽", pos: "PG", ovr: 72, h: 193, w: 91 },
+  { name: "鲍勃·麦卡杜", pos: "C", ovr: 71, h: 208, w: 98 },
+  { name: "韦斯·昂塞尔德", pos: "C", ovr: 70, h: 201, w: 111 },
+  { name: "内特·瑟蒙德", pos: "C", ovr: 72, h: 211, w: 102 },
+  { name: "厄尔·门罗", pos: "SG", ovr: 68, h: 191, w: 82 },
+  { name: "戴夫·德布斯切尔", pos: "PF", ovr: 68, h: 198, w: 104 },
+  { name: "比利·坎宁安", pos: "PF", ovr: 70, h: 198, w: 97 },
+  { name: "阿德里安·丹特利", pos: "SF", ovr: 70, h: 196, w: 95 },
+  { name: "罗伯特·帕里什", pos: "C", ovr: 68, h: 215, w: 104 },
+  { name: "詹姆斯·沃西", pos: "SF", ovr: 72, h: 206, w: 102 },
+  { name: "阿蒂斯·吉尔摩尔", pos: "C", ovr: 70, h: 218, w: 113 },
+  { name: "大卫·汤普森", pos: "SG", ovr: 72, h: 193, w: 88 },
+  { name: "乔治·格温", pos: "SG", ovr: 70, h: 201, w: 86 },
+  { name: "萨姆·琼斯", pos: "SG", ovr: 65, h: 193, w: 86 },
+  { name: "哈尔·格里尔", pos: "SG", ovr: 68, h: 188, w: 86 },
+  { name: "伦尼·威尔肯斯", pos: "PG", ovr: 65, h: 185, w: 84 },
+  { name: "戴夫·考恩斯", pos: "C", ovr: 68, h: 208, w: 102 },
+  { name: "内特·阿奇博尔德", pos: "PG", ovr: 65, h: 185, w: 68 },
+  { name: "威利斯·里德", pos: "C", ovr: 70, h: 208, w: 106 },
+  { name: "帕特·莱利", pos: "SF", ovr: 62, h: 193, w: 93 },
+  { name: "克里斯·波什", pos: "PF", ovr: 70, h: 208, w: 104 },
+  { name: "保罗·阿里津", pos: "SF", ovr: 68, h: 191, w: 90 }
+];
+
+/* 随机挑选一名传奇巨星：每次顺序不同 */
+function pickLegend(save) {
+  if (!save) return null;
+  /* 记录已使用过的传奇，避免短期内重复；用完则重置 */
+  if (!save.legendsUsed) save.legendsUsed = [];
+  /* 优先选未用过的传奇；全部用过后重置列表 */
+  let available = NBA_LEGENDS_75.filter(l => !save.legendsUsed.includes(l.name));
+  if (!available.length) {
+    save.legendsUsed = [];
+    available = NBA_LEGENDS_75.slice();
+  }
+  /* 随机选取一名 */
+  const pick = available[Math.floor(Math.random() * available.length)];
+  save.legendsUsed.push(pick.name);
+  return pick;
+}
+
+/* 根据传奇数据生成新秀版球员 */
+function genLegendRookie(legend, save) {
+  const id = (++ROOKIE_ID_COUNTER) * 1000 + Math.floor(Math.random() * 1000);
+  if (save) save.rookieIdCounter = ROOKIE_ID_COUNTER;
+  const ovr = legend.ovr;
+  const pos = legend.pos;
+  const tpl = POS_TEMPLATES[pos] || POS_TEMPLATES.F;
+  const base = ovr * 0.88; /* 传奇底子略高于普通新秀 */
+  const jitter = (salt, range) => Math.round((hash01(id, salt) - 0.5) * 2 * range);
+  const clamp = v => Math.max(25, Math.min(95, Math.round(v)));
+  const attrs = {
+    ins: clamp(base + tpl.ins + jitter(1, 3)),
+    out: clamp(base + tpl.out + jitter(2, 3)),
+    org: clamp(base + tpl.org + jitter(3, 3)),
+    def: clamp(base + tpl.def + jitter(4, 3)),
+    reb: clamp(base + tpl.reb + jitter(5, 3)),
+    ath: clamp(base + tpl.ath + jitter(6, 4))
+  };
+  const mgr = {
+    off: clamp((attrs.ins + attrs.out + attrs.org) / 3),
+    def: clamp((attrs.def + attrs.reb) / 2),
+    sta: clamp(70 + jitter(7, 3)),
+    twk: clamp(62 + jitter(8, 5))
+  };
+  /* 大学/早年数据 */
+  const posR = { PG: 3.0, SG: 3.6, SF: 5.2, PF: 7.0, C: 9.6 };
+  const posA = { PG: 6.0, SG: 3.8, SF: 2.8, PF: 2.0, C: 1.4 };
+  const posS = { PG: 1.3, SG: 1.2, SF: 1.0, PF: 0.8, C: 0.5 };
+  const posB = { PG: 0.5, SG: 0.6, SF: 0.8, PF: 1.2, C: 1.8 };
+  const ovrFactor = Math.max(0.3, (ovr - 50) / 35);
+  const collegeJitter = (salt, range) => Math.round((hash01(id, salt) - 0.5) * 2 * range * 10) / 10;
+  let collegePpg;
+  if (ovr >= 75) collegePpg = 20 + (ovr - 75) * 1.5 + collegeJitter(11, 3);
+  else if (ovr >= 68) collegePpg = 14 + (ovr - 68) * 0.9 + collegeJitter(11, 3);
+  else collegePpg = 8 + Math.max(0, ovr - 60) * 0.7 + collegeJitter(11, 2);
+  const collegeStats = {
+    college: "传奇名校",
+    ppg: Math.max(1.5, Math.round(collegePpg * 10) / 10),
+    rpg: Math.max(1.0, Math.round(((posR[pos] || 5) * (0.6 + ovrFactor * 0.7) + collegeJitter(12, 1.5)) * 10) / 10),
+    apg: Math.max(0.3, Math.round(((posA[pos] || 3) * (0.6 + ovrFactor * 0.7) + collegeJitter(13, 1.2)) * 10) / 10),
+    spg: Math.max(0.1, Math.round(((posS[pos] || 0.8) * (0.5 + ovrFactor * 0.8) + collegeJitter(14, 0.4)) * 10) / 10),
+    bpg: Math.max(0.1, Math.round(((posB[pos] || 0.8) * (0.5 + ovrFactor * 0.8) + collegeJitter(15, 0.5)) * 10) / 10),
+    fgPct: Math.round((0.44 + ovrFactor * 0.08 + (hash01(id, 16) - 0.5) * 0.06) * 1000) / 10,
+    tpm: Math.round(Math.max(0.2, (pos === "PG" || pos === "SG" ? 1.8 : pos === "SF" ? 1.2 : 0.6) * ovrFactor + collegeJitter(17, 0.8)) * 10) / 10,
+    tpPct: Math.round((0.28 + ovrFactor * 0.12 + (hash01(id, 18) - 0.5) * 0.08) * 1000) / 10
+  };
+  return {
+    id, nameCn: legend.name, nameEn: legend.name, team: "ROOKIE", pos, pos2: null, num: 0,
+    age: 19,
+    heightCm: legend.h, weightKg: legend.w,
+    expYears: 0, draftYear: 2026 + (save ? save.seasonNo - 1 : 0),
+    avatar: null,
+    ovr, ratingSource: "draft",
+    attrs, mgr,
+    stats: null,
+    potential: 99, /* 传奇潜力恒定 99 */
+    collegeStats,
+    isRookie: true,
+    isLegend: true
+  };
 }
 
 /* ===== 扩张选秀（新球队作为第 31 队加入联盟时，从 30 支原球队挑选无人保护的球员） ===== */
