@@ -991,19 +991,21 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .dpm-team { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 4px; }
 .dpm-team img { width: 52px; height: 52px; object-fit: contain; }
 .dpm-team .logo-fb { width: 52px; height: 52px; border-radius: 12px; font-size: 16px; display: flex; }
-.dpm-team-name { font-size: 23px; font-weight: 900; letter-spacing: 1px; }
-.dpm-action { color: var(--muted); font-size: 12px; margin: 14px 0 10px; letter-spacing: 8px; text-indent: 8px; }
-.dpm-player-name { font-size: 27px; font-weight: 900; line-height: 1.2; }
+/* 弹窗内强制亮色文字，覆盖浅色主题的 --text/--muted 变量 */
+.dpm-box { color: #fff; }
+.dpm-team-name { font-size: 23px; font-weight: 900; letter-spacing: 1px; color: #fff; }
+.dpm-action { color: rgba(255,255,255,.55); font-size: 12px; margin: 14px 0 10px; letter-spacing: 8px; text-indent: 8px; }
+.dpm-player-name { font-size: 27px; font-weight: 900; line-height: 1.2; color: #fff; }
 .dpm-player.legend .dpm-player-name { color: #f2d875; text-shadow: 0 0 18px rgba(242,216,117,.4); }
-.dpm-star { color: var(--gold); font-size: 20px; }
-.dpm-player-meta { color: var(--muted); font-size: 13px; margin-top: 5px; }
+.dpm-star { color: #f2d875; font-size: 20px; }
+.dpm-player-meta { color: rgba(255,255,255,.65); font-size: 13px; margin-top: 5px; }
 .dpm-stats { display: flex; gap: 12px; justify-content: center; margin: 18px 0 20px; }
 .dpm-stat {
-  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18);
   border-radius: 12px; padding: 9px 26px; min-width: 86px;
 }
-.dpm-stat b { display: block; font-size: 25px; font-weight: 900; line-height: 1.1; }
-.dpm-stat i { font-style: normal; font-size: 11px; color: var(--muted); letter-spacing: 2px; }
+.dpm-stat b { display: block; font-size: 25px; font-weight: 900; line-height: 1.1; color: #fff; }
+.dpm-stat i { font-style: normal; font-size: 11px; color: rgba(255,255,255,.55); letter-spacing: 2px; }
 .dpm-stat.pot b { color: #f2d875; }
 .dpm-continue { width: 100%; padding: 11px; font-size: 15px; font-weight: 800; letter-spacing: 2px; }
 
