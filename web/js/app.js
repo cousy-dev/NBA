@@ -1454,6 +1454,12 @@ function migrateSave(save) {
   /* 恢复自定义球员（新秀等）到运行时全局库 */
   if (save.customPlayers) {
     save.customPlayers.forEach(p => {
+      /* 迁移：旧存档的自定义新秀没有 draftSeason 字段，导致 isRookiePlayer
+         无法正确判断新秀身份。补设 draftSeason = 当前赛季号（假设为本届新秀，
+         误差最多让老新秀多当一季新秀，下赛季自动退出）。*/
+      if (!p.draftSeason && p.isRookie) {
+        p.draftSeason = save.seasonNo || 1;
+      }
       if (!PLAYERS_RATED.players.find(x => x.id === p.id)) {
         PLAYERS_RATED.players.push(p);
         if (typeof LEAGUE_EST !== "undefined" && LEAGUE_EST) LEAGUE_EST.set(p.id, estStats(p));

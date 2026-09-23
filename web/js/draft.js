@@ -538,6 +538,12 @@ function signRookie(save, rookie) {
 /* results 累积 { pick, abbr, rookie }；幂等：同一新秀已处理则跳过 */
 function processPick(save, rookie, teamAbbr, pickNumber, results) {
   if (results.some(r => r.rookie.id === rookie.id)) return;
+  /* 记录选秀赛季号和修正 draftYear：球探系统可能在赛季中
+     （seasonNo 尚未递增）就调 genDraftClass 生成新秀池，导致 draftYear
+     差一年 → isRookiePlayer 判定失败 → 最佳新秀/新秀一阵丢失。
+     draftSeason 是权威字段，isRookiePlayer 优先使用它 */
+  rookie.draftSeason = save.seasonNo;
+  rookie.draftYear = 2026 + save.seasonNo - 1;
   rookie.team = teamAbbr;
   rookie.pick = pickNumber;  /* 记录真实顺位，供新秀工资标尺定薪 */
   save.customPlayers = save.customPlayers || [];

@@ -27,17 +27,22 @@ function getExpYears(p, seasonNo) {
   if (p.age) return Math.max(0, p.age - 20);
   return 0;
 }
-/* 新秀判断：仅进入联盟的第一个赛季（gameYear === draftYear）。
-   注意不能用永久的 p.isRookie 标记 —— 该标记只用于运行时球员清理（purgeRuntimePlayers），
-   若据此判新秀，自定义新秀（含传奇）会一辈子都是新秀，年年进新秀一阵 */
+/* 新秀判断：仅进入联盟的第一个赛季。
+   优先用 draftSeason（processPick 设定的权威赛季号），
+   其次用 draftYear（数据文件中真实 NBA 球员的选秀年），
+   最后用 isRookie 兜底（仅限无 draftYear 的旧自定义球员）。
+   不能只靠 isRookie —— 该标记永久为 true，会导致传奇新秀年年入选新秀阵 */
 function isRookiePlayer(p, seasonNo) {
   if (!p) return false;
   const sn = seasonNo || 1;
+  /* 自定义新秀：draftSeason 精确到赛季号，不受 genDraftClass 调用时机影响 */
+  if (p.draftSeason) return p.draftSeason === sn;
+  /* 数据文件球员：按选秀年判断 */
   if (p.draftYear && p.draftYear > 1980) {
     const gameYear = BASE_GAME_YEAR + sn - 1;
     return gameYear <= p.draftYear;
   }
-  /* 旧档兼容：无 draftYear 的自定义球员才用 isRookie 兜底 */
+  /* 旧档兼容 */
   return !!p.isRookie;
 }
 
