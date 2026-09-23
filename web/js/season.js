@@ -129,22 +129,54 @@ function initStandings(save) {
   return st;
 }
 
-/* ===== 球队战力（含用户老化修正） ===== */
+/* ===== 球队战力（含老化 + 士气 + 阵容变动） ===== */
+/* AI 队阵容查找缓存：避免每次 strengthOf 都重建 Map */
+let _AI_STR_CACHE = null;
+let _AI_STR_CACHE_KEY = null;
+function aiStrengthOf(save, abbr) {
+  /* 获取实际阵容（优先 save.aiRosters，回退到数据文件并排除退役球员） */
+  let ids = [];
+  if (save.aiRosters && save.aiRosters[abbr]) {
+    ids = save.aiRosters[abbr];
+  } else {
+    ids = playersByTeam(abbr)
+      .filter(p => !save.retired || !save.retired[p.id])
+      .map(p => p.id);
+  }
+  if (!ids.length) return 70;
+  /* 构建查找表（按需缓存） */
+  const cacheKey = (save.customPlayers ? save.customPlayers.length : 0) + "_" + PLAYERS_RATED.players.length;
+  if (_AI_STR_CACHE_KEY !== cacheKey) {
+    _AI_STR_CACHE = new Map();
+    (save.customPlayers || []).forEach(p => _AI_STR_CACHE.set(p.id, p));
+    PLAYERS_RATED.players.forEach(p => { if (!_AI_STR_CACHE.has(p.id)) _AI_STR_CACHE.set(p.id, p); });
+    _AI_STR_CACHE_KEY = cacheKey;
+  }
+  /* 计算每个球员当前 OVR（含老化 + 士气），取 top8 */
+  const ovrs = [];
+  for (const id of ids) {
+    const p0 = _AI_STR_CACHE.get(id);
+    if (!p0) continue;
+    const ovrAdj = (save.ovrAdj && save.ovrAdj[id]) || 0;
+    const mDelta = moraleOvrDelta(moraleOf(save, id));
+    ovrs.push((p0.ovr || 70) + ovrAdj + mDelta);
+  }
+  if (!ovrs.length) return 70;
+  ovrs.sort((a, b) => b - a);
+  const top8 = ovrs.slice(0, 8);
+  return top8.reduce((s, v) => s + v, 0) / top8.length;
+}
 function strengthOf(save, abbr) {
   if (abbr === myAbbr(save)) {
     const mine = loadMyPlayers(save);
     const top8 = mine.slice().sort((a, b) => b.p.ovr - a.p.ovr).slice(0, 8);
     return top8.reduce((s, x) => s + x.p.ovr, 0) / Math.max(1, top8.length);
   }
-  const raw = teamStrength(abbr);
-  const ids = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
-  const top8 = ids.slice(0, 8);
-  const mAvg = top8.length ? top8.reduce((s, id) => s + moraleOf(save, id), 0) / top8.length : DEFAULT_MORALE;
-  return raw + moraleOvrDelta(mAvg);
+  return aiStrengthOf(save, abbr);
 }
-/* Elo 式胜率：主场 +2 */
+/* Elo 式胜率：主场 +3，除数 5（差距更敏感） */
 function winProb(strA, strB, homeA) {
-  return 1 / (1 + Math.pow(10, (strB + (homeA ? 2 : -2) - strA) / 7));
+  return 1 / (1 + Math.pow(10, (strB - strA - (homeA ? 3 : -3)) / 5));
 }
 
 /* ===== 联盟一轮：其余 29 队随机配对打 14 场，1 队轮空 ===== */
@@ -470,12 +502,12 @@ function findUserSeries(save) {
 }
 /* AI 系列赛逐场模拟（一次只模拟一场，与用户节奏同步） */
 const SERIES_HOME_PATTERN = [1, 1, 0, 0, 1, 0, 1]; /* 2-2-1-1-1，a 为高位种子 */
-function simOneSeriesGame(ser) {
+function simOneSeriesGame(ser, save) {
   if (ser.done) return;
   if (!ser.games) ser.games = [];
   const g = ser.wa + ser.wb; /* 当前已赛场次 */
   if (g >= 7) return;
-  const sA = teamStrength(ser.a), sB = teamStrength(ser.b);
+  const sA = strengthOf(save, ser.a), sB = strengthOf(save, ser.b);
   const home = SERIES_HOME_PATTERN[g] === 1;
   const aWins = Math.random() < winProb(sA, sB, home);
   if (aWins) ser.wa++; else ser.wb++;
@@ -483,9 +515,9 @@ function simOneSeriesGame(ser) {
   if (ser.wa >= 4 || ser.wb >= 4) { ser.done = true; ser.winner = ser.wa >= 4 ? ser.a : ser.b; }
 }
 /* AI 系列赛整场快进（仅用于 finishAllAI 用户缺席时） */
-function resolveSeriesAI(ser) {
+function resolveSeriesAI(ser, save) {
   if (!ser.games) ser.games = [];
-  while (!ser.done && ser.wa + ser.wb < 7) simOneSeriesGame(ser);
+  while (!ser.done && ser.wa + ser.wb < 7) simOneSeriesGame(ser, save);
 }
 function winnerSeed(ser) { return ser.winner === ser.a ? ser.seedA : ser.seedB; }
 function mkSer(s1, s2) {
@@ -503,7 +535,7 @@ function simGameScore(sA, sB, aWins) {
 function advancePlayoffs(save) {
   const ps = save.playoffs;
   const cur = ps.rounds[ps.round];
-  cur.E.concat(cur.W).forEach(s => { if (!s.done) resolveSeriesAI(s); });
+  cur.E.concat(cur.W).forEach(s => { if (!s.done) resolveSeriesAI(s, save); });
   if (ps.round === 3) {
     ps.champion = cur.E[0].winner;
     ps.done = true;
@@ -551,11 +583,11 @@ function playoffProgress(save) {
   const cur = ps.rounds[ps.round];
   if (!cur) return;
   /* 逐场模拟同轮剩余 AI 系列赛（与用户节奏同步，每场只推进1场） */
-  cur.E.concat(cur.W).forEach(s => { if (!s.done && s !== ps.userSeries) simOneSeriesGame(s); });
+  cur.E.concat(cur.W).forEach(s => { if (!s.done && s !== ps.userSeries) simOneSeriesGame(s, save); });
   /* 如果用户系列赛已结束但其他 AI 系列赛未完，逐场快进剩余 AI */
   if (ser && ser.done) {
     while (!cur.E.concat(cur.W).every(s => s.done)) {
-      cur.E.concat(cur.W).forEach(s => { if (!s.done && s !== ser) simOneSeriesGame(s); });
+      cur.E.concat(cur.W).forEach(s => { if (!s.done && s !== ser) simOneSeriesGame(s, save); });
     }
   }
   if (cur.E.concat(cur.W).every(s => s.done)) advancePlayoffs(save);
