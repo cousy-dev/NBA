@@ -186,7 +186,12 @@ function simLeagueRound(save) {
   const playedPairs = [];
   for (let i = 0; i + 1 < others.length; i += 2) {
     const A = others[i], B = others[i + 1];
-    const p = winProb(strengthOf(save, A), strengthOf(save, B), true);
+    /* 每场发挥波动：基础正态(±3) + 12%概率球员爆发/低迷(±6) */
+    const formA = (Math.random() + Math.random() + Math.random() - 1.5) * 2.5
+      + (Math.random() < 0.12 ? (Math.random() < 0.5 ? 6 : -6) : 0);
+    const formB = (Math.random() + Math.random() + Math.random() - 1.5) * 2.5
+      + (Math.random() < 0.12 ? (Math.random() < 0.5 ? 6 : -6) : 0);
+    const p = winProb(strengthOf(save, A) + formA, strengthOf(save, B) + formB, true);
     const aWon = Math.random() < p;
     if (aWon) { save.standings[A].w++; save.standings[B].l++; }
     else { save.standings[B].w++; save.standings[A].l++; }
@@ -508,10 +513,15 @@ function simOneSeriesGame(ser, save) {
   const g = ser.wa + ser.wb; /* 当前已赛场次 */
   if (g >= 7) return;
   const sA = strengthOf(save, ser.a), sB = strengthOf(save, ser.b);
+  /* 每场发挥波动：基础正态(±3) + 12%概率球员爆发/低迷(±6) */
+  const formA = (Math.random() + Math.random() + Math.random() - 1.5) * 2.5
+    + (Math.random() < 0.12 ? (Math.random() < 0.5 ? 6 : -6) : 0);
+  const formB = (Math.random() + Math.random() + Math.random() - 1.5) * 2.5
+    + (Math.random() < 0.12 ? (Math.random() < 0.5 ? 6 : -6) : 0);
   const home = SERIES_HOME_PATTERN[g] === 1;
-  const aWins = Math.random() < winProb(sA, sB, home);
+  const aWins = Math.random() < winProb(sA + formA, sB + formB, home);
   if (aWins) ser.wa++; else ser.wb++;
-  ser.games.push({ home: home, score: simGameScore(sA, sB, aWins), aWin: aWins });
+  ser.games.push({ home: home, score: simGameScore(sA + formA, sB + formB, aWins), aWin: aWins });
   if (ser.wa >= 4 || ser.wb >= 4) { ser.done = true; ser.winner = ser.wa >= 4 ? ser.a : ser.b; }
 }
 /* AI 系列赛整场快进（仅用于 finishAllAI 用户缺席时） */

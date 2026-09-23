@@ -109,7 +109,7 @@ class GameSim {
       court: rot.starters.slice(),
       rotation: rot.rotation.map(p => p.id),
       targetMin: rot.targetMin,
-      box: new Map(), energy: new Map(),
+      box: new Map(), energy: new Map(), form: new Map(),
       playedSec: new Map(),
       timeouts: 4, lastResult: ""
     };
@@ -117,6 +117,11 @@ class GameSim {
       side.box.set(p.id, newBox());
       side.energy.set(p.id, 100);
       side.playedSec.set(p.id, 0);
+      /* 每场发挥波动：基础正态分布(±9%)，8%概率爆发(+15~30%)，8%概率低迷(-15~25%) */
+      let form = (Math.random() + Math.random() + Math.random() - 1.5) * 0.06;
+      if (Math.random() < 0.08) form += 0.15 + Math.random() * 0.15;
+      if (Math.random() < 0.08) form -= 0.15 + Math.random() * 0.10;
+      side.form.set(p.id, Math.max(0.65, Math.min(1.35, 1 + form)));
     });
     return side;
   }
@@ -127,7 +132,8 @@ class GameSim {
   _attr(side, id, key) {
     const base = this._p(side, id).attrs[key];
     const e = side.energy.get(id);
-    return base * (e > 60 ? 1 : 0.72 + e * 0.0045);
+    const f = side.form ? side.form.get(id) || 1 : 1;
+    return base * f * (e > 60 ? 1 : 0.72 + e * 0.0045);
   }
   _avgCourt(side, key) {
     return side.court.reduce((s, id) => s + this._attr(side, id, key), 0) / 5;
