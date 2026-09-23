@@ -4728,7 +4728,7 @@ RENDERERS.draft = function () {
   $$("#screen-draft .ts-tab[data-dpf]").forEach(tab => {
     tab.onclick = () => { d.posFilter = tab.dataset.dpf; RENDERERS.draft(); };
   });
-  /* AI 回合：单次自动选人 */
+  /* AI 回合：单次自动选人（弹窗播报 XX 球队选择了 XX 球员） */
   const bAi = $("#btn-ai-pick");
   if (bAi) bAi.onclick = () => {
     const rookie = aiPickRookie(d.class_, save, cur.team, d.pickedIds);
@@ -4737,7 +4737,7 @@ RENDERERS.draft = function () {
     processPick(save, rookie, cur.team, cur.pick, d.results);
     d.draftLog.push({ pick: cur.pick, abbr: cur.team, rookieName: rookie.nameCn, isUser: false });
     d.currentIdx++;
-    RENDERERS.draft();
+    announceDraftPick(cur, rookie, () => RENDERERS.draft());
   };
   /* AI 回合：自动模拟到用户的下一签位 */
   const bSkipMe = $("#btn-ai-skip-me");
@@ -4761,6 +4761,44 @@ RENDERERS.draft = function () {
     finishDraft(save, d);
   };
 };
+
+/* AI 选人结果弹窗：XX 球队选择了 XX 球员 */
+function announceDraftPick(pickOrder, rookie, onClose) {
+  const old = document.getElementById("draft-pick-modal");
+  if (old) old.remove();
+  const isLegend = !!rookie.isLegend;
+  const m = document.createElement("div");
+  m.id = "draft-pick-modal";
+  m.className = "modal-overlay dpm-overlay";
+  m.innerHTML =
+    '<div class="dpm-box">' +
+      '<div class="dpm-pick-badge">第 ' + pickOrder.pick + " 顺位 · " + (pickOrder.round === 1 ? "首轮" : "次轮") + '</div>' +
+      '<div class="dpm-team">' +
+        teamLogoHtml(pickOrder.team) +
+        '<span class="dpm-team-name">' + esc(teamName(pickOrder.team)) + '</span>' +
+      '</div>' +
+      '<div class="dpm-action">选 择 了</div>' +
+      '<div class="dpm-player' + (isLegend ? " legend" : "") + '">' +
+        '<div class="dpm-player-name">' + esc(rookie.nameCn) + (isLegend ? ' <span class="dpm-star">★</span>' : '') + '</div>' +
+        '<div class="dpm-player-meta">' + esc(posLabel(rookie)) + " · " + rookie.age + "岁 · " + (rookie.heightCm || 198) + "cm</div>" +
+      '</div>' +
+      '<div class="dpm-stats">' +
+        '<div class="dpm-stat"><b>' + rookie.ovr + '</b><i>能力值</i></div>' +
+        '<div class="dpm-stat pot"><b>' + rookie.potential + '</b><i>潜力</i></div>' +
+      '</div>' +
+      '<button class="btn btn-primary dpm-continue">继续 ▶</button>' +
+    '</div>';
+  document.body.appendChild(m);
+  const close = () => {
+    m.remove();
+    document.removeEventListener("keydown", keyHandler);
+    if (onClose) onClose();
+  };
+  const keyHandler = (e) => { if (e.key === "Enter" || e.key === "Escape" || e.key === " ") { e.preventDefault(); close(); } };
+  m.querySelector(".dpm-continue").onclick = close;
+  m.onclick = (e) => { if (e.target === m) close(); };
+  document.addEventListener("keydown", keyHandler);
+}
 
 /* 选秀结算：写入存档并跳转结果页 */
 function finishDraft(save, d) {
