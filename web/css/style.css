@@ -889,6 +889,7 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 
 /* revealing 阶段：抽签区域 */
 .lottery-draw-area { text-align: center; padding: 24px 16px; background: linear-gradient(135deg, rgba(26,159,83,.06), rgba(255,200,0,.08)); border: 2px solid rgba(255,200,0,.3); border-radius: 16px; margin-bottom: 14px; }
+.lottery-draw-area.lotto-draw { background: linear-gradient(135deg, rgba(214,66,75,.08), rgba(255,200,0,.12)); border-color: rgba(255,200,0,.55); box-shadow: 0 0 20px rgba(255,200,0,.15); }
 .lottery-draw-pick { font-size: 14px; font-weight: 800; color: var(--gold); margin-bottom: 12px; letter-spacing: 1px; }
 .lottery-draw-team { padding: 10px; }
 .lottery-draw-team.me { background: rgba(214,66,75,.08); border-radius: 10px; }

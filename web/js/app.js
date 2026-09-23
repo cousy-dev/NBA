@@ -4413,19 +4413,21 @@ RENDERERS.scout = function () {
 };
 
 /* ===== 乐透抽签动画展示 ===== */
-/* 展示 14 支乐透球队的抽签过程：逐个揭示前 4 顺位，再显示完整顺序 */
+/* 展示 14 支乐透球队的抽签过程：从 14 顺位倒着揭示到 1 顺位 */
 function renderLotteryReveal(save, d, my) {
   const lr = save.lotteryResult;
   if (!lr || !lr.teams) { d.lotteryRevealed = true; RENDERERS.draft(); return; }
 
-  /* 抽签阶段：intro（展示球队列表）→ revealing（逐个揭示前4）→ complete（显示完整顺序） */
   if (!d.lotteryPhase) d.lotteryPhase = "intro";
-  if (!d.revealedTop4) d.revealedTop4 = [];
+  if (d.revealedCount == null) d.revealedCount = 0;
+
+  /* 构建完整 1-14 顺位：前 4 是 top4，后 10 是 restOrder */
+  const fullOrder = lr.top4.map((t, i) => ({ team: t.team, odds: t.odds, pick: i + 1, isLotto: true }))
+    .concat(lr.restOrder.map((t, i) => ({ team: t.team, odds: 0, pick: i + 5, isLotto: false })));
 
   const screen = $("#screen-draft");
 
   if (d.lotteryPhase === "intro") {
-    /* 展示 14 支乐透球队列表 + 开始按钮 */
     screen.innerHTML =
       '<div class="lottery-reveal">' +
       '<h2 class="screen-title">🎲 乐透抽签</h2>' +
@@ -4433,9 +4435,8 @@ function renderLotteryReveal(save, d, my) {
       '<div class="lottery-team-list">' +
       lr.teams.map((t, i) => {
         const isMe = t.team === my;
-        const preSeed = i + 1; /* 按战绩排名的种子序号 */
         return '<div class="lottery-team-row' + (isMe ? " me" : "") + '">' +
-          '<span class="lt-seed">#' + preSeed + '</span>' +
+          '<span class="lt-seed">#' + (i + 1) + '</span>' +
           '<span class="lt-name">' + esc(teamName(t.team)) + (isMe ? ' (你的球队)' : "") + '</span>' +
           '<span class="lt-record">' + (t.w || 0) + '-' + (t.l || 0) + '</span>' +
           '<span class="lt-odds">' + (t.odds || 0).toFixed(1) + '%</span>' +
@@ -4445,75 +4446,85 @@ function renderLotteryReveal(save, d, my) {
       '<div class="lottery-actions">' +
         '<button class="btn btn-primary" id="btn-start-lottery">🎲 开始抽签</button>' +
       '</div>' +
-      '<div class="lottery-hint">抽签将逐个揭示前 4 顺位，剩余球队按战绩倒序排列</div>' +
+      '<div class="lottery-hint">从第 14 顺位开始依次揭示，最后公布状元</div>' +
       '</div>';
 
     const btn = $("#btn-start-lottery");
     if (btn) btn.onclick = () => {
       d.lotteryPhase = "revealing";
-      d.revealedTop4 = [];
+      d.revealedCount = 0;
       renderLotteryReveal(save, d, my);
     };
     return;
   }
 
   if (d.lotteryPhase === "revealing") {
-    /* 逐个揭示前 4 顺位 */
-    const idx = d.revealedTop4.length;
-    if (idx >= lr.top4.length) {
-      /* 全部揭示完成，等用户点确认 */
+    /* 从 14 顺位倒着揭示到 1 顺位 */
+    if (d.revealedCount >= 14) {
       d.lotteryPhase = "complete";
       renderLotteryReveal(save, d, my);
       return;
     }
 
-    /* 揭示第 idx+1 顺位 */
-    const pick = lr.top4[idx];
-    const isMe = pick.team === my;
-    const originalSeed = lr.teams.findIndex(t => t.team === pick.team) + 1;
-    const jump = originalSeed - (idx + 1); /* 顺位变化：正数=上升，负数=下降 */
+    /* 当前要揭示的顺位号：14, 13, 12, ..., 1 */
+    const pickNo = 14 - d.revealedCount;
+    const item = fullOrder[pickNo - 1];
+    const isMe = item.team === my;
+    const originalSeed = lr.teams.findIndex(t => t.team === item.team) + 1;
+    const jump = originalSeed - pickNo;
+    const isLotto = item.isLotto;
+
+    /* 已揭示的顺位（从14到当前+1，即比当前更靠后的顺位） */
+    const revealedSoFar = [];
+    for (let p = 14; p > pickNo; p--) {
+      const ri = fullOrder[p - 1];
+      const rm = ri.team === my;
+      const rs = lr.teams.findIndex(t => t.team === ri.team) + 1;
+      revealedSoFar.push('<div class="lottery-revealed-row' + (rm ? " me" : "") + '">' +
+        '<span class="lr-pick">#' + p + '</span>' +
+        '<span class="lr-team">' + esc(teamName(ri.team)) + '</span>' +
+        '<span class="lr-jump">原#' + rs + '</span>' +
+        '</div>');
+    }
 
     screen.innerHTML =
       '<div class="lottery-reveal">' +
       '<h2 class="screen-title">🎲 乐透抽签</h2>' +
-      '<div class="lottery-draw-area">' +
-        '<div class="lottery-draw-pick">第 ' + (idx + 1) + ' 顺位</div>' +
+      '<div class="lottery-draw-area' + (isLotto ? " lotto-draw" : "") + '">' +
+        '<div class="lottery-draw-pick">第 ' + pickNo + ' 顺位' + (isLotto ? ' ⭐ 抽签中签！' : ' · 按战绩') + '</div>' +
         '<div class="lottery-draw-team' + (isMe ? " me" : "") + '">' +
-          '<div class="ldd-animation">🎲🎲🎲</div>' +
-          '<div class="ldd-team-name">' + esc(teamName(pick.team)) + '</div>' +
+          (isLotto ? '<div class="ldd-animation">🎲🎲🎲</div>' : '') +
+          '<div class="ldd-team-name">' + esc(teamName(item.team)) + '</div>' +
           (isMe ? '<div class="ldd-me-tag">🎉 你的球队！</div>' : '') +
-          '<div class="ldd-odds">抽签概率 ' + (pick.odds || 0).toFixed(1) + '% · 原种子 #' + originalSeed +
-          (jump > 0 ? ' ↑上升' + jump + '位' : jump < 0 ? ' ↓下降' + Math.abs(jump) + '位' : ' 持平') + '</div>' +
+          '<div class="ldd-odds">' +
+          (isLotto ? '抽签概率 ' + (item.odds || 0).toFixed(1) + '% · ' : '') +
+          '原种子 #' + originalSeed +
+          (jump > 0 ? ' ↑上升' + jump + '位' : jump < 0 ? ' ↓下降' + Math.abs(jump) + '位' : ' 持平') +
+          '</div>' +
         '</div>' +
       '</div>' +
-      /* 已揭示的前4 */
-      '<div class="lottery-revealed-list">' +
-      d.revealedTop4.map((p, i) => {
-        const pm = p.team === my;
-        const ps = lr.teams.findIndex(t => t.team === p.team) + 1;
-        return '<div class="lottery-revealed-row' + (pm ? " me" : "") + '">' +
-          '<span class="lr-pick">#' + (i + 1) + '</span>' +
-          '<span class="lr-team">' + esc(teamName(p.team)) + '</span>' +
-          '<span class="lr-odds">' + (p.odds || 0).toFixed(1) + '%</span>' +
-          '<span class="lr-jump">原#' + ps + '</span>' +
-          '</div>';
-      }).join("") +
-      '</div>' +
+      (revealedSoFar.length ? '<div class="lottery-revealed-list">' + revealedSoFar.join("") + '</div>' : '') +
       '<div class="lottery-actions">' +
-        (idx < lr.top4.length - 1
-          ? '<button class="btn btn-primary" id="btn-next-pick">揭示下一顺位 ▶</button>'
+        (pickNo > 1
+          ? '<button class="btn btn-primary" id="btn-next-pick">揭示第 ' + (pickNo - 1) + ' 顺位 ▶</button>' +
+            (pickNo > 5 ? ' <button class="btn btn-outline" id="btn-skip-lotto">⏩ 跳到前4顺位</button>' : '')
           : '<button class="btn btn-primary" id="btn-show-full">查看完整顺位 ▶</button>') +
       '</div>' +
       '</div>';
 
     const nextBtn = $("#btn-next-pick");
     if (nextBtn) nextBtn.onclick = () => {
-      d.revealedTop4.push(pick);
+      d.revealedCount++;
+      renderLotteryReveal(save, d, my);
+    };
+    const skipBtn = $("#btn-skip-lotto");
+    if (skipBtn) skipBtn.onclick = () => {
+      d.revealedCount = 10; /* 跳到第4顺位（14-10=4） */
       renderLotteryReveal(save, d, my);
     };
     const showBtn = $("#btn-show-full");
     if (showBtn) showBtn.onclick = () => {
-      d.revealedTop4.push(pick);
+      d.revealedCount = 14;
       d.lotteryPhase = "complete";
       renderLotteryReveal(save, d, my);
     };
@@ -4521,11 +4532,6 @@ function renderLotteryReveal(save, d, my) {
   }
 
   if (d.lotteryPhase === "complete") {
-    /* 展示完整乐透顺位 1-14 */
-    /* 构建完整 1-14 顺位：前 4 是 top4，后 10 是 restOrder */
-    const fullOrder = lr.top4.map((t, i) => ({ team: t.team, odds: t.odds, pick: i + 1, isLotto: true }))
-      .concat(lr.restOrder.map((t, i) => ({ team: t.team, odds: 0, pick: i + 5, isLotto: false })));
-
     screen.innerHTML =
       '<div class="lottery-reveal">' +
       '<h2 class="screen-title">🎲 乐透抽签结果</h2>' +
