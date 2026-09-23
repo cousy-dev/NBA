@@ -429,8 +429,12 @@ function autoRunRemaining(save, draftClass, pickOrder, startIdx, pickedIds, user
 /* save.draftPicks = [{ team, round, season, originalTeam }, ...] */
 
 /* 初始化选秀权：每队每年 1 首轮 + 1 次轮，共 60 个（自建队作为第 31 队额外补 2 个） */
-function initDraftPicks(save) {
-  const season = save.seasonNo; /* 当前赛季结束后的选秀（newSeason 已 seasonNo++） */
+/* targetSeason: 指定赛季；不传则用 save.seasonNo。合并模式：该赛季已有签位则跳过，保留交易变更 */
+function initDraftPicks(save, targetSeason) {
+  const season = targetSeason != null ? targetSeason : save.seasonNo;
+  save.draftPicks = save.draftPicks || [];
+  /* 该赛季已有选秀权则跳过，防止覆盖交易过的签位 */
+  if (save.draftPicks.some(p => p.season === season)) return;
   const picks = [];
   TEAMS.forEach(t => {
     picks.push({ team: t.abbr, round: 1, season, originalTeam: t.abbr });
@@ -447,7 +451,7 @@ function initDraftPicks(save) {
       picks.push({ team: my, round: 1, season, originalTeam: my });
     }
   }
-  save.draftPicks = picks;
+  save.draftPicks.push(...picks);
 }
 
 /* 计算选秀顺位（基于上赛季战绩 + 季后赛成绩） */
@@ -587,9 +591,13 @@ function pickValue(pickInfo) {
   return 0;
 }
 
-/* 获取某队持有的所有选秀权 */
+/* 获取某队持有的所有选秀权（下一届选秀 = 当前赛季号 + 1） */
 function getTeamPicks(save, abbr) {
-  const season = save.seasonNo; /* 当前赛季结束后的选秀 */
+  const season = save.seasonNo + 1; /* 下一届选秀赛季号 */
+  /* 确保该赛季选秀权已生成（休赛期交易可能在 newSeason 之前进入） */
+  if (!save.draftPicks || !save.draftPicks.some(p => p.season === season)) {
+    initDraftPicks(save, season);
+  }
   return (save.draftPicks || []).filter(p => p.team === abbr && p.season === season);
 }
 
