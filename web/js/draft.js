@@ -480,10 +480,12 @@ function computePickOrder(save) {
   const lp = save.lastPlayoffs;
   const playoffTeams = new Set();   /* 进了季后赛的球队 */
   const elimRound = {};             /* 球队 → 被淘汰的轮次（0=首轮,1=半决赛,2=分区决赛,3=总决赛亚军,4=冠军） */
-  if (lp) {
+  let hasPlayoffData = false;
+  if (lp && lp.rounds) {
     /* 先收集所有参赛球队 */
     lp.rounds.forEach((r, ri) => {
       if (!r) return;
+      hasPlayoffData = true;
       r.E.concat(r.W).forEach(s => {
         if (s.winner) playoffTeams.add(s.winner);
         if (s.loser) playoffTeams.add(s.loser);
@@ -503,6 +505,14 @@ function computePickOrder(save) {
         }
       });
     });
+  }
+  /* lastPlayoffs 缺失或无有效轮次数据：按上赛季战绩取东西部各前8名作为季后赛球队，
+     防止所有球队进入乐透区导致16支球队丢失首轮签 */
+  if (!hasPlayoffData) {
+    const east = sorted.filter(t => confOf(t.abbr) === "E").sort((a, b) => b.winPct - a.winPct || b.str - a.str);
+    const west = sorted.filter(t => confOf(t.abbr) === "W").sort((a, b) => b.winPct - a.winPct || b.str - a.str);
+    east.slice(0, 8).forEach((t, i) => { playoffTeams.add(t.abbr); elimRound[t.abbr] = Math.floor(i / 4); });
+    west.slice(0, 8).forEach((t, i) => { playoffTeams.add(t.abbr); elimRound[t.abbr] = Math.floor(i / 4); });
   }
 
   /* 分乐透（未进季后赛）和季后赛 */
@@ -534,7 +544,10 @@ function computePickOrder(save) {
   }
   /* 剩余乐透球队按战绩倒序（5-14 顺位） */
   const lottoRest = lottoPool.sort((a, b) => a.winPct - b.winPct || a.str - b.str);
-  const firstRoundOrder = lottoTop4.concat(lottoRest).concat(playoff);
+  /* 超过14支乐透球队时（自建队场景31队），多余的按战绩倒序排在乐透区后、季后赛区前，
+     防止第15支非季后赛球队丢失首轮签 */
+  const lottoExtra = lottery.slice(lotteryCount).sort((a, b) => a.winPct - b.winPct || a.str - b.str);
+  const firstRoundOrder = lottoTop4.concat(lottoRest).concat(lottoExtra).concat(playoff);
   /* 保存乐透抽签结果供 UI 展示 */
   save.lotteryResult = lottoTop4.map((t, i) => ({ pick: i + 1, team: t.abbr, odds: t.odds }));
   /* 次轮：纯战绩倒序 */

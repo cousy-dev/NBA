@@ -184,18 +184,24 @@ function ovrClass(ovr) {
 }
 /* posClass 已移至 positions.js，支持新旧位置值（PG/SG/SF/PF/C + G/G-F/F/F-C/C） */
 function estimateSalary(ovr, id) {
-  /* 优先使用 NBA 2026-27 真实合同薪资；查不到再按 OVR 分档估算兜底 */
-  const real = realSalaryForId(id);
-  if (real != null) return real;
+  /* 先算基于当前 OVR 的分档薪资 */
+  let ovrEst = 1;
   for (const b of SALARY_BANDS) {
     if (ovr >= b[0] && ovr <= b[1]) {
       const t = (ovr - b[0]) / Math.max(1, b[1] - b[0]);
       let v = b[2] + t * (b[3] - b[2]);
       v *= 0.92 + hash01(id, 7) * 0.16;
-      return Math.round(v * 10) / 10;
+      ovrEst = Math.round(v * 10) / 10;
+      break;
     }
   }
-  return 1;
+  /* 有真实薪资时：若球员 OVR 显著下滑（分档估算远低于真实薪资），按当前 OVR 定薪 */
+  const real = realSalaryForId(id);
+  if (real != null) {
+    if (ovrEst < real * 0.7) return ovrEst;
+    return real;
+  }
+  return ovrEst;
 }
 function playersByTeam(abbr) { return PLAYERS_RATED.players.filter(p => p.team === abbr); }
 /* 清理运行时注入全局库的自定义球员（选秀新秀等）。
