@@ -183,9 +183,9 @@ function strengthOf(save, abbr) {
   }
   return aiStrengthOf(save, abbr);
 }
-/* Elo 式胜率：主场 +3，除数 5（差距更敏感） */
+/* Elo 式胜率：主场 +1（真实 NBA 主场胜率约 58-60%），除数 5（差距更敏感） */
 function winProb(strA, strB, homeA) {
-  return 1 / (1 + Math.pow(10, (strB - strA - (homeA ? 3 : -3)) / 5));
+  return 1 / (1 + Math.pow(10, (strB - strA - (homeA ? 1 : -1)) / 5));
 }
 
 /* ===== 联盟一轮：其余 29 队随机配对打 14 场，1 队轮空 ===== */
@@ -195,11 +195,12 @@ function simLeagueRound(save) {
   const playedPairs = [];
   for (let i = 0; i + 1 < others.length; i += 2) {
     const A = others[i], B = others[i + 1];
-    /* 每场发挥波动：基础正态(±3) + 12%概率球员爆发/低迷(±6) */
-    const formA = (Math.random() + Math.random() + Math.random() - 1.5) * 2.5
-      + (Math.random() < 0.12 ? (Math.random() < 0.5 ? 6 : -6) : 0);
-    const formB = (Math.random() + Math.random() + Math.random() - 1.5) * 2.5
-      + (Math.random() < 0.12 ? (Math.random() < 0.5 ? 6 : -6) : 0);
+    /* 每场发挥波动：小幅正态(±1.5) + 8%概率球员爆发/低迷(±3)。
+       波动不能太大，否则弱队频繁爆冷 → 全联盟战绩挤在中段、摆烂队过多 */
+    const formA = (Math.random() + Math.random() + Math.random() - 1.5) * 1.5
+      + (Math.random() < 0.08 ? (Math.random() < 0.5 ? 3 : -3) : 0);
+    const formB = (Math.random() + Math.random() + Math.random() - 1.5) * 1.5
+      + (Math.random() < 0.08 ? (Math.random() < 0.5 ? 3 : -3) : 0);
     const p = winProb(strengthOf(save, A) + formA, strengthOf(save, B) + formB, true);
     const aWon = Math.random() < p;
     if (aWon) { save.standings[A].w++; save.standings[B].l++; }
@@ -549,11 +550,11 @@ function simOneSeriesGame(ser, save) {
   const g = ser.wa + ser.wb; /* 当前已赛场次 */
   if (g >= 7) return;
   const sA = strengthOf(save, ser.a), sB = strengthOf(save, ser.b);
-  /* 每场发挥波动：基础正态(±3) + 12%概率球员爆发/低迷(±6) */
-  const formA = (Math.random() + Math.random() + Math.random() - 1.5) * 2.5
-    + (Math.random() < 0.12 ? (Math.random() < 0.5 ? 6 : -6) : 0);
-  const formB = (Math.random() + Math.random() + Math.random() - 1.5) * 2.5
-    + (Math.random() < 0.12 ? (Math.random() < 0.5 ? 6 : -6) : 0);
+  /* 每场发挥波动：小幅正态(±1.5) + 8%概率球员爆发/低迷(±3) */
+  const formA = (Math.random() + Math.random() + Math.random() - 1.5) * 1.5
+    + (Math.random() < 0.08 ? (Math.random() < 0.5 ? 3 : -3) : 0);
+  const formB = (Math.random() + Math.random() + Math.random() - 1.5) * 1.5
+    + (Math.random() < 0.08 ? (Math.random() < 0.5 ? 3 : -3) : 0);
   const home = SERIES_HOME_PATTERN[g] === 1;
   const aWins = Math.random() < winProb(sA + formA, sB + formB, home);
   if (aWins) ser.wa++; else ser.wb++;
@@ -1029,8 +1030,10 @@ function updateAIMorale(save, abbr, won) {
     return p0 ? { id, ovr: (p0.ovr || 70) + ((save.ovrAdj && save.ovrAdj[id]) || 0) } : null;
   }).filter(Boolean).sort((a, b) => b.ovr - a.ovr).slice(0, 8);
   const streak = (save.standings[abbr] || {}).streak || 0;
-  const streakFactor = Math.max(-1.8, Math.min(2.0, 0.4 * streak));
-  const winFactor = won ? 0.4 : -0.4;
+  /* 连胜/连败影响收敛，避免弱队一旦连败就士气崩盘、战力 -4 形成死循环，
+     导致全联盟弱队集体沉底、摆烂队扎堆 */
+  const streakFactor = Math.max(-0.8, Math.min(0.8, 0.15 * streak));
+  const winFactor = won ? 0.25 : -0.25;
   top.forEach(p => setMorale(save, p.id, moraleOf(save, p.id) + winFactor + streakFactor));
 }
 

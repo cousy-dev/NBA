@@ -1938,7 +1938,8 @@ function buildSimFor(gi) {
   if (ov) home.rotationOverride = ov;
   const sim = new GameSim(
     home,
-    { name: oppT.nameCn, short: "", abbr: gi.opp, players: opp }
+    { name: oppT.nameCn, short: "", abbr: gi.opp, players: opp },
+    gi.home ? 0 : 1   /* 真实主客场：客场时对手(teams[1])为主场 */
   );
   const c = save.coach || {};
   if (c.pace) sim.setTactic(0, "pace", c.pace);

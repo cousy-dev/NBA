@@ -32,10 +32,17 @@ function pickRotation(players) {
     else if (p.ovr >= 73) m = 16;
     else if (p.ovr >= 68) m = 10;
     else m = 5;
+    /* 传奇新秀（如新秀保罗）立即作为核心培养：32 分钟；
+       高潜力新秀（状元级潜力 92+）28 分钟，85+ 潜力 24 分钟 */
+    if (p.isLegend) m = Math.max(m, 32);
+    else if (p.isRookie && (p.potential || 0) >= 92) m = Math.max(m, 28);
+    else if (p.isRookie && (p.potential || 0) >= 85) m = Math.max(m, 24);
     targetMin.set(p.id, m);
   });
   /* 归一化到 240 分钟（48min × 5位置），按 OVR 设上下限 */
   const minCap = p => {
+    if (p.isLegend) return 34;
+    if (p.isRookie && (p.potential || 0) >= 92) return 30;
     const o = p.ovr;
     if (o < 65) return 8;
     if (o < 70) return 14;
@@ -77,7 +84,10 @@ const Q_COUNT = 4;
 const OT_LEN = 300; /* 加时赛 5 分钟 */
 
 class GameSim {
-  constructor(home, away) {
+  constructor(home, away, homeIdx) {
+    /* teams[0] 固定为用户队（便于数据提取），homeIdx 标记哪一侧是真正的主场，
+       修正此前用户队客场也永久享受主场加成的问题 */
+    this.homeSide = homeIdx === 1 ? 1 : 0;
     this.teams = [this._initSide(home, 0), this._initSide(away, 1)];
     this.q = 1; this.clock = Q_LEN; this.off = Math.random() < 0.5 ? 0 : 1;
     this.over = false; this.winner = -1;
@@ -144,18 +154,19 @@ class GameSim {
     for (let i = 0; i < list.length; i++) { r -= w[i]; if (r <= 0) return list[i]; }
     return list[list.length - 1];
   }
-  /* usage rate：star 球员出手权重大幅高于角色球员 */
+  /* usage rate：star 球员出手权重大幅高于角色球员，低能力值球员出手很少 */
   _usageWeight(side, p) {
     const ovr = p.ovr;
     const org = this._attr(side, p.id, "org");
     const out = this._attr(side, p.id, "out");
     const ins = this._attr(side, p.id, "ins");
     let starF;
-    if (ovr >= 92) starF = 3.5;
-    else if (ovr >= 87) starF = 2.5;
-    else if (ovr >= 82) starF = 2.35;
+    if (ovr >= 92) starF = 3.6;
+    else if (ovr >= 87) starF = 2.7;
+    else if (ovr >= 82) starF = 2.3;
     else if (ovr >= 77) starF = 1.2;
-    else starF = 0.7;
+    else if (ovr >= 70) starF = 0.75;
+    else starF = 0.45;
     return (org * 0.35 + out * 0.35 + ins * 0.30 + ovr * 0.08) * starF;
   }
 
@@ -211,15 +222,15 @@ class GameSim {
       if (!s.court.includes(p.id)) s.energy.set(p.id, Math.min(100, s.energy.get(p.id) + used * 0.03));
     }));
 
-    /* 控球人：高 org 的 star 球员更可能持球 */
+    /* 控球人：组织越高持球越多，权重平方化让队内主控手（如保罗/东契奇）掌控多数回合 */
     const handler = this._weighted(offP, p => {
       const org = this._attr(offT, p.id, "org");
-      let f = p.ovr >= 88 ? 2.5 : p.ovr >= 80 ? 1.5 : 1;
-      return org * f;
+      const f = 1 + Math.max(0, org - 60) * 0.08;
+      return Math.pow(org * f, 2);
     });
 
     /* 失误 */
-    const homeAdv = this.off === 0 ? -0.012 : 0;  /* 主场失误更少 */
+    const homeAdv = this.off === this.homeSide ? -0.012 : 0;  /* 主场失误更少 */
     let toP = 0.115 + (dAvg - 76) * 0.002 + (76 - this._attr(offT, handler.id, "org")) * 0.0025 + homeAdv;
     if (tac.pace === "fast") toP += 0.02;
     if (defTac.def === "press") toP += 0.05;
@@ -239,8 +250,10 @@ class GameSim {
     }
 
     /* 投篮选择：usage rate 驱动，star 球员出手更多 */
-    /* 持球决策：roll < passP 时传给无球队友（按 usageWeight 加权），否则持球人自己攻；球星 OVR 越高 passP 越低、自攻越多 */
-    const passP = Math.max(0.30, Math.min(0.50, 0.37 + (handler.ovr - 80) * 0.005));
+    /* 持球决策：roll < passP 时传给无球队友（按 usageWeight 加权），否则持球人自己攻。
+       传球率由组织属性决定：高 org 主控手（保罗/基德）更多策动传球刷助攻，低 org 球员更多自己攻 */
+    const handlerOrg = this._attr(offT, handler.id, "org");
+    const passP = Math.max(0.25, Math.min(0.62, 0.30 + (handlerOrg - 62) * 0.018));
     const shooter = Math.random() < passP
       ? this._weighted(offP.filter(p => p.id !== handler.id), p => this._usageWeight(offT, p))
       : handler;
@@ -257,20 +270,23 @@ class GameSim {
     const sc = this.score();
     const diff = sc[this.off] - sc[1 - this.off];
     const catchUp = diff <= -15 ? 0.035 : diff >= 15 ? -0.02 : 0;
-    const homeFgBoost = this.off === 0 ? 0.025 : 0;  /* 主场命中率加成 */
+    const homeFgBoost = this.off === this.homeSide ? 0.015 : 0;  /* 主场命中率小幅加成 */
     let fgP;
     if (isThree) {
-      fgP = 0.355 + (this._attr(offT, shooter.id, "out") - 75) * 0.0018 - (dAvg - 76) * 0.0018 + momOff + catchUp + homeFgBoost;
+      /* 锚点：out 75 → 33%，out 92 → 39%，out 51(约60总评) → 25% */
+      fgP = 0.33 + (this._attr(offT, shooter.id, "out") - 75) * 0.0035 - (dAvg - 76) * 0.0022 + momOff + catchUp + homeFgBoost;
       if (defTac.def === "double" && shooter.ovr >= 88) fgP -= 0.04;
-      fgP = Math.max(0.20, Math.min(0.55, fgP));
+      fgP = Math.max(0.22, Math.min(0.46, fgP));
     } else if (isRim) {
-      fgP = 0.60 + (this._attr(offT, shooter.id, "ins") - 75) * 0.0028 - (dAvg - 76) * 0.002 + momOff + catchUp + homeFgBoost;
+      /* 锚点：ins 70 → 50%，ins 90 → 69%，ins 51(约60总评) → 32% */
+      fgP = 0.50 + (this._attr(offT, shooter.id, "ins") - 70) * 0.0095 - (dAvg - 76) * 0.0026 + momOff + catchUp + homeFgBoost;
       if (defTac.def === "zone") fgP -= 0.03;
       if (defTac.def === "double" && shooter.ovr >= 88) fgP -= 0.035;
-      fgP = Math.max(0.35, Math.min(0.82, fgP));
+      fgP = Math.max(0.30, Math.min(0.72, fgP));
     } else {
-      fgP = 0.42 + (this._attr(offT, shooter.id, "out") - 75) * 0.0015 - (dAvg - 76) * 0.0015 + momOff + catchUp + homeFgBoost;
-      fgP = Math.max(0.28, Math.min(0.60, fgP));
+      /* 中距离：out 72 → 36%，out 51(约60总评) → 24% */
+      fgP = 0.36 + (this._attr(offT, shooter.id, "out") - 72) * 0.0055 - (dAvg - 76) * 0.002 + momOff + catchUp + homeFgBoost;
+      fgP = Math.max(0.22, Math.min(0.55, fgP));
     }
 
     const boxS = offT.box.get(shooter.id);
@@ -281,7 +297,7 @@ class GameSim {
     if (made) {
       boxS.fgm++; if (isThree) boxS.tpm++;
       boxS.pts += isThree ? 3 : 2;
-      if (shooter.id !== handler.id && Math.random() < 0.80 + (this._attr(offT, handler.id, "org") - 75) * 0.006 + (defTac.def === "double" ? 0.10 : 0)) {
+      if (shooter.id !== handler.id && Math.random() < 0.86 + (this._attr(offT, handler.id, "org") - 75) * 0.005 + (defTac.def === "double" ? 0.08 : 0)) {
         offT.box.get(handler.id).ast++;
         ev = { t: "score", side: this.off, text: shooter.nameCn + (isThree ? " 命中三分" : isRim ? " 空接/吃饼得手" : " 中距离命中") + "（" + handler.nameCn + " 助攻）" };
       } else {
@@ -317,7 +333,8 @@ class GameSim {
     return { events: evs, over: false, score: this.score(), q: this.q, clock: this.clock };
   }
   _foulFTs(offT, defT, shooter, defP, evs, n) {
-    const ftP = 0.72 + (shooter.attrs.out - 75) * 0.004;
+    /* 锚点：out 72 → 66%，out 90 → 79%，out 51(约60总评) → 51% */
+    const ftP = Math.max(0.42, Math.min(0.92, 0.66 + (this._attr(offT, shooter.id, "out") - 72) * 0.007));
     let hits = 0;
     for (let i = 0; i < n; i++) { offT.box.get(shooter.id).fta++; if (Math.random() < ftP) { offT.box.get(shooter.id).ftm++; offT.box.get(shooter.id).pts++; hits++; } }
     evs.push({ t: "ft", side: offT.idx, pts: hits, text: shooter.nameCn + " " + (n === 1 ? "加罚" : "两罚") + (hits === n ? "全中" : hits === 0 ? "不中" : hits + "/" + n) });
