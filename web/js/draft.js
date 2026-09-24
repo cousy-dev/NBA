@@ -535,8 +535,9 @@ function signRookie(save, rookie) {
 }
 
 /* 处理单个选秀签位：记录新秀归属、持久化到存档与全局库、用户队则签约 */
-/* results 累积 { pick, abbr, rookie }；幂等：同一新秀已处理则跳过 */
-function processPick(save, rookie, teamAbbr, pickNumber, results) {
+/* results 累积 { pick, abbr, rookie, orig }；幂等：同一新秀已处理则跳过 */
+/* origTeam: 该签位原属球队（交易签位时与 teamAbbr 不同，供选秀结果页显示归属变化） */
+function processPick(save, rookie, teamAbbr, pickNumber, results, origTeam) {
   if (results.some(r => r.rookie.id === rookie.id)) return;
   /* 记录选秀赛季号和修正 draftYear：球探系统可能在赛季中
      （seasonNo 尚未递增）就调 genDraftClass 生成新秀池，导致 draftYear
@@ -572,7 +573,7 @@ function processPick(save, rookie, teamAbbr, pickNumber, results) {
       save.aiRosters[teamAbbr].push(rookie.id);
     }
   }
-  results.push({ pick: pickNumber, abbr: teamAbbr, rookie });
+  results.push({ pick: pickNumber, abbr: teamAbbr, rookie, orig: origTeam || teamAbbr });
 }
 
 /* AI 自动选完从 startIdx 起的所有剩余签位 */
@@ -595,7 +596,7 @@ function autoRunRemaining(save, draftClass, pickOrder, startIdx, pickedIds, user
     }
     if (!rookie) continue;
     pickedIds.add(rookie.id);
-    processPick(save, rookie, po.team, po.pick, results);
+    processPick(save, rookie, po.team, po.pick, results, po.originalTeam);
   }
   save.draftResults = results;
   return results;
@@ -631,11 +632,33 @@ function initDraftPicks(save, targetSeason) {
   save.draftPicks.push(...picks);
 }
 
+/* 旧档修复：历史版本交易签位赛季号标记错误（交易时标在当前赛季号 seasonNo 而非下一届
+   选秀赛季号 seasonNo+1），导致选秀时找不到交易签位——"赛季中交易的选秀权在选秀中没有体现"。
+   检测上一赛季号签位中 team ≠ originalTeam 的交易签，将其归属转移到当前选秀赛季的
+   对应签位上，随后移除上一赛季的全部签位记录（历史选秀已消耗，顺带清理堆积）。 */
+function healDraftPicks(save, season) {
+  if (!save.draftPicks || !save.draftPicks.length) return;
+  const prev = season - 1;
+  if (prev < 1) return;
+  const orphans = save.draftPicks.filter(p => p.season === prev && p.team !== p.originalTeam);
+  if (!orphans.length) return;
+  /* 确保当前选秀赛季签位存在，再把交易归属转移上去 */
+  initDraftPicks(save, season);
+  orphans.forEach(op => {
+    const cur = save.draftPicks.find(p => p.season === season && p.originalTeam === op.originalTeam && p.round === op.round);
+    if (cur) cur.team = op.team;
+  });
+  save.draftPicks = save.draftPicks.filter(p => p.season !== prev);
+}
+
 /* 计算选秀顺位（基于上赛季战绩 + 季后赛成绩） */
-/* 返回 [{ team, round, pick, season }] 排好序的 60 个选秀权 */
+/* 返回 [{ team, round, pick, season, originalTeam }] 排好序的全部选秀权
+   team = 当前持有者（交易后），originalTeam = 原属球队（决定顺位位置） */
 function computePickOrder(save) {
   const season = save.seasonNo; /* 当前赛季结束后选秀 */
   const my = myAbbr(save);
+  /* 旧档交易签位修复（须在过滤前执行） */
+  healDraftPicks(save, season);
   /* 顺位依据上赛季最终战绩（newSeason 重置战绩前的快照）；快照缺失时退回当前战绩 */
   const stSrc = save.lastStandings || save.standings || {};
   /* 所有 30 支真实球队按战绩排序；自建球队（CUS）作为第 31 队一并纳入 */
@@ -737,8 +760,13 @@ function computePickOrder(save) {
   /* 次轮：纯战绩倒序 */
   const secondRoundOrder = sorted.slice();
 
-  /* 从 save.draftPicks 中找出该赛季的所有选秀权 */
-  const allPicks = (save.draftPicks || []).filter(p => p.season === season);
+  /* 从 save.draftPicks 中找出该赛季的所有选秀权；缺失时兜底生成（防止旧档/异常流程下
+     选秀权全空导致"本届选秀你没有选秀权"直接跳过全部选秀） */
+  let allPicks = (save.draftPicks || []).filter(p => p.season === season);
+  if (!allPicks.length) {
+    initDraftPicks(save, season);
+    allPicks = save.draftPicks.filter(p => p.season === season);
+  }
   const result = [];
   /* 首轮：按战绩顺位给每队分配一个签位；一队持有的额外首轮签（扩张补偿签、交易多签）
      先收集，按原队顺位顺序排在首轮末段，避免额外签被丢弃 */

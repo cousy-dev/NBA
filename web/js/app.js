@@ -4489,9 +4489,27 @@ function renderLotteryReveal(save, d, my) {
   if (!d.lotteryPhase) d.lotteryPhase = "intro";
   if (d.revealedCount == null) d.revealedCount = 0;
 
-  /* 构建完整 1-14 顺位：前 4 是 top4，后 10 是 restOrder */
-  const fullOrder = lr.top4.map((t, i) => ({ team: t.team, odds: t.odds, pick: i + 1, isLotto: true }))
-    .concat(lr.restOrder.map((t, i) => ({ team: t.team, odds: 0, pick: i + 5, isLotto: false })));
+  /* 构建完整 1-14 顺位：以 pickOrder（computePickOrder 产出）为准，team = 交易后当前持有者，
+     originalTeam = 原属球队（决定顺位位置与抽签概率）。
+     旧实现直接用 lotteryResult 的原属队展示，交易获得的乐透签不会显示为你的球队。 */
+  const lrByTeam = {};
+  lr.teams.forEach((t, i) => { lrByTeam[t.team] = { odds: t.odds, seed: i + 1 }; });
+  const top4Count = (lr.top4 || []).length;
+  let fullOrder;
+  if (d.pickOrder && d.pickOrder.length) {
+    fullOrder = d.pickOrder.filter(p => p.round === 1).slice(0, 14).map(p => {
+      const lot = lrByTeam[p.originalTeam] || {};
+      return { team: p.team, originalTeam: p.originalTeam, pick: p.pick,
+               odds: lot.odds || 0, seed: lot.seed || p.pick, isLotto: p.pick <= top4Count };
+    });
+  } else {
+    /* 兜底：pickOrder 未就绪时退回原属队视角 */
+    fullOrder = lr.top4.map((t, i) => ({ team: t.team, originalTeam: t.team, odds: t.odds, seed: i + 1, pick: i + 1, isLotto: true }))
+      .concat(lr.restOrder.map((t, i) => ({ team: t.team, originalTeam: t.team, odds: 0, seed: 0, pick: i + 5, isLotto: false })));
+  }
+  /* 交易签位标注：现属 ≠ 原属时追加「原属 X」 */
+  const origTag = (item) => (item.originalTeam && item.originalTeam !== item.team)
+    ? ' <span class="lotto-orig-tag">原属 ' + esc(teamName(item.originalTeam)) + '</span>' : "";
 
   const screen = $("#screen-draft");
 
@@ -4502,10 +4520,14 @@ function renderLotteryReveal(save, d, my) {
       '<p class="screen-sub">第 ' + save.seasonNo + ' 赛季选秀 · 14 支未进季后赛的球队参与抽签，前 4 顺位由概率决定</p>' +
       '<div class="lottery-team-list">' +
       lr.teams.map((t, i) => {
-        const isMe = t.team === my;
+        /* 乐透签可能已被交易：显示当前持有者，原属队仅作为种子依据 */
+        const holderItem = fullOrder.find(f => f.originalTeam === t.team);
+        const holder = holderItem ? holderItem.team : t.team;
+        const traded = holder !== t.team;
+        const isMe = holder === my;
         return '<div class="lottery-team-row' + (isMe ? " me" : "") + '">' +
           '<span class="lt-seed">#' + (i + 1) + '</span>' +
-          '<span class="lt-name">' + esc(teamName(t.team)) + (isMe ? ' (你的球队)' : "") + '</span>' +
+          '<span class="lt-name">' + esc(teamName(holder)) + (isMe ? ' (你的球队)' : "") + (traded ? ' <span class="lotto-orig-tag">原属 ' + esc(teamName(t.team)) + '</span>' : "") + '</span>' +
           '<span class="lt-record">' + (t.w || 0) + '-' + (t.l || 0) + '</span>' +
           '<span class="lt-odds">' + (t.odds || 0).toFixed(1) + '%</span>' +
           '</div>';
@@ -4538,7 +4560,7 @@ function renderLotteryReveal(save, d, my) {
     const pickNo = 14 - d.revealedCount;
     const item = fullOrder[pickNo - 1];
     const isMe = item.team === my;
-    const originalSeed = lr.teams.findIndex(t => t.team === item.team) + 1;
+    const originalSeed = item.seed || (lr.teams.findIndex(t => t.team === item.originalTeam) + 1);
     const jump = originalSeed - pickNo;
     const isLotto = item.isLotto;
 
@@ -4547,10 +4569,10 @@ function renderLotteryReveal(save, d, my) {
     for (let p = 14; p > pickNo; p--) {
       const ri = fullOrder[p - 1];
       const rm = ri.team === my;
-      const rs = lr.teams.findIndex(t => t.team === ri.team) + 1;
+      const rs = ri.seed || 0;
       revealedSoFar.push('<div class="lottery-revealed-row' + (rm ? " me" : "") + '">' +
         '<span class="lr-pick">#' + p + '</span>' +
-        '<span class="lr-team">' + esc(teamName(ri.team)) + '</span>' +
+        '<span class="lr-team">' + esc(teamName(ri.team)) + origTag(ri) + '</span>' +
         '<span class="lr-jump">原#' + rs + '</span>' +
         '</div>');
     }
@@ -4562,7 +4584,7 @@ function renderLotteryReveal(save, d, my) {
         '<div class="lottery-draw-pick">第 ' + pickNo + ' 顺位' + (isLotto ? ' ⭐ 抽签中签！' : ' · 按战绩') + '</div>' +
         '<div class="lottery-draw-team' + (isMe ? " me" : "") + '">' +
           (isLotto ? '<div class="ldd-animation">🎲🎲🎲</div>' : '') +
-          '<div class="ldd-team-name">' + esc(teamName(item.team)) + '</div>' +
+          '<div class="ldd-team-name">' + esc(teamName(item.team)) + origTag(item) + '</div>' +
           (isMe ? '<div class="ldd-me-tag">🎉 你的球队！</div>' : '') +
           '<div class="ldd-odds">' +
           (isLotto ? '抽签概率 ' + (item.odds || 0).toFixed(1) + '% · ' : '') +
@@ -4607,11 +4629,11 @@ function renderLotteryReveal(save, d, my) {
       '<div class="lottery-full-list">' +
       fullOrder.map(item => {
         const isMe = item.team === my;
-        const origSeed = lr.teams.findIndex(t => t.team === item.team) + 1;
+        const origSeed = item.seed || 0;
         const jump = origSeed - item.pick;
         return '<div class="lottery-full-row' + (isMe ? " me" : "") + (item.isLotto ? " lotto" : "") + '">' +
           '<span class="lf-pick">#' + item.pick + '</span>' +
-          '<span class="lf-team">' + esc(teamName(item.team)) + (isMe ? ' (你)' : "") + '</span>' +
+          '<span class="lf-team">' + esc(teamName(item.team)) + (isMe ? ' (你)' : "") + origTag(item) + '</span>' +
           '<span class="lf-orig">原#' + origSeed + (jump > 0 ? ' ↑' + jump : jump < 0 ? ' ↓' + Math.abs(jump) : '') + '</span>' +
           (item.odds ? '<span class="lf-odds">' + item.odds.toFixed(1) + '%</span>' : '<span class="lf-odds muted">按战绩</span>') +
           '</div>';
@@ -4704,14 +4726,16 @@ RENDERERS.draft = function () {
     '<div class="draft-otc' + (isMyTurn ? " me" : "") + '">' +
       (isMyTurn ? '🎯 轮到你了！第 ' + cur.pick + " 顺位（" + (cur.round === 1 ? "首轮" : "次轮") + "）· 从下方选择一名新秀"
                 : '⏳ 第 ' + cur.pick + " 顺位 · " + esc(teamName(cur.team)) + " 正在选秀（" + (cur.round === 1 ? "首轮" : "次轮") + "）") +
+      (cur.originalTeam && cur.originalTeam !== cur.team ? ' · 该签原属 ' + esc(teamName(cur.originalTeam)) : '') +
     "</div>" +
-    /* 用户选秀权进度 */
+    /* 用户选秀权进度（交易所得签位标注原属球队） */
     '<div class="draft-my-picks">' + userIndices.map(i => {
       const pk = po[i];
       const done = i < d.currentIdx;
       const isCur = i === d.currentIdx;
+      const origNote = (pk.originalTeam && pk.originalTeam !== pk.team) ? "·原属" + teamName(pk.originalTeam) : "";
       return '<span class="dmp-chip' + (done ? " done" : "") + (isCur ? " cur" : "") + '">' +
-        (done ? "✓ " : isCur ? "▶ " : "○ ") + "第" + pk.pick + "顺位(" + (pk.round === 1 ? "首轮" : "次轮") + ")</span>";
+        (done ? "✓ " : isCur ? "▶ " : "○ ") + "第" + pk.pick + "顺位(" + (pk.round === 1 ? "首轮" : "次轮") + ")" + origNote + "</span>";
     }).join("") + "</div>" +
     (isMyTurn
       ? '<div class="draft-hint">从下方新秀中选择一位 · 能力值和潜力将在选秀后揭晓</div>'
@@ -4768,7 +4792,7 @@ RENDERERS.draft = function () {
     (logRows.length ? '<div class="draft-log"><h3>📋 选秀动态</h3>' +
       logRows.map(l =>
         '<div class="dl-row' + (l.isUser ? " me" : "") + '"><span class="dl-pick">#' + l.pick + "</span>" +
-        '<span class="dl-team">' + esc(teamName(l.abbr)) + "</span>" +
+        '<span class="dl-team">' + esc(teamName(l.abbr)) + (l.orig && l.orig !== l.abbr ? '（原属' + esc(teamName(l.orig)) + '）' : "") + "</span>" +
         '<span class="dl-name">' + esc(l.rookieName) + "</span>" +
         (l.isUser ? '<span class="dl-tag">你</span>' : "") + "</div>"
       ).join("") + "</div>" : "");
@@ -4784,8 +4808,8 @@ RENDERERS.draft = function () {
         const rookie = d.class_.find(r => r.id === id);
         if (!rookie || d.pickedIds.has(id)) return;
         d.pickedIds.add(id);
-        processPick(save, rookie, my, cur.pick, d.results);
-        d.draftLog.push({ pick: cur.pick, abbr: my, rookieName: rookie.nameCn, isUser: true });
+        processPick(save, rookie, my, cur.pick, d.results, cur.originalTeam);
+        d.draftLog.push({ pick: cur.pick, abbr: my, orig: cur.originalTeam, rookieName: rookie.nameCn, isUser: true });
         d.currentIdx++;
         writeSave(save);
         toast("第 " + cur.pick + " 顺位选中：" + rookie.nameCn);
@@ -4804,8 +4828,8 @@ RENDERERS.draft = function () {
     const rookie = aiPickRookie(d.class_, save, cur.team, d.pickedIds);
     if (!rookie) { d.currentIdx = po.length; RENDERERS.draft(); return; }
     d.pickedIds.add(rookie.id);
-    processPick(save, rookie, cur.team, cur.pick, d.results);
-    d.draftLog.push({ pick: cur.pick, abbr: cur.team, rookieName: rookie.nameCn, isUser: false });
+    processPick(save, rookie, cur.team, cur.pick, d.results, cur.originalTeam);
+    d.draftLog.push({ pick: cur.pick, abbr: cur.team, orig: cur.originalTeam, rookieName: rookie.nameCn, isUser: false });
     d.currentIdx++;
     announceDraftPick(cur, rookie, () => RENDERERS.draft());
   };
@@ -4817,8 +4841,8 @@ RENDERERS.draft = function () {
       const rookie = aiPickRookie(d.class_, save, c.team, d.pickedIds);
       if (!rookie) { d.currentIdx = po.length; break; }
       d.pickedIds.add(rookie.id);
-      processPick(save, rookie, c.team, c.pick, d.results);
-      d.draftLog.push({ pick: c.pick, abbr: c.team, rookieName: rookie.nameCn, isUser: false });
+      processPick(save, rookie, c.team, c.pick, d.results, c.originalTeam);
+      d.draftLog.push({ pick: c.pick, abbr: c.team, orig: c.originalTeam, rookieName: rookie.nameCn, isUser: false });
       d.currentIdx++;
     }
     RENDERERS.draft();
@@ -4846,6 +4870,8 @@ function announceDraftPick(pickOrder, rookie, onClose) {
       '<div class="dpm-team">' +
         teamLogoHtml(pickOrder.team) +
         '<span class="dpm-team-name">' + esc(teamName(pickOrder.team)) + '</span>' +
+        (pickOrder.originalTeam && pickOrder.originalTeam !== pickOrder.team
+          ? '<span class="lotto-orig-tag">原属 ' + esc(teamName(pickOrder.originalTeam)) + '</span>' : '') +
       '</div>' +
       '<div class="dpm-action">选 择 了</div>' +
       '<div class="dpm-player' + (isLegend ? " legend" : "") + '">' +
@@ -4909,7 +4935,8 @@ RENDERERS["draft-result"] = function () {
     '<div class="se-card"><h3>📋 首轮选秀结果</h3>' +
     firstRound.map(r =>
       '<div class="aw-row' + (r.abbr === my ? " me" : "") + '"><span class="aw-rank">' + r.pick + "</span>" +
-      '<div class="aw-name">' + esc(r.rookie.nameCn) + '<span class="aw-team">' + esc(teamName(r.abbr)) + "</span></div>" +
+      '<div class="aw-name">' + esc(r.rookie.nameCn) + '<span class="aw-team">' + esc(teamName(r.abbr)) +
+      (r.orig && r.orig !== r.abbr ? '（原属' + esc(teamName(r.orig)) + '）' : "") + "</span></div>" +
       '<div class="aw-line">OVR ' + r.rookie.ovr + " · 潜力 " + r.rookie.potential + "</div></div>"
     ).join("") + "</div>" +
     '<button class="btn btn-primary" id="btn-draft-done">进入自由市场</button>';

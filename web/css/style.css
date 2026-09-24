@@ -887,6 +887,9 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .lt-record { font-size: 11px; color: var(--muted); min-width: 50px; text-align: right; }
 .lt-odds { font-size: 11px; font-weight: 700; color: var(--gold); min-width: 45px; text-align: right; }
 
+/* 交易签位「原属 X」徽章：乐透抽签/选秀界面通用 */
+.lotto-orig-tag { display: inline-block; font-size: 10px; font-weight: 600; color: var(--gold); background: rgba(255,200,0,.12); border: 1px solid rgba(255,200,0,.35); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: middle; }
+
 /* revealing 阶段：抽签区域 */
 .lottery-draw-area { text-align: center; padding: 24px 16px; background: linear-gradient(135deg, rgba(26,159,83,.06), rgba(255,200,0,.08)); border: 2px solid rgba(255,200,0,.3); border-radius: 16px; margin-bottom: 14px; }
 .lottery-draw-area.lotto-draw { background: linear-gradient(135deg, rgba(214,66,75,.08), rgba(255,200,0,.12)); border-color: rgba(255,200,0,.55); box-shadow: 0 0 20px rgba(255,200,0,.15); }
