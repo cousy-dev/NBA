@@ -3158,7 +3158,7 @@ RENDERERS.awards = function () {
     '  <span class="aw-rank">' + (i + 1) + "</span>" +
     '  <div class="ovr-badge ' + ovrClass(c.p.ovr) + '">' + c.p.ovr + "</div>" +
     '  <div class="aw-name">' + esc(c.p.nameCn) +
-    '    <span class="aw-team">' + esc(teamName(c.p.team)) + (c.mine ? " · 你" : "") + "</span></div>" +
+    '    <span class="aw-team">' + esc(teamName(c.teamAbbr || c.p.team)) + (c.mine ? " · 你" : "") + "</span></div>" +
     '  <div class="aw-val">' + fmt(metric) + "</div></div>";
 
   const mvpRows = ranks.mvpTop.map((c, i) => rankRow(c, i, c.mvp, v => v.toFixed(1))).join("");
@@ -3581,7 +3581,7 @@ RENDERERS["regular-end"] = function () {
     if (!c) return '<div class="aw-row"><span class="aw-rank">' + icon + '</span><div class="aw-name">暂无数据</div></div>';
     const statTxt = statFmt ? statFmt(c.st) : (c.st ? c.st.ppg.toFixed(1) + "分 " + c.st.rpg.toFixed(1) + "板 " + c.st.apg.toFixed(1) + "助" : (c.v ? c.v.toFixed(1) + "分/场" : ""));
     return '<div class="aw-row' + (highlight ? " me" : "") + '"><span class="aw-rank">' + icon + "</span>" +
-      '<div class="aw-name">' + esc(c.p.nameCn) + '<span class="aw-team">' + esc(teamName(c.p.team)) + "</span></div>" +
+      '<div class="aw-name">' + esc(c.p.nameCn) + '<span class="aw-team">' + esc(teamName(c.teamAbbr || c.p.team)) + "</span></div>" +
       '<div class="aw-line">' + (statTxt || "") + "</div></div>";
   };
   const POS_LABEL = ["G", "G", "F", "F", "C"];
@@ -3600,7 +3600,7 @@ RENDERERS["regular-end"] = function () {
         '<div class="ovr-badge ' + ovrClass(m.p.ovr) + '">' + m.p.ovr + '</div>' +
         '<div class="tm-main">' +
         '<div class="tm-name">' + esc(m.p.nameCn) + '</div>' +
-        '<div class="tm-sub"><span class="tm-team">' + esc(teamName(m.p.team)) + '</span>' + statLine + '</div>' +
+        '<div class="tm-sub"><span class="tm-team">' + esc(teamName(m.teamAbbr || m.p.team)) + '</span>' + statLine + '</div>' +
         '</div>' +
         '</div>';
     }).join("");
@@ -3707,7 +3707,7 @@ RENDERERS.seasonend = function () {
     '<div class="fmvp-badge">FMVP</div>' +
     '<div class="fmvp-info">' +
     '  <div class="fmvp-name">' + esc(awards.fmvp.p.nameCn) + '</div>' +
-    '  <div class="fmvp-team">' + esc(teamName(awards.fmvp.p.team)) + '</div></div>' +
+    '  <div class="fmvp-team">' + esc(teamName(awards.fmvp.teamAbbr || awards.fmvp.p.team)) + '</div></div>' +
     '<div class="fmvp-stats">' + awards.fmvp.st.ppg.toFixed(1) + "分 " + awards.fmvp.st.rpg.toFixed(1) + "板 " + awards.fmvp.st.apg.toFixed(1) + "助</div>" +
     '</div>' : '';
   $("#screen-seasonend").innerHTML =

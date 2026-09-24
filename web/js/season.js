@@ -390,7 +390,7 @@ function liveAwardRanks(save) {
     const isSixth = isMine && !starterIds.has(p.id);
     const sixth = isSixth ? st.ppg + st.apg * 0.5 : 0;
     const realGP = rs ? rs.g : 0;
-    return { p, st, mvp, dpoy, sixth, mine: isMine, winPct, realGP };
+    return { p, st, mvp, dpoy, sixth, mine: isMine, winPct, realGP, teamAbbr: teamMap.get(p.id) || p.team };
   });
 
   const mvpTop = candidates.slice().sort((a, b) => b.mvp - a.mvp).slice(0, 10);
@@ -426,7 +426,7 @@ function seasonAwards(save) {
     const teamAbbr = teamMap.get(p.id) || p.team;
     const teamSt = save.standings[teamAbbr];
     if (teamSt) { const gp = teamSt.w + teamSt.l; if (gp) winPct = teamSt.w / gp; }
-    return { p, st, mvp: st.ppg + st.rpg * 1.2 + st.apg * 1.5 + winPct * 10, dpoy: (st.spg * 2 + st.bpg * 2.2) + (p.attrs ? p.attrs.def : p.ovr * 0.3) * 0.25, mine: myIds.has(p.id) };
+    return { p, st, mvp: st.ppg + st.rpg * 1.2 + st.apg * 1.5 + winPct * 10, dpoy: (st.spg * 2 + st.bpg * 2.2) + (p.attrs ? p.attrs.def : p.ovr * 0.3) * 0.25, mine: myIds.has(p.id), teamAbbr: teamMap.get(p.id) || p.team };
   });
   const mvp = candidates.slice().sort((a, b) => b.mvp - a.mvp).slice(0, 5);
   const dpoy = candidates.slice().sort((a, b) => b.dpoy - a.dpoy).slice(0, 3);
@@ -455,7 +455,7 @@ function seasonAwards(save) {
       const rs = real[id];
       const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : adjEstStats(p, save, abbr, curEstStats(p0, p, est));
       if (!st) return;
-      sixthCandidates.push({ p, st, mine: myIds.has(id) });
+      sixthCandidates.push({ p, st, mine: myIds.has(id), teamAbbr: abbr });
     });
   });
   const sixth = sixthCandidates.sort((a, b) => b.st.ppg - a.st.ppg)[0] || null;
@@ -526,7 +526,7 @@ function seasonAwards(save) {
       if (!st) return null;
       const score = st.ppg * 1.0 + st.rpg * 0.7 + st.apg * 0.8 + (st.spg + st.bpg) * 1.5;
       const mine = myIds.has(id);
-      return { p, st, score, mine };
+      return { p, st, score, mine, teamAbbr: champAbbr };
     }).filter(x => x).sort((a, b) => b.score - a.score)[0] || null;
   }
 
