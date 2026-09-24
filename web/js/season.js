@@ -21,7 +21,7 @@ function getExpYears(p, seasonNo) {
   const sn = seasonNo || 1;
   if (p.draftYear && p.draftYear > 1980) {
     const gameYear = BASE_GAME_YEAR + sn - 1;
-    return Math.max(0, gameYear - p.draftYear - 1);
+    return Math.max(0, gameYear - p.draftYear);
   }
   /* 无 draftYear：落选秀 / 自由球员，按 20 岁进联盟估算 */
   if (p.age) return Math.max(0, p.age - 20);
@@ -30,19 +30,19 @@ function getExpYears(p, seasonNo) {
 /* 新秀判断：仅进入联盟的第一个赛季。
    优先级：
    1. draftSeason（processPick 设定的自定义新秀赛季号，精确）
-   2. draftYear（数据文件真实 NBA 球员选秀年，gameYear - 1 === draftYear）
+   2. draftYear（数据文件真实 NBA 球员选秀年，draftYear === gameYear）
    3. isRookie 兜底（仅限无 draftYear 的旧自定义球员）
-   注意：BASE_GAME_YEAR=2026 代表 2025-26 赛季（NBA 跨年度），
-   所以 2025 年选秀的球员（draftYear=2025）在 gameYear=2026 时是新秀。 */
+   注意：BASE_GAME_YEAR=2026 代表 2026-27 赛季（NBA 跨年度，10月开打），
+   所以 2026 年选秀的球员（draftYear=2026）在 gameYear=2026 时是新秀。 */
 function isRookiePlayer(p, seasonNo) {
   if (!p) return false;
   const sn = seasonNo || 1;
   /* 自定义新秀：draftSeason 精确到赛季号 */
   if (p.draftSeason) return p.draftSeason === sn;
-  /* 数据文件球员：draftYear === gameYear - 1 */
+  /* 数据文件球员：draftYear === gameYear */
   if (p.draftYear && p.draftYear > 1980) {
     const gameYear = BASE_GAME_YEAR + sn - 1;
-    return p.draftYear === gameYear - 1;
+    return p.draftYear === gameYear;
   }
   /* 旧档兼容 */
   return !!p.isRookie;
