@@ -4674,6 +4674,8 @@ RENDERERS.draft = function () {
   const posCount = { G: 0, F: 0, C: 0 };
   avail.forEach(r => { const c = catOf(r.pos); if (c) posCount[c]++; });
   const availFiltered = d.posFilter === "all" ? avail : avail.filter(r => catOf(r.pos) === d.posFilter);
+  /* 传奇新秀始终置顶展示：班底顺序被打乱，若传奇落在 SHOW=30 之后会不可见（需点位置筛选才能看到） */
+  availFiltered.sort((a, b) => (b.isLegend ? 1 : 0) - (a.isLegend ? 1 : 0));
   const logRows = d.draftLog.slice(-10).reverse();
   const SHOW = 30;
 
