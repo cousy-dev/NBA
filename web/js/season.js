@@ -28,19 +28,21 @@ function getExpYears(p, seasonNo) {
   return 0;
 }
 /* 新秀判断：仅进入联盟的第一个赛季。
-   优先用 draftSeason（processPick 设定的权威赛季号），
-   其次用 draftYear（数据文件中真实 NBA 球员的选秀年），
-   最后用 isRookie 兜底（仅限无 draftYear 的旧自定义球员）。
-   不能只靠 isRookie —— 该标记永久为 true，会导致传奇新秀年年入选新秀阵 */
+   优先级：
+   1. draftSeason（processPick 设定的自定义新秀赛季号，精确）
+   2. draftYear（数据文件真实 NBA 球员选秀年，gameYear - 1 === draftYear）
+   3. isRookie 兜底（仅限无 draftYear 的旧自定义球员）
+   注意：BASE_GAME_YEAR=2026 代表 2025-26 赛季（NBA 跨年度），
+   所以 2025 年选秀的球员（draftYear=2025）在 gameYear=2026 时是新秀。 */
 function isRookiePlayer(p, seasonNo) {
   if (!p) return false;
   const sn = seasonNo || 1;
-  /* 自定义新秀：draftSeason 精确到赛季号，不受 genDraftClass 调用时机影响 */
+  /* 自定义新秀：draftSeason 精确到赛季号 */
   if (p.draftSeason) return p.draftSeason === sn;
-  /* 数据文件球员：按选秀年判断 */
+  /* 数据文件球员：draftYear === gameYear - 1 */
   if (p.draftYear && p.draftYear > 1980) {
     const gameYear = BASE_GAME_YEAR + sn - 1;
-    return gameYear <= p.draftYear;
+    return p.draftYear === gameYear - 1;
   }
   /* 旧档兼容 */
   return !!p.isRookie;
@@ -300,14 +302,14 @@ function curEstStats(p0, pCur, est) {
    实际应 15+ 分。adjEstStats 在 estStats 基础上乘使用率倍率，仅对当赛季新秀生效。 */
 function adjEstStats(p, save, teamAbbr, base) {
   const sn = save.seasonNo || 1;
-  const rookie = p.draftSeason ? p.draftSeason === sn : !!p.isRookie;
+  const rookie = isRookiePlayer(p, sn);  /* 复用统一的新秀检测（含 draftYear） */
   /* teamAbbr 回退：没传就用 p.team 字段 */
   const abbr = teamAbbr || p.team;
   /* DEBUG */
   if (!adjEstStats._callCount) adjEstStats._callCount = 0;
   adjEstStats._callCount++;
-  if (adjEstStats._callCount <= 3 || (p.pick && p.pick > 0) || p.draftSeason) {
-    console.log("[adjEstStats#" + adjEstStats._callCount + "]", p.nameCn, "| rookie=", rookie, "| ds=", p.draftSeason, "| sn=", sn, "| pick=", p.pick, "| team=", abbr, "| ovr=", p.ovr, "| basePPG=", base.ppg);
+  if (adjEstStats._callCount <= 3 || rookie || (p.pick && p.pick > 0) || p.draftYear) {
+    console.log("[adjEstStats#" + adjEstStats._callCount + "]", p.nameCn, "| rookie=", rookie, "| draftYear=", p.draftYear, "| sn=", sn, "| pick=", p.pick, "| team=", abbr, "| ovr=", p.ovr, "| basePPG=", base.ppg);
   }
   if (!rookie) return base;
   /* 球队胜率：当前战绩≥10场用当前，否则回退上赛季 */
