@@ -295,6 +295,71 @@ function curEstStats(p0, pCur, est) {
   return pCur === p0 ? est.get(p0.id) : estStats(pCur);
 }
 
+/* 按球队状态+顺位调整的新秀估算数据
+   estStats 纯 OVR 估算：OVR 76 状元仅 4.8 分，但摆烂队状元获大量出手+上场时间，
+   实际应 15+ 分。adjEstStats 在 estStats 基础上乘使用率倍率，仅对当赛季新秀生效。 */
+function adjEstStats(p, save, teamAbbr, base) {
+  const sn = save.seasonNo || 1;
+  const rookie = p.draftSeason ? p.draftSeason === sn : !!p.isRookie;
+  if (!rookie) return base;
+  /* 球队胜率：当前战绩≥10场用当前，否则回退上赛季 */
+  let winPct = 0.5;
+  if (teamAbbr && save.standings && save.standings[teamAbbr]) {
+    const st = save.standings[teamAbbr];
+    const gp = st.w + st.l;
+    if (gp >= 10) winPct = st.w / gp;
+    else if (save.lastSeason && save.lastSeason[teamAbbr]) {
+      const rec = save.lastSeason[teamAbbr];
+      const tot = (rec.wins || 0) + (rec.losses || 0);
+      if (tot > 0) winPct = rec.wins / tot;
+    }
+  }
+  const tier = winPct < 0.35 ? 1 : (winPct < 0.45 ? 2 : (winPct > 0.60 ? 4 : 3));
+  /* 顺位/潜力使用率倍率（模拟更多出手和上场时间） */
+  const pick = p.pick || 0;
+  const pot = p.potential || 0;
+  let pf;
+  if (pick > 0) {
+    if (pick <= 5) pf = 3.0;        /* 状元~前5 */
+    else if (pick <= 14) pf = 2.5;  /* 乐透 */
+    else if (pick <= 30) pf = 2.0;   /* 首轮 */
+    else pf = 1.5;                    /* 二轮 */
+  } else if (pot >= 92) pf = 3.0;
+  else if (pot >= 85) pf = 2.5;
+  else if (pot >= 78) pf = 2.0;
+  else pf = 1.5;
+  /* 传奇新秀始终高使用率（pickRotation 已给 32+ 分钟） */
+  if (p.isLegend) pf = Math.max(pf, 2.8);
+  /* 球队状态修正：摆烂队全力培养，争冠队新秀坐板凳 */
+  let mult;
+  if (tier === 1) mult = pf;                              /* 摆烂：完整加成 */
+  else if (tier === 2) mult = 1 + (pf - 1) * 0.7;         /* 重建：70% */
+  else if (tier === 4) mult = p.isLegend ? 2.5 : 0.7;    /* 争冠：传奇仍高，其他减 */
+  else mult = 1 + (pf - 1) * 0.3;                         /* 边缘：30% */
+  /* 上限：低 OVR 新秀数据不超过球星水平 */
+  const cap = p.ovr >= 85 ? 30 : p.ovr >= 78 ? 25 : 20;
+  return {
+    ppg: Math.min(cap, Math.max(1.5, base.ppg * mult)),
+    rpg: base.rpg * (1 + (mult - 1) * 0.3),
+    apg: base.apg * (1 + (mult - 1) * 0.4),
+    spg: base.spg * mult,
+    bpg: base.bpg * mult
+  };
+}
+
+/* 构建 playerId → teamAbbr 反查表（含用户队+AI队） */
+function buildPlayerTeamMap(save) {
+  const m = new Map();
+  const my = myAbbr(save);
+  save.roster.forEach(r => m.set(r.id, my));
+  if (save.aiRosters) {
+    Object.keys(save.aiRosters).forEach(abbr => {
+      save.aiRosters[abbr].forEach(id => m.set(id, abbr));
+    });
+  }
+  return m;
+}
+
 /* ===== 赛季中实时奖项排行 ===== */
 function liveAwardRanks(save) {
   const real = save.playerStats || {};
@@ -302,20 +367,22 @@ function liveAwardRanks(save) {
   const est = leagueEst();
   const my = myAbbr(save);
   const gp = save.gameNo || 0;
+  const teamMap = buildPlayerTeamMap(save);
   /* 用户队替补识别（OVR 前 5 为首发） */
   const mineSorted = loadMyPlayers(save).slice().sort((a, b) => b.p.ovr - a.p.ovr);
   const starterIds = new Set(mineSorted.slice(0, 5).map(x => x.p.id));
 
   const candidates = PLAYERS_RATED.players.map(p0 => {
     const p = curSeasonPlayer(p0, save);
-    let st = curEstStats(p0, p, est);
+    let st = adjEstStats(p, save, teamMap.get(p.id), curEstStats(p0, p, est));
     const rs = real[p.id];
     const isMine = myIds.has(p.id);
     /* 用户球员有真实数据且打了足够场次，用真实数据 */
     if (rs && rs.g >= 5 && isMine) {
       st = { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g };
     }
-    const teamSt = save.standings[p.team];
+    const teamAbbr = teamMap.get(p.id) || p.team;
+    const teamSt = save.standings[teamAbbr];
     let winPct = 0.45;
     if (teamSt) { const t = teamSt.w + teamSt.l; if (t) winPct = teamSt.w / t; }
     const mvp = st.ppg + st.rpg * 1.2 + st.apg * 1.5 + winPct * 10;
@@ -347,15 +414,17 @@ function seasonAwards(save) {
   const real = save.playerStats || {};
   const myIds = new Set(save.roster.map(r => r.id));
   const est = leagueEst();
+  const teamMap = buildPlayerTeamMap(save);
   const candidates = PLAYERS_RATED.players.map(p0 => {
     const p = curSeasonPlayer(p0, save);
-    let st = curEstStats(p0, p, est);
+    let st = adjEstStats(p, save, teamMap.get(p.id), curEstStats(p0, p, est));
     const rs = real[p.id];
     if (rs && rs.g >= 20 && myIds.has(p.id)) {
       st = { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g };
     }
     let winPct = 0.45;
-    const teamSt = save.standings[p.team];
+    const teamAbbr = teamMap.get(p.id) || p.team;
+    const teamSt = save.standings[teamAbbr];
     if (teamSt) { const gp = teamSt.w + teamSt.l; if (gp) winPct = teamSt.w / gp; }
     return { p, st, mvp: st.ppg + st.rpg * 1.2 + st.apg * 1.5 + winPct * 10, dpoy: (st.spg * 2 + st.bpg * 2.2) + (p.attrs ? p.attrs.def : p.ovr * 0.3) * 0.25, mine: myIds.has(p.id) };
   });
@@ -384,7 +453,7 @@ function seasonAwards(save) {
       if (!p0) return;
       const p = curSeasonPlayer(p0, save);
       const rs = real[id];
-      const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : curEstStats(p0, p, est);
+      const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : adjEstStats(p, save, abbr, curEstStats(p0, p, est));
       if (!st) return;
       sixthCandidates.push({ p, st, mine: myIds.has(id) });
     });
@@ -453,7 +522,7 @@ function seasonAwards(save) {
       if (!p0) return null;
       const p = curSeasonPlayer(p0, save);
       const rs = real[id];
-      const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : curEstStats(p0, p, est);
+      const st = rs && rs.g ? { ppg: rs.pts / rs.g, rpg: rs.reb / rs.g, apg: rs.ast / rs.g, spg: rs.stl / rs.g, bpg: rs.blk / rs.g } : adjEstStats(p, save, champAbbr, curEstStats(p0, p, est));
       if (!st) return null;
       const score = st.ppg * 1.0 + st.rpg * 0.7 + st.apg * 0.8 + (st.spg + st.bpg) * 1.5;
       const mine = myIds.has(id);
