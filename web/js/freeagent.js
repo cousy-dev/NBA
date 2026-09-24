@@ -767,6 +767,13 @@ function simAIFreeAgency(save) {
     });
   });
 
+  /* 用户未续约的 RFA 转为 UFA，供 AI 队在 Phase 2 签约 */
+  (save.faPool || []).forEach(f => {
+    if (f.originTeam === myAbbr(save) && faCategory(f) === "RFA") {
+      f.isRookieScale = false;
+    }
+  });
+
   /* Phase 2：球员驱动选择 —— 从高 OVR 到低 OVR，每个球员从 top-3 最有吸引力的 AI 队中选择
      （忽略用户队，用户队已在自由市场页面完成签约） */
   const ufai = (save.faPool || []).filter(f => faCategory(f) === "UFA")
@@ -829,8 +836,10 @@ RENDERERS.freeagent = function () {
 
   /* FA 分类：UFA / RFA / 我的续约 */
   const ufa = fa.filter(f => faCategory(f) === "UFA").sort((a, b) => b.ovr - a.ovr);
-  const rfa = fa.filter(f => faCategory(f) === "RFA").sort((a, b) => b.ovr - a.ovr);
-  const myRenew = fa.filter(f => f.originTeam === myAbr && faCategory(f) === "UFA" && f.birdYears >= 1)
+  /* RFA tab 只显示其他球队的 RFA（用户的 RFA 球员走"我的续约"直接续约，不走 AI 匹配） */
+  const rfa = fa.filter(f => faCategory(f) === "RFA" && f.originTeam !== myAbr).sort((a, b) => b.ovr - a.ovr);
+  /* 我的续约：本队到期球员（含 UFA 和 RFA），用户自行决定是否续约 */
+  const myRenew = fa.filter(f => f.originTeam === myAbr && f.birdYears >= 1)
     .sort((a, b) => b.ovr - a.ovr);
 
   const customMap = new Map((save.customPlayers || []).map(p => [p.id, p]));
@@ -880,7 +889,7 @@ RENDERERS.freeagent = function () {
       '    <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
       '    <div class="renew-info">' +
       '      <div class="renew-name">' + esc(p.nameCn) + '</div>' +
-      '      <div class="renew-meta">' + birdTag(f) + " " + esc(posLabel(p)) + " · " + f.age + "岁 · 上限 " + fmtM(maxSal) + "/年</div>" +
+      '<div class="renew-meta">' + birdTag(f) + (faCategory(f) === "RFA" ? ' <span class="fa-tag rfa-tag">RFA</span>' : '') + " " + esc(posLabel(p)) + " · " + f.age + "岁 · 上限 " + fmtM(maxSal) + "/年</div>" +
       '    </div>' +
       '  </div>' +
       '  <div class="fa-renew">' +

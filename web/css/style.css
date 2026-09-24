@@ -1235,6 +1235,7 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .fa-tag.bird-non { background: rgba(160,160,160,0.18); color: #b0b0b0; border: 1px solid rgba(160,160,160,0.4); }
 .fa-tag.opt-po { background: rgba(63,191,127,0.18); color: #3fbf7f; border: 1px solid rgba(63,191,127,0.5); }
 .fa-tag.opt-to { background: rgba(255,169,77,0.18); color: #ffa94d; border: 1px solid rgba(255,169,77,0.5); }
+.fa-tag.rfa-tag { background: rgba(168,31,46,0.18); color: #c0392b; border: 1px solid rgba(192,57,43,0.5); }
 .fa-cat { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; margin-right: 4px; }
 .fa-cat.ufa { background: rgba(63,191,127,0.18); color: #3fbf7f; }
 .fa-cat.rfa { background: rgba(255,107,94,0.18); color: #a81f2e; }
