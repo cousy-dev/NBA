@@ -301,21 +301,23 @@ function curEstStats(p0, pCur, est) {
 function adjEstStats(p, save, teamAbbr, base) {
   const sn = save.seasonNo || 1;
   const rookie = p.draftSeason ? p.draftSeason === sn : !!p.isRookie;
-  /* DEBUG: 无条件打印前3个球员，确认函数被调用；然后只打印有pick的 */
+  /* teamAbbr 回退：没传就用 p.team 字段 */
+  const abbr = teamAbbr || p.team;
+  /* DEBUG */
   if (!adjEstStats._callCount) adjEstStats._callCount = 0;
   adjEstStats._callCount++;
   if (adjEstStats._callCount <= 3 || (p.pick && p.pick > 0) || p.draftSeason) {
-    console.log("[adjEstStats#" + adjEstStats._callCount + "]", p.nameCn, "| rookie=", rookie, "| ds=", p.draftSeason, "| sn=", sn, "| pick=", p.pick, "| team=", teamAbbr, "| ovr=", p.ovr, "| basePPG=", base.ppg);
+    console.log("[adjEstStats#" + adjEstStats._callCount + "]", p.nameCn, "| rookie=", rookie, "| ds=", p.draftSeason, "| sn=", sn, "| pick=", p.pick, "| team=", abbr, "| ovr=", p.ovr, "| basePPG=", base.ppg);
   }
   if (!rookie) return base;
   /* 球队胜率：当前战绩≥10场用当前，否则回退上赛季 */
   let winPct = 0.5;
-  if (teamAbbr && save.standings && save.standings[teamAbbr]) {
-    const st = save.standings[teamAbbr];
+  if (abbr && save.standings && save.standings[abbr]) {
+    const st = save.standings[abbr];
     const gp = st.w + st.l;
     if (gp >= 10) winPct = st.w / gp;
-    else if (save.lastSeason && save.lastSeason[teamAbbr]) {
-      const rec = save.lastSeason[teamAbbr];
+    else if (save.lastSeason && save.lastSeason[abbr]) {
+      const rec = save.lastSeason[abbr];
       const tot = (rec.wins || 0) + (rec.losses || 0);
       if (tot > 0) winPct = rec.wins / tot;
     }
@@ -358,25 +360,31 @@ function adjEstStats(p, save, teamAbbr, base) {
   };
 }
 
-/* 构建 playerId → teamAbbr 反查表（含用户队+AI队） */
+/* 构建 playerId → teamAbbr 反查表（含用户队+AI队）
+   优先用 save.roster/save.aiRosters，失败时回退 p.team 字段
+   （某些旧档 aiRosters 缺失或为空，p.team 是原始球队归属） */
 function buildPlayerTeamMap(save) {
   const m = new Map();
   const my = myAbbr(save);
-  save.roster.forEach(r => m.set(r.id, my));
-  if (save.aiRosters) {
+  /* 用户队 */
+  (save.roster || []).forEach(r => m.set(r.id, my));
+  /* AI 队 */
+  if (save.aiRosters && Object.keys(save.aiRosters).length) {
     Object.keys(save.aiRosters).forEach(abbr => {
-      save.aiRosters[abbr].forEach(id => m.set(id, abbr));
-    });
-  }
-  /* DEBUG: 扩张队自定义球员 */
-  if (save.customPlayers && save.customPlayers.length) {
-    save.customPlayers.forEach(cp => {
-      const abbr = m.get(cp.id);
-      if (cp.pick || cp.draftSeason) {
-        console.log("[buildPlayerTeamMap] 自定义新秀:", cp.nameCn, "pick=", cp.pick, "draftSeason=", cp.draftSeason, "teamAbbr=", abbr, "p.team=", cp.team);
+      if (Array.isArray(save.aiRosters[abbr])) {
+        save.aiRosters[abbr].forEach(id => m.set(id, abbr));
       }
     });
   }
+  /* DEBUG：统计 */
+  const withPick = (PLAYERS_RATED.players || []).filter(p => p.pick && p.pick > 0).length;
+  const withDs = (PLAYERS_RATED.players || []).filter(p => p.draftSeason).length;
+  const customCnt = (save.customPlayers || []).length;
+  console.log("[buildPlayerTeamMap] roster=", (save.roster||[]).length, "aiRosters=", Object.keys(save.aiRosters||{}).length, "customPlayers=", customCnt, "PLAYERS_RATED总pick=", withPick, "PLAYERS_RATED总draftSeason=", withDs);
+  /* 给 PLAYERS_RATED 里没找到队的球员补 p.team 字段（回退） */
+  PLAYERS_RATED.players.forEach(p => {
+    if (!m.has(p.id) && p.team) m.set(p.id, p.team);
+  });
   return m;
 }
 
