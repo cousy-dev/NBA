@@ -339,6 +339,7 @@ function processOptions(save) {
   if (!save.roster) return;
   const customMap = new Map((save.customPlayers || []).map(p => [p.id, p]));
   const ratedMap = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+  const myTeam = myAbbr(save);
   save.roster.forEach(r => {
     if (!r.optionType) return;
     /* 选项触发条件：合同年数到达选项年 */
@@ -346,7 +347,8 @@ function processOptions(save) {
     const p = customMap.get(r.id) || ratedMap.get(r.id);
     const ovr = (p ? p.ovr : 70) + ((save.ovrAdj || {})[r.id] || 0);
     if (r.optionType === "player") {
-      /* 球员选项：高 OVR 跳出试水 FA，低 OVR 执行求稳 */
+      /* 球员选项：高 OVR 跳出试水 FA，低 OVR 执行求稳。
+         用户自己的球员也走 AI 判定（球员选项是球员的决定，不是球队） */
       const jumpProb = ovr >= 90 ? 0.80 : ovr >= 85 ? 0.60 : ovr >= 80 ? 0.40 : 0.20;
       if (Math.random() < jumpProb) {
         r.years = 0; /* 跳出，标记到期 */
@@ -356,15 +358,24 @@ function processOptions(save) {
         r._skipDecYears = true; /* 执行了选项，跳过后续 years-1 */
       }
     } else if (r.optionType === "team") {
-      /* 球队选项：高 OVR 执行保留，低 OVR 放弃 */
-      const execProb = ovr >= 88 ? 0.95 : ovr >= 80 ? 0.75 : ovr >= 70 ? 0.50 : 0.25;
-      if (Math.random() < execProb) {
+      /* 球队选项：用户队自动执行保留（用户可后续手动放弃或交易）；
+         AI 队按 OVR 概率决定执行或放弃 */
+      if (myTeam && save.team && (save.team.abbr || "CUS") === myTeam) {
+        /* 用户球队选项：自动执行 */
         r.salary = r.optionSalary || r.salary;
         r.optionType = null; r.optionYear = 0;
-        r._skipDecYears = true; /* 执行了选项，跳过后续 years-1 */
+        r._skipDecYears = true;
       } else {
-        r.years = 0; /* 放弃，进入 FA */
-        r.optionType = null; r.optionYear = 0;
+        /* AI 球队选项：高 OVR 执行保留，低 OVR 放弃 */
+        const execProb = ovr >= 88 ? 0.95 : ovr >= 80 ? 0.75 : ovr >= 70 ? 0.50 : 0.25;
+        if (Math.random() < execProb) {
+          r.salary = r.optionSalary || r.salary;
+          r.optionType = null; r.optionYear = 0;
+          r._skipDecYears = true;
+        } else {
+          r.years = 0; /* 放弃，进入 FA */
+          r.optionType = null; r.optionYear = 0;
+        }
       }
     }
   });
