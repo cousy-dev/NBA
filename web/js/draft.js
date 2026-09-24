@@ -202,6 +202,17 @@ function genDraftClass(save) {
       }
       class_[minIdx] = legendRookie;
     }
+    /* 彩蛋：每年额外注入一名 CBA 传奇新秀版（潜力≤95，反映 CBA 与 NBA 整体水平差距） */
+    const cbaLegend = pickCbaLegend(save);
+    if (cbaLegend) {
+      const cbaRookie = genLegendRookie(cbaLegend, save, { potential: cbaLegend.pot, college: "CBA传奇", cba: true });
+      /* 替换剩余普通新秀中 OVR 最低的一个（isLegend 已排除 NBA 传奇与 CBA 传奇自身） */
+      let minIdx = -1, minOvr = 99;
+      for (let i = 0; i < class_.length; i++) {
+        if (!class_[i].isLegend && class_[i].ovr < minOvr) { minOvr = class_[i].ovr; minIdx = i; }
+      }
+      if (minIdx >= 0) class_[minIdx] = cbaRookie;
+    }
   }
 
   /* 打乱展示顺序：避免玩家总是选第一位就拿到最高潜力新秀；
@@ -304,8 +315,54 @@ function pickLegend(save) {
   return pick;
 }
 
+/* ===== CBA 传奇巨星彩蛋 ===== */
+/* 每年选秀额外随机生成一名 CBA 传奇的新秀版：名字与传奇一致，OVR 为新秀期估值，
+   潜力上限 95（略低于 NBA 75 大巨星，反映 CBA 与 NBA 整体水平差距） */
+const CBA_LEGENDS = [
+  { name: "姚明", pos: "C", ovr: 78, h: 226, w: 141, pot: 95 },
+  { name: "易建联", pos: "PF", ovr: 73, h: 213, w: 116, pot: 92 },
+  { name: "王治郅", pos: "C", ovr: 71, h: 214, w: 125, pot: 90 },
+  { name: "胡卫东", pos: "SG", ovr: 72, h: 198, w: 95, pot: 90 },
+  { name: "刘玉栋", pos: "SF", ovr: 72, h: 198, w: 100, pot: 89 },
+  { name: "巴特尔", pos: "C", ovr: 70, h: 211, w: 132, pot: 88 },
+  { name: "朱芳雨", pos: "SF", ovr: 70, h: 201, w: 104, pot: 87 },
+  { name: "孙军", pos: "SG", ovr: 69, h: 197, w: 98, pot: 86 },
+  { name: "巩晓彬", pos: "PF", ovr: 69, h: 202, w: 104, pot: 86 },
+  { name: "郭艾伦", pos: "PG", ovr: 69, h: 192, w: 87, pot: 88 },
+  { name: "丁彦雨航", pos: "SF", ovr: 68, h: 201, w: 98, pot: 89 },
+  { name: "孙悦", pos: "PG", ovr: 67, h: 205, w: 98, pot: 88 },
+  { name: "王仕鹏", pos: "SG", ovr: 67, h: 196, w: 93, pot: 85 },
+  { name: "周琦", pos: "C", ovr: 66, h: 217, w: 95, pot: 88 },
+  { name: "胡金秋", pos: "PF", ovr: 67, h: 211, w: 110, pot: 87 },
+  { name: "穆铁柱", pos: "C", ovr: 67, h: 228, w: 130, pot: 86 },
+  { name: "刘炜", pos: "PG", ovr: 67, h: 189, w: 88, pot: 84 },
+  { name: "唐正东", pos: "C", ovr: 68, h: 213, w: 120, pot: 84 },
+  { name: "李楠", pos: "SF", ovr: 66, h: 198, w: 100, pot: 83 },
+  { name: "杜锋", pos: "PF", ovr: 65, h: 207, w: 98, pot: 83 },
+  { name: "阿的江", pos: "PG", ovr: 64, h: 180, w: 80, pot: 85 },
+  { name: "张卫平", pos: "PF", ovr: 65, h: 193, w: 90, pot: 84 },
+  { name: "张劲松", pos: "SG", ovr: 65, h: 196, w: 90, pot: 82 },
+  { name: "李晓勇", pos: "PG", ovr: 65, h: 189, w: 85, pot: 83 }
+];
+
+/* 随机挑选一名 CBA 传奇巨星：每次顺序不同，独立于 NBA 传奇记录 */
+function pickCbaLegend(save) {
+  if (!save) return null;
+  if (!save.cbaLegendsUsed) save.cbaLegendsUsed = [];
+  let available = CBA_LEGENDS.filter(l => !save.cbaLegendsUsed.includes(l.name));
+  if (!available.length) {
+    save.cbaLegendsUsed = [];
+    available = CBA_LEGENDS.slice();
+  }
+  const pick = available[Math.floor(Math.random() * available.length)];
+  save.cbaLegendsUsed.push(pick.name);
+  return pick;
+}
+
 /* 根据传奇数据生成新秀版球员 */
-function genLegendRookie(legend, save) {
+/* opts: { potential, college, cba } —— potential 覆盖默认99，college 覆盖学校标签，cba 标记 CBA 传奇 */
+function genLegendRookie(legend, save, opts) {
+  opts = opts || {};
   const id = (++ROOKIE_ID_COUNTER) * 1000 + Math.floor(Math.random() * 1000);
   if (save) save.rookieIdCounter = ROOKIE_ID_COUNTER;
   const ovr = legend.ovr;
@@ -340,7 +397,7 @@ function genLegendRookie(legend, save) {
   else if (ovr >= 68) collegePpg = 14 + (ovr - 68) * 0.9 + collegeJitter(11, 3);
   else collegePpg = 8 + Math.max(0, ovr - 60) * 0.7 + collegeJitter(11, 2);
   const collegeStats = {
-    college: "传奇名校",
+    college: opts.college || "传奇名校",
     ppg: Math.max(1.5, Math.round(collegePpg * 10) / 10),
     rpg: Math.max(1.0, Math.round(((posR[pos] || 5) * (0.6 + ovrFactor * 0.7) + collegeJitter(12, 1.5)) * 10) / 10),
     apg: Math.max(0.3, Math.round(((posA[pos] || 3) * (0.6 + ovrFactor * 0.7) + collegeJitter(13, 1.2)) * 10) / 10),
@@ -359,10 +416,11 @@ function genLegendRookie(legend, save) {
     ovr, ratingSource: "draft",
     attrs, mgr,
     stats: null,
-    potential: 99, /* 传奇潜力恒定 99 */
+    potential: opts.potential != null ? opts.potential : 99, /* NBA 传奇 99，CBA 传奇 ≤95 */
     collegeStats,
     isRookie: true,
-    isLegend: true
+    isLegend: true,
+    isCbaLegend: !!opts.cba
   };
 }
 

@@ -4446,7 +4446,7 @@ RENDERERS.scout = function () {
     return '<div class="scout-row' + (rep ? " reported" : "") + '">' +
       '  <div class="scout-head">' +
       '    <span class="dr-rank">' + (i + 1) + "</span>" +
-      '    <span class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r)) + "</span></span>" +
+      '    <span class="dr-name">' + esc(r.nameCn) + (r.isLegend ? ' <span class="dr-star">★</span>' : '') + (r.isCbaLegend ? ' <span class="cba-tag">CBA</span>' : '') + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r)) + "</span></span>" +
       '    <span class="dr-age">' + r.age + "岁 · " + (r.heightCm || 198) + "cm · " + esc(cs.college || "") + "</span>" +
       "  </div>" +
       '  <div class="dr-cstats">' +
@@ -4771,7 +4771,7 @@ RENDERERS.draft = function () {
       return '<div class="draft-row' + (isMyTurn ? " selectable" : " locked") + (rep ? " has-intel" : "") + (r.isLegend ? " legend-row" : "") + '" data-id="' + r.id + '">' +
       '  <span class="dr-rank">' + (i + 1) + "</span>" +
       '  <div class="dr-info">' +
-      '    <div class="dr-name">' + esc(r.nameCn) + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r)) + "</span>" +
+      '    <div class="dr-name">' + esc(r.nameCn) + (r.isLegend ? ' <span class="dr-star">★</span>' : '') + (r.isCbaLegend ? ' <span class="cba-tag">CBA</span>' : '') + ' <span class="pos-chip ' + posClass(r.pos) + '">' + esc(posLabel(r)) + "</span>" +
       '      <span class="dr-age">' + r.age + "岁 · " + (r.heightCm || 198) + "cm</span></div>" +
       '    <div class="dr-college">' + esc(cs.college || "大学") + "</div>" +
       '    <div class="dr-cstats">' +
@@ -4875,7 +4875,7 @@ function announceDraftPick(pickOrder, rookie, onClose) {
       '</div>' +
       '<div class="dpm-action">选 择 了</div>' +
       '<div class="dpm-player' + (isLegend ? " legend" : "") + '">' +
-        '<div class="dpm-player-name">' + esc(rookie.nameCn) + (isLegend ? ' <span class="dpm-star">★</span>' : '') + '</div>' +
+        '<div class="dpm-player-name">' + esc(rookie.nameCn) + (isLegend ? ' <span class="dpm-star">★</span>' : '') + (rookie.isCbaLegend ? ' <span class="cba-tag">CBA</span>' : '') + '</div>' +
         '<div class="dpm-player-meta">' + esc(posLabel(rookie)) + " · " + rookie.age + "岁 · " + (rookie.heightCm || 198) + "cm</div>" +
       '</div>' +
       '<div class="dpm-stats">' +
@@ -4929,13 +4929,13 @@ RENDERERS["draft-result"] = function () {
     (myPicks.length ? '<div class="se-card gold"><h3>🎯 你的新秀</h3>' +
       myPicks.map(r =>
         '<div class="aw-row me"><span class="aw-rank">' + r.pick + "</span>" +
-        '<div class="aw-name">' + esc(r.rookie.nameCn) + '<span class="aw-team">第' + r.pick + "顺位</span></div>" +
+        '<div class="aw-name">' + esc(r.rookie.nameCn) + (r.rookie.isCbaLegend ? ' <span class="cba-tag">CBA</span>' : '') + '<span class="aw-team">第' + r.pick + "顺位</span></div>" +
         '<div class="aw-line">OVR ' + r.rookie.ovr + " · 潜力 " + r.rookie.potential + " · " + esc(r.rookie.pos) + "</div></div>"
       ).join("") + "</div>" : "") +
     '<div class="se-card"><h3>📋 首轮选秀结果</h3>' +
     firstRound.map(r =>
       '<div class="aw-row' + (r.abbr === my ? " me" : "") + '"><span class="aw-rank">' + r.pick + "</span>" +
-      '<div class="aw-name">' + esc(r.rookie.nameCn) + '<span class="aw-team">' + esc(teamName(r.abbr)) +
+      '<div class="aw-name">' + esc(r.rookie.nameCn) + (r.rookie.isCbaLegend ? ' <span class="cba-tag">CBA</span>' : '') + '<span class="aw-team">' + esc(teamName(r.abbr)) +
       (r.orig && r.orig !== r.abbr ? '（原属' + esc(teamName(r.orig)) + '）' : "") + "</span></div>" +
       '<div class="aw-line">OVR ' + r.rookie.ovr + " · 潜力 " + r.rookie.potential + "</div></div>"
     ).join("") + "</div>" +

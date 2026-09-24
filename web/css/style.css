@@ -948,7 +948,8 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 /* 传奇巨星新秀行：金色边框微光 */
 .draft-row.legend-row { border-color: rgba(255,200,0,.5); background: linear-gradient(90deg, rgba(255,200,0,.04), var(--card)); }
 .draft-row.legend-row .dr-name { color: #b8860b; font-weight: 800; }
-.draft-row.legend-row .dr-name::after { content: " ★"; color: var(--gold); font-size: 12px; }
+.dr-star { color: var(--gold); font-size: 13px; font-weight: 700; }
+.cba-tag { display: inline-block; font-size: 10px; font-weight: 700; color: #fff; background: #c0392b; border: 1px solid #e74c3c; border-radius: 4px; padding: 1px 5px; margin-left: 3px; vertical-align: middle; }
 .draft-more-hint { text-align: center; font-size: 11.5px; color: var(--muted); padding: 8px 0; }
 /* 选秀动态日志 */
 .draft-log { margin-top: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
