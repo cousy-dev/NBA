@@ -4420,7 +4420,10 @@ RENDERERS.scout = function () {
   const reportOf = id => sc.done[id] || null;
   const activeOf = id => sc.active.find(j => j.id === id);
 
-  const rows = cls.map((r, i) => {
+  /* 按场均得分从高到低排序，便于优先考察高分新秀 */
+  const sorted = cls.slice().sort((a, b) =>
+    ((b.collegeStats && b.collegeStats.ppg) || 0) - ((a.collegeStats && a.collegeStats.ppg) || 0));
+  const rows = sorted.map((r, i) => {
     const rep = reportOf(r.id);
     const job = activeOf(r.id);
     const cs = r.collegeStats || {};
