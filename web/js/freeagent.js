@@ -948,7 +948,8 @@ RENDERERS.freeagent = function () {
     '<button class="btn btn-outline" id="btn-fa-trade">休赛期交易</button>' +
     "</div>";
 
-  /* 我的阵容 HTML */
+  /* 我的阵容 HTML（首发徽标 = 实际首发 5 人：1C+2F+2G） */
+  const starterIds = currentStarterIds(save);
   const rosterHtml = mine.sort((a, b) => b.p.ovr - a.p.ovr).map((x, i) => {
     const r = save.roster.find(rr => rr.id === x.p.id) || {};
     const optTag = r.optionType === "player" ? '<span class="fa-tag opt-po">球员选项</span>'
@@ -956,7 +957,7 @@ RENDERERS.freeagent = function () {
     return '<div class="r-row" data-id="' + x.p.id + '">' +
       '  <span class="r-idx">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
-      '  <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
+      '  <div class="r-name">' + esc(x.p.nameCn) + (starterIds.includes(x.p.id) ? '<span class="starter">首发</span>' : "") + "</div>" +
       '  <div class="r-meta">' + esc(posLabel(x.p)) + " · " + fmtM(x.sal) + " · " + (r.years || 1) + "年 " + optTag + "</div>" +
       '  <button class="fa-release" data-id="' + x.p.id + '">释放</button>' +
       "</div>";

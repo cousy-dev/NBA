@@ -1036,6 +1036,8 @@ RENDERERS.summary = function () {
   const left = Math.round((d.budget - total) * 10) / 10;
   const top8 = d.rosterArr.slice(0, 8);
   const teamOvr = (top8.reduce((s, x) => s + x.p.ovr, 0) / top8.length).toFixed(1);
+  /* 首发徽标按位置自动安排（1C+2F+2G），而非 OVR 前 5 */
+  const autoStarters = pickRotation(d.rosterArr.map(x => x.p), { seasonNo: 1, winPct: 0.5 }).starters;
 
   $("#screen-summary").innerHTML =
     '<h2 class="screen-title">球队确认</h2>' +
@@ -1059,7 +1061,7 @@ RENDERERS.summary = function () {
       '  <span class="r-idx">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '  <div class="r-main">' +
-      '    <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + "</div>" +
+      '    <div class="r-name">' + esc(x.p.nameCn) + (autoStarters.includes(x.p.id) ? '<span class="starter">首发</span>' : "") + "</div>" +
       '    <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + "岁</div>" +
       "  </div>" +
       '  <div class="r-salary">' + fmtM(x.sal) + "</div>" +
@@ -1751,7 +1753,8 @@ RENDERERS.hub = function () {
       ).join("") + "</div>"
     : '<div class="empty-stats">暂无历史赛季记录</div>';
 
-  /* 球队阵容 HTML */
+  /* 球队阵容 HTML（首发徽标 = 实际首发 5 人：1C+2F+2G） */
+  const starterIds = currentStarterIds(save);
   const rosterHtml = '<div class="roster-table" id="hub-roster">' +
     mine.sort((a, b) => b.p.ovr - a.p.ovr).map((x, i) => {
       const m = moraleOf(save, x.p.id);
@@ -1761,7 +1764,7 @@ RENDERERS.hub = function () {
         '  <span class="r-idx">' + (i + 1) + "</span>" +
         '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
         '  <div class="r-main">' +
-        '    <div class="r-name">' + esc(x.p.nameCn) + (i < 5 ? '<span class="starter">首发</span>' : "") + injTag + "</div>" +
+        '    <div class="r-name">' + esc(x.p.nameCn) + (starterIds.includes(x.p.id) ? '<span class="starter">首发</span>' : "") + injTag + "</div>" +
         '    <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + '岁 <span class="morale-chip" style="color:' + moraleColor(m) + '">士气' + m + '</span></div>' +
         "  </div>" +
         '  <div class="r-salary">' + fmtM(x.sal) + " · " + (save.roster.find(rr => rr.id === x.p.id) || {}).years + "年</div>" +
@@ -1996,7 +1999,7 @@ function buildCoachOverride(save, players) {
   const benchPool = ids
     .filter(id => !starters.includes(id) && roleOf(id) !== "dnp")
     .sort((a, b) => {
-      const pa = players.find(p => p.id === a), pb = players.find(p => p.id === b.id);
+      const pa = players.find(p => p.id === a), pb = players.find(p => p.id === b);
       return (pb ? pb.ovr : 0) - (pa ? pa.ovr : 0);
     });
   /* 第六人排板凳首位 */
@@ -2010,6 +2013,17 @@ function buildCoachOverride(save, players) {
   starters.forEach(id => { targetMin[id] = 33; });
   orderedBench.slice(0, 5).forEach((id, i) => { targetMin[id] = benchMin[i]; });
   return { rotationIds, starters, targetMin };
+}
+
+/* 当前实际首发 5 人 ID：教练设置优先（恰好 5 人时），否则按位置自动安排（1C+2F+2G） */
+function currentStarterIds(save) {
+  const c = save.coach;
+  const all = loadMyPlayers(save).map(x => x.p);
+  if (c && c.roles) {
+    const starters = all.map(p => p.id).filter(id => c.roles[id] === "starter");
+    if (starters.length === 5) return starters;
+  }
+  return pickRotation(all, { seasonNo: save.seasonNo || 1, winPct: 0.5 }).starters;
 }
 function startMatch(quick) {
   const save = state.save;
@@ -4318,6 +4332,19 @@ RENDERERS.coach = function () {
   });
   $("#btn-coach-save").onclick = () => {
     if (count("starter") !== 5) { toast("请先安排恰好 5 名首发（当前 " + count("starter") + " 人）"); return; }
+    /* 首发位置构成校验：必须 1C + 2F + 2G（阵容足够组成时强制） */
+    const starters = mine.filter(x => roleOf(x.p.id) === "starter").map(x => x.p);
+    const nC = starters.filter(p => catOf(p.pos) === "C").length;
+    const nF = starters.filter(p => catOf(p.pos) === "F").length;
+    const nG = starters.filter(p => catOf(p.pos) === "G").length;
+    const all = mine.map(x => x.p);
+    const canForm = all.filter(p => catOf(p.pos) === "C").length >= 1
+      && all.filter(p => catOf(p.pos) === "F").length >= 2
+      && all.filter(p => catOf(p.pos) === "G").length >= 2;
+    if (canForm && (nC !== 1 || nF !== 2 || nG !== 2)) {
+      toast("首发必须由 1 个C + 2 个F + 2 个G 组成（当前 C" + nC + " F" + nF + " G" + nG + "）");
+      return;
+    }
     c.pace = $("#ct-pace").value;
     c.focus = $("#ct-focus").value;
     c.def = $("#ct-def").value;
@@ -4326,11 +4353,13 @@ RENDERERS.coach = function () {
   };
   $("#btn-coach-auto").onclick = () => {
     c.roles = {};
-    const sorted = loadMyPlayers(save).sort((a, b) => b.p.ovr - a.p.ovr);
-    sorted.slice(0, 5).forEach(x => { c.roles[x.p.id] = "starter"; });
-    if (sorted[5]) c.roles[sorted[5].p.id] = "sixth";
+    /* 按位置自动安排首发：1C + 2F + 2G（各类别内取 OVR 最高者），第六人取板凳 OVR 最高者 */
+    const rot = pickRotation(loadMyPlayers(save).map(x => x.p), { seasonNo: save.seasonNo || 1, winPct: 0.5 });
+    rot.starters.forEach(id => { c.roles[id] = "starter"; });
+    const sixthP = rot.rotation[rot.starters.length];
+    if (sixthP) c.roles[sixthP.id] = "sixth";
     RENDERERS.coach(); activate("coach", true);
-    toast("已按能力值自动安排轮换");
+    toast("已按位置自动安排首发（1C + 2F + 2G）");
   };
 };
 

@@ -23,8 +23,17 @@ function pickRotation(players, teamCtx) {
   const gs = byCat("G"), fs = byCat("F"), cs = byCat("C");
   const starters = [];
   const take = arr => { for (const p of arr) if (!starters.includes(p)) return p; return null; };
-  [cs, fs, fs, gs, gs].forEach(pool => {
-    const p = take(pool) || take(gs) || take(fs) || take(cs);
+  /* 首发必须 1C + 2F + 2G：按槽位取各类别 OVR 最高者；
+     类别人数不足时按邻近位置顺延（C缺→F→G，F缺→C→G，G缺→F→C），保持阵容合理性 */
+  [
+    { pool: cs, fb: [fs, gs] },
+    { pool: fs, fb: [cs, gs] },
+    { pool: fs, fb: [cs, gs] },
+    { pool: gs, fb: [fs, cs] },
+    { pool: gs, fb: [fs, cs] }
+  ].forEach(slot => {
+    let p = take(slot.pool);
+    if (!p) for (const alt of slot.fb) { p = take(alt); if (p) break; }
     if (p) starters.push(p);
   });
   while (starters.length < 5) {
