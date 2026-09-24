@@ -301,6 +301,10 @@ function curEstStats(p0, pCur, est) {
 function adjEstStats(p, save, teamAbbr, base) {
   const sn = save.seasonNo || 1;
   const rookie = p.draftSeason ? p.draftSeason === sn : !!p.isRookie;
+  /* DEBUG: 追踪新秀数据修正（包括检测失败情况） */
+  if ((p.pick || 0) <= 5 && (p.draftSeason || p.isRookie)) {
+    console.log("[adjEstStats]", p.nameCn, "rookie=", rookie, "draftSeason=", p.draftSeason, "seasonNo=", sn, "pick=", p.pick, "teamAbbr=", teamAbbr, "ovr=", p.ovr, "base.ppg=", base.ppg);
+  }
   if (!rookie) return base;
   /* 球队胜率：当前战绩≥10场用当前，否则回退上赛季 */
   let winPct = 0.5;
@@ -314,7 +318,12 @@ function adjEstStats(p, save, teamAbbr, base) {
       if (tot > 0) winPct = rec.wins / tot;
     }
   }
-  const tier = winPct < 0.35 ? 1 : (winPct < 0.45 ? 2 : (winPct > 0.60 ? 4 : 3));
+  /* 球队状态分层：1=摆烂(<35%) 2=重建(35-45%) 3=边缘(45-60%) 4=争冠(>60%)
+     扩张队(seasonNo<=save.expansionBonusUntilSeason)始终视为摆烂重建 */
+  let tier;
+  const isExpansion = save.expansion && save.seasonNo <= (save.expansionBonusUntilSeason || 3);
+  if (isExpansion) tier = 1;
+  else tier = winPct < 0.35 ? 1 : (winPct < 0.45 ? 2 : (winPct > 0.60 ? 4 : 3));
   /* 顺位/潜力使用率倍率（模拟更多出手和上场时间） */
   const pick = p.pick || 0;
   const pot = p.potential || 0;

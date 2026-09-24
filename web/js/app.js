@@ -1949,9 +1949,11 @@ function buildSimFor(gi) {
     }
     return 0.5;
   };
+  const homeAbbr = save.team.logoAbbr || myAbbr(save);
+  const isExpansion = !!(save.expansion && save.seasonNo <= (save.expansionBonusUntilSeason || 3));
   const home = {
-    name: save.team.displayName, short: "", abbr: save.team.logoAbbr, players: mine,
-    seasonNo: save.seasonNo || 1, winPct: winPctOf(save.team.logoAbbr)
+    name: save.team.displayName, short: "", abbr: homeAbbr, players: mine,
+    seasonNo: save.seasonNo || 1, winPct: winPctOf(homeAbbr), expansion: isExpansion
   };
   /* 教练设置：轮换覆盖 + 战术 */
   const ov = buildCoachOverride(save, mine);

@@ -9,8 +9,10 @@
 function pickRotation(players, teamCtx) {
   const seasonNo = teamCtx ? (teamCtx.seasonNo || 1) : 1;
   const winPct = teamCtx && teamCtx.winPct != null ? teamCtx.winPct : 0.5;
-  /* 球队状态分层：1=摆烂(<35%) 2=重建(35-45%) 3=边缘(45-60%) 4=争冠(>60%) */
-  const tier = winPct < 0.35 ? 1 : (winPct < 0.45 ? 2 : (winPct > 0.60 ? 4 : 3));
+  /* 球队状态分层：1=摆烂(<35%) 2=重建(35-45%) 3=边缘(45-60%) 4=争冠(>60%)
+     扩张队始终视为摆烂重建，无论胜率 */
+  const isExpansion = !!(teamCtx && teamCtx.expansion);
+  const tier = isExpansion ? 1 : (winPct < 0.35 ? 1 : (winPct < 0.45 ? 2 : (winPct > 0.60 ? 4 : 3)));
   /* 新秀判定：优先用 draftSeason（精确赛季号），无则回退 isRookie 标记 */
   const isRookie = p => {
     if (p.draftSeason) return p.draftSeason === seasonNo;
