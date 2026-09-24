@@ -301,9 +301,11 @@ function curEstStats(p0, pCur, est) {
 function adjEstStats(p, save, teamAbbr, base) {
   const sn = save.seasonNo || 1;
   const rookie = p.draftSeason ? p.draftSeason === sn : !!p.isRookie;
-  /* DEBUG: 所有球员都打印，确认函数被调用 + 新秀检测 */
-  if (p.nameCn && (p.nameCn.indexOf("迪班萨") >= 0 || (p.pick && p.pick <= 5) || p.isRookie || p.draftSeason)) {
-    console.log("[adjEstStats]", p.nameCn, "| rookie=", rookie, "| draftSeason=", p.draftSeason, "| seasonNo=", sn, "| pick=", p.pick, "| teamAbbr=", teamAbbr, "| ovr=", p.ovr, "| isRookie标记=", p.isRookie, "| base.ppg=", base.ppg);
+  /* DEBUG: 无条件打印前3个球员，确认函数被调用；然后只打印有pick的 */
+  if (!adjEstStats._callCount) adjEstStats._callCount = 0;
+  adjEstStats._callCount++;
+  if (adjEstStats._callCount <= 3 || (p.pick && p.pick > 0) || p.draftSeason) {
+    console.log("[adjEstStats#" + adjEstStats._callCount + "]", p.nameCn, "| rookie=", rookie, "| ds=", p.draftSeason, "| sn=", sn, "| pick=", p.pick, "| team=", teamAbbr, "| ovr=", p.ovr, "| basePPG=", base.ppg);
   }
   if (!rookie) return base;
   /* 球队胜率：当前战绩≥10场用当前，否则回退上赛季 */
@@ -433,6 +435,7 @@ function seasonAwards(save) {
   const myIds = new Set(save.roster.map(r => r.id));
   const est = leagueEst();
   const teamMap = buildPlayerTeamMap(save);
+  adjEstStats._callCount = 0;  /* 重置计数器 */
   console.log("[seasonAwards] called, seasonNo=", save.seasonNo, "total players=", PLAYERS_RATED.players.length);
   const candidates = PLAYERS_RATED.players.map(p0 => {
     const p = curSeasonPlayer(p0, save);
