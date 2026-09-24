@@ -301,9 +301,9 @@ function curEstStats(p0, pCur, est) {
 function adjEstStats(p, save, teamAbbr, base) {
   const sn = save.seasonNo || 1;
   const rookie = p.draftSeason ? p.draftSeason === sn : !!p.isRookie;
-  /* DEBUG: 追踪新秀数据修正（包括检测失败情况） */
-  if ((p.pick || 0) <= 5 && (p.draftSeason || p.isRookie)) {
-    console.log("[adjEstStats]", p.nameCn, "rookie=", rookie, "draftSeason=", p.draftSeason, "seasonNo=", sn, "pick=", p.pick, "teamAbbr=", teamAbbr, "ovr=", p.ovr, "base.ppg=", base.ppg);
+  /* DEBUG: 所有球员都打印，确认函数被调用 + 新秀检测 */
+  if (p.nameCn && (p.nameCn.indexOf("迪班萨") >= 0 || (p.pick && p.pick <= 5) || p.isRookie || p.draftSeason)) {
+    console.log("[adjEstStats]", p.nameCn, "| rookie=", rookie, "| draftSeason=", p.draftSeason, "| seasonNo=", sn, "| pick=", p.pick, "| teamAbbr=", teamAbbr, "| ovr=", p.ovr, "| isRookie标记=", p.isRookie, "| base.ppg=", base.ppg);
   }
   if (!rookie) return base;
   /* 球队胜率：当前战绩≥10场用当前，否则回退上赛季 */
@@ -366,6 +366,15 @@ function buildPlayerTeamMap(save) {
       save.aiRosters[abbr].forEach(id => m.set(id, abbr));
     });
   }
+  /* DEBUG: 扩张队自定义球员 */
+  if (save.customPlayers && save.customPlayers.length) {
+    save.customPlayers.forEach(cp => {
+      const abbr = m.get(cp.id);
+      if (cp.pick || cp.draftSeason) {
+        console.log("[buildPlayerTeamMap] 自定义新秀:", cp.nameCn, "pick=", cp.pick, "draftSeason=", cp.draftSeason, "teamAbbr=", abbr, "p.team=", cp.team);
+      }
+    });
+  }
   return m;
 }
 
@@ -424,6 +433,7 @@ function seasonAwards(save) {
   const myIds = new Set(save.roster.map(r => r.id));
   const est = leagueEst();
   const teamMap = buildPlayerTeamMap(save);
+  console.log("[seasonAwards] called, seasonNo=", save.seasonNo, "total players=", PLAYERS_RATED.players.length);
   const candidates = PLAYERS_RATED.players.map(p0 => {
     const p = curSeasonPlayer(p0, save);
     let st = adjEstStats(p, save, teamMap.get(p.id), curEstStats(p0, p, est));
