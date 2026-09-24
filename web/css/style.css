@@ -950,6 +950,7 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .draft-row.legend-row .dr-name { color: #b8860b; font-weight: 800; }
 .dr-star { color: var(--gold); font-size: 13px; font-weight: 700; }
 .cba-tag { display: inline-block; font-size: 10px; font-weight: 700; color: #fff; background: #c0392b; border: 1px solid #e74c3c; border-radius: 4px; padding: 1px 5px; margin-left: 3px; vertical-align: middle; }
+.nba-legend-tag { display: inline-block; font-size: 10px; font-weight: 700; color: #fff; background: #b03a2e; border: 1px solid #c0392b; border-radius: 4px; padding: 1px 5px; margin-left: 3px; vertical-align: middle; }
 .draft-more-hint { text-align: center; font-size: 11.5px; color: var(--muted); padding: 8px 0; }
 /* 选秀动态日志 */
 .draft-log { margin-top: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
