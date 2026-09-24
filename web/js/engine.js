@@ -3,8 +3,20 @@
 /* 位置归类函数 catOf/evaluateFit 已移至 positions.js，支持新旧位置值
    （G/G-F/F/F-C/C 旧版 + PG/SG/SF/PF/C 新版），engine.js 直接使用 */
 
-/* 挑选 10 人轮换 + 分钟目标 */
-function pickRotation(players) {
+/* 挑选 10 人轮换 + 分钟目标
+   teamCtx（可选）：{ seasonNo, winPct } —— 用于按球队状态定制新秀出场时间
+   摆烂队(win%<35%)新秀获更多培养时间；争冠队(win%>60%)新秀坐板凳除非能力值够高 */
+function pickRotation(players, teamCtx) {
+  const seasonNo = teamCtx ? (teamCtx.seasonNo || 1) : 1;
+  const winPct = teamCtx && teamCtx.winPct != null ? teamCtx.winPct : 0.5;
+  /* 球队状态分层：1=摆烂(<35%) 2=重建(35-45%) 3=边缘(45-60%) 4=争冠(>60%) */
+  const tier = winPct < 0.35 ? 1 : (winPct < 0.45 ? 2 : (winPct > 0.60 ? 4 : 3));
+  /* 新秀判定：优先用 draftSeason（精确赛季号），无则回退 isRookie 标记 */
+  const isRookie = p => {
+    if (p.draftSeason) return p.draftSeason === seasonNo;
+    return !!p.isRookie;
+  };
+
   const byCat = k => players.filter(p => catOf(p.pos) === k).sort((a, b) => b.ovr - a.ovr);
   const gs = byCat("G"), fs = byCat("F"), cs = byCat("C");
   const starters = [];
@@ -20,7 +32,24 @@ function pickRotation(players) {
   const bench = players.filter(p => !starters.includes(p)).sort((a, b) => b.ovr - a.ovr);
   const rotation = starters.concat(bench.slice(0, 5));
 
-  /* 分钟目标：真实 MPG 优先，否则按 OVR 分档 */
+  /* 顺位加成：高顺位新秀应获更多培养时间 */
+  function pickBonusOf(p) {
+    const pick = p.pick || 0;
+    const pot = p.potential || 0;
+    if (pick > 0) {
+      if (pick <= 5) return 12;       /* 状元~前5 */
+      if (pick <= 14) return 8;        /* 乐透 */
+      if (pick <= 30) return 5;        /* 首轮 */
+      return 3;                         /* 二轮 */
+    }
+    /* 无顺位信息时按潜力估算 */
+    if (pot >= 92) return 12;
+    if (pot >= 85) return 8;
+    if (pot >= 78) return 5;
+    return 3;
+  }
+
+  /* 分钟目标：真实 MPG 优先，否则按 OVR 分档，再按球队状态调整新秀 */
   const targetMin = new Map();
   rotation.forEach(p => {
     let m;
@@ -32,17 +61,49 @@ function pickRotation(players) {
     else if (p.ovr >= 73) m = 16;
     else if (p.ovr >= 68) m = 10;
     else m = 5;
-    /* 传奇新秀（如新秀保罗）立即作为核心培养：32 分钟；
-       高潜力新秀（状元级潜力 92+）28 分钟，85+ 潜力 24 分钟 */
-    if (p.isLegend) m = Math.max(m, 32);
-    else if (p.isRookie && (p.potential || 0) >= 92) m = Math.max(m, 28);
-    else if (p.isRookie && (p.potential || 0) >= 85) m = Math.max(m, 24);
+    /* 传奇新秀（如新秀保罗）始终核心培养 32 分钟 */
+    if (p.isLegend) {
+      m = Math.max(m, 32);
+    } else if (isRookie(p)) {
+      const bonus = pickBonusOf(p);
+      if (tier === 1) {
+        /* 摆烂队：全力培养新秀，首发出场级别时间 */
+        m = Math.max(m, 18 + bonus);
+      } else if (tier === 2) {
+        /* 重建队：适度培养 */
+        m = Math.max(m, 14 + bonus);
+      } else if (tier === 4) {
+        /* 争冠队：新秀减时间，除非能力值够高 */
+        if (p.ovr >= 85) m = Math.max(m, 22);
+        else if (p.ovr >= 80) m = Math.max(m, 16);
+        else if ((p.potential || 0) >= 92) m = Math.max(m, 14);
+        else m = Math.min(m, 10);
+      } else {
+        /* 边缘队：谨慎使用，有潜力给中等时间 */
+        m = Math.max(m, 10 + Math.round(bonus * 0.5));
+        if (p.ovr >= 80) m = Math.max(m, 20);
+      }
+    }
     targetMin.set(p.id, m);
   });
-  /* 归一化到 240 分钟（48min × 5位置），按 OVR 设上下限 */
+  /* 归一化到 240 分钟（48min × 5位置），按 OVR + 球队状态设上限 */
   const minCap = p => {
     if (p.isLegend) return 34;
-    if (p.isRookie && (p.potential || 0) >= 92) return 30;
+    const rookie = isRookie(p);
+    const pot = p.potential || 0;
+    if (rookie && pot >= 92) return 30;
+    /* 摆烂队新秀上限更高（多吸收分钟），争冠队新秀上限更低（让位老兵） */
+    if (rookie && tier === 1) {
+      const pick = p.pick || 0;
+      if (pick > 0 && pick <= 5) return 30;
+      if (pick > 0 && pick <= 14) return 26;
+      if (pot >= 85) return 26;
+      return 22;
+    }
+    if (rookie && tier === 4) {
+      if (p.ovr >= 85) return 28;
+      return 12;
+    }
     const o = p.ovr;
     if (o < 65) return 8;
     if (o < 70) return 14;
@@ -112,7 +173,7 @@ class GameSim {
       rotationIds.forEach(id => { if (ov.targetMin[id] != null) targetMin.set(id, ov.targetMin[id]); });
       rot = { rotation, starters, targetMin };
     } else {
-      rot = pickRotation(all);
+      rot = pickRotation(all, { seasonNo: info.seasonNo, winPct: info.winPct });
     }
     const side = {
       idx, info, all,

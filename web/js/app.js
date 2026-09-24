@@ -1938,13 +1938,28 @@ function buildSimFor(gi) {
   const opp = oppRoster
     .filter(id => !isInjured(save, id))
     .map(id => { const p0 = customById.get(id) || byId.get(id); return p0 ? applyAdj(p0, save) : null; }).filter(Boolean);
-  const home = { name: save.team.displayName, short: "", abbr: save.team.logoAbbr, players: mine };
+  /* 球队胜率：当前战绩不足10场时回退上赛季战绩，否则取0.5 */
+  const winPctOf = abbr => {
+    const st = save.standings && save.standings[abbr];
+    if (st && (st.w + st.l) >= 10) return st.w / (st.w + st.l);
+    if (save.lastSeason && save.lastSeason[abbr]) {
+      const rec = save.lastSeason[abbr];
+      const tot = (rec.wins || 0) + (rec.losses || 0);
+      if (tot > 0) return rec.wins / tot;
+    }
+    return 0.5;
+  };
+  const home = {
+    name: save.team.displayName, short: "", abbr: save.team.logoAbbr, players: mine,
+    seasonNo: save.seasonNo || 1, winPct: winPctOf(save.team.logoAbbr)
+  };
   /* 教练设置：轮换覆盖 + 战术 */
   const ov = buildCoachOverride(save, mine);
   if (ov) home.rotationOverride = ov;
   const sim = new GameSim(
     home,
-    { name: oppT.nameCn, short: "", abbr: gi.opp, players: opp },
+    { name: oppT.nameCn, short: "", abbr: gi.opp, players: opp,
+      seasonNo: save.seasonNo || 1, winPct: winPctOf(gi.opp) },
     gi.home ? 0 : 1   /* 真实主客场：客场时对手(teams[1])为主场 */
   );
   const c = save.coach || {};
