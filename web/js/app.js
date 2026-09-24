@@ -1358,6 +1358,18 @@ function migrateSave(save) {
   if (!save.record) save.record = { w: 0, l: 0 };
   if (save.gameNo === undefined) save.gameNo = 0;
   if (save.seasonNo === undefined) save.seasonNo = 1;
+  /* 旧档/坏档：aiRosters 缺失或为空时自动从 PLAYERS_RATED 重建
+     - 扩张模式：排除已被用户队选走的球员（save.roster 中的 id）
+     - 其他模式：直接用默认球队归属 */
+  if (!save.aiRosters || Object.keys(save.aiRosters).length === 0) {
+    save.aiRosters = {};
+    const myIds = new Set((save.roster || []).map(r => r.id));
+    TEAMS.forEach(t => {
+      const ids = playersByTeam(t.abbr).map(p => p.id).filter(id => !myIds.has(id));
+      save.aiRosters[t.abbr] = ids;
+    });
+    console.log("[migrateSave] 自动重建 aiRosters，共", Object.keys(save.aiRosters).length, "队");
+  }
   /* 旧档：字符串赛程 → 重新生成 82 场对象赛程，已打场次按战绩折算 */
   if (!save.schedule || (save.schedule.length && typeof save.schedule[0] === "string")) {
     const played = save.record.w + save.record.l;
