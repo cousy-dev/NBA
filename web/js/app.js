@@ -1533,9 +1533,21 @@ function teamName(abbr) {
   return t ? t.nameCn : abbr;
 }
 function confLabel(c) { return c === "E" ? "东部" : "西部"; }
-/* 当前比赛信息（常规赛 / 季后赛 / 无） */
+/* 当前比赛信息（常规赛 / 附加赛 / 季后赛 / 无） */
 function currentGame(save) {
   if (save.playoffs && !save.playoffs.done) {
+    /* 附加赛阶段：用户 7-10 名需要手打的单场生死战 */
+    if (save.playoffs.stage === "playin" && save.playoffs.piUserGame) {
+      const ug = save.playoffs.piUserGame;
+      const my = myAbbr(save);
+      return {
+        opp: ug.a === my ? ug.b : ug.a,
+        home: ug.userHome,
+        label: ug.label,
+        playoff: true, playin: true, seriesScore: null
+      };
+    }
+    if (save.playoffs.stage === "playin") return null;  /* 附加赛 AI 场结算中，无可打比赛 */
     /* 同步用户系列赛引用（刷新后可能指向旧轮次），不再自动模拟 AI 比赛 */
     syncUserSeries(save);
     if (save.playoffs.done || !save.playoffs.userSeries) return null;
@@ -1714,6 +1726,21 @@ RENDERERS.hub = function () {
     } else {
       gameHtml = '<div class="next-game"><div class="ng-label">暂无比赛安排</div></div>';
     }
+  } else if (gi.playin) {
+    /* 附加赛：单场生死战，无系列赛比分、无"模拟此轮" */
+    const oppStr = teamStrength(gi.opp).toFixed(1);
+    const piTag = '<div class="ng-meta series-tag" style="color:#d4554f">⚡ 单场淘汰 · ' + esc(gi.label.replace(/^附加赛\s*/, "")) + "</div>";
+    gameHtml = '<div class="next-game" id="hub-next">' +
+      '<div class="ng-label">' + esc(gi.label) + " · " + (gi.home ? "主场" : "客场") + "</div>" +
+      '<div class="ng-row">' +
+      '    <div class="ng-team">' + (save.team.logoAbbr ? teamLogoHtml(save.team.logoAbbr) : '<div class="th-fb ng-fb">🏀</div>') + "<span>" + esc(save.team.displayName) + "</span></div>" +
+      '    <div class="ng-vs">VS</div>' +
+      '    <div class="ng-team">' + teamLogoHtml(gi.opp) + "<span>" + esc(teamName(gi.opp)) + "</span></div>" +
+      "  </div>" + piTag +
+      '<div class="ng-meta">对手实力 ' + oppStr + " · " + "★".repeat(stars(parseFloat(oppStr))) + "</div>" +
+      '<div class="ng-btns"><button class="btn btn-primary" id="btn-play">开始比赛</button>' +
+      '<button class="btn btn-outline" id="btn-quick">快速模拟</button></div>' +
+      "</div>";
   } else if (gi.playoff) {
     /* 季后赛保持原样式 */
     const oppStr = teamStrength(gi.opp).toFixed(1);
@@ -2383,6 +2410,7 @@ function runSimAnimation(save, totalGames, opts) {
     return {
       opp: gi.opp, home: gi.home, win, sc,
       playoff: !!gi.playoff,
+      playin: !!gi.playin,
       seriesScore: gi.seriesScore || null,
       postSeriesScore: postScore,
       label: gi.label || "",
@@ -2412,8 +2440,25 @@ function runSimAnimation(save, totalGames, opts) {
     resultEl.className = "sa-result";
     oppEl.innerHTML = teamLogoHtml(r.opp) + "<span>" + esc(teamName(r.opp)) + "</span>";
     stage.classList.remove("win", "loss", "series-clinched");
-    /* 季后赛：显示系列赛比分与轮次标签（优先用赛后大比分） */
-    if (r.playoff) {
+    /* 附加赛：单场生死，不显示系列赛比分 */
+    if (r.playin) {
+      titleEl.textContent = "附加赛模拟中";
+      let note = "";
+      const ps0 = save.playoffs;
+      if (r.win && ps0.stage === "playoffs" && ps0.userSeries) {
+        note = ' <span class="sa-clinched">🎉 锁定第 ' + (ps0.piUserWonKey === "g3" ? "8" : "7") + ' 种子</span>';
+      } else if (r.win && ps0.stage === "playin" && ps0.piUserGame) {
+        note = ' <span class="sa-clinched">赢下生死战，继续冲击第 8 种子</span>';
+      } else if (!r.win && ps0.stage === "playin" && ps0.piUserGame) {
+        note = ' <span class="sa-clinched">输掉 G1，但 G3 生死战仍有机会</span>';
+      } else if (r.win) {
+        note = ' <span class="sa-clinched">🎉 晋级季后赛</span>';
+      } else {
+        note = ' <span class="sa-clinched">附加赛淘汰，赛季结束</span>';
+      }
+      seriesEl.innerHTML = esc(r.label || "附加赛") + note;
+      seriesEl.style.display = "";
+    } else if (r.playoff) {
       titleEl.textContent = "季后赛模拟中";
       const ss = r.postSeriesScore || r.seriesScore;
       const clinched = seriesDone ? ' <span class="sa-clinched">' +
@@ -2513,15 +2558,20 @@ function completeGame(sim, win) {
     return b ? { id: p.id, name: p.nameCn, pts: b.pts, reb: b.reb, ast: b.ast, stl: b.stl, blk: b.blk, tov: b.tov, fgm: b.fgm, fga: b.fga, tpm: b.tpm, tpa: b.tpa, ftm: b.ftm, fta: b.fta } : null;
   }).filter(x => x && (x.pts || x.reb || x.ast || x.stl || x.blk));
   if (save.playoffs && !save.playoffs.done) {
-    const ser = save.playoffs.userSeries;
-    if (ser) {
-      if (!ser.games) ser.games = [];
-      const sc = sim.score();
-      /* 归一化：用户恒为 a 侧，比分存 [myScore, oppScore]，aWin 表示用户赢 */
-      ser.games.push({ score: [sc[0], sc[1]], aWin: win, box: { my: extractBox(sim.teams[0]), opp: extractBox(sim.teams[1]) } });
-      if (win) ser.wa++; else ser.wb++;
+    if (save.playoffs.stage === "playin" && save.playoffs.piUserGame) {
+      /* 附加赛用户单场：提交后自动推进（赢则可能还有 G3，输则可能淘汰） */
+      applyPlayInUserResult(save, win, sim.score().slice());
+    } else {
+      const ser = save.playoffs.userSeries;
+      if (ser) {
+        if (!ser.games) ser.games = [];
+        const sc = sim.score();
+        /* 归一化：用户恒为 a 侧，比分存 [myScore, oppScore]，aWin 表示用户赢 */
+        ser.games.push({ score: [sc[0], sc[1]], aWin: win, box: { my: extractBox(sim.teams[0]), opp: extractBox(sim.teams[1]) } });
+        if (win) ser.wa++; else ser.wb++;
+      }
+      playoffProgress(save);
     }
-    playoffProgress(save);
   } else if (!save.playoffs) {
     const g = save.schedule[save.gameNo];
     if (g) {
@@ -3554,6 +3604,57 @@ function buildPlayoffBracket(save, viewMode) {
   if (!ps) return { html: "", seriesByRef: {} };
   const my = myAbbr(save);
   const teamShort = abbr => { const t = TEAMS.find(x => x.abbr === abbr); return t ? t.nameCn : abbr; };
+  /* 附加赛阶段：展示东西部 G1/G2/G3 三场单场淘汰赛 */
+  if (ps.stage === "playin") {
+    const piRefs = {};
+    const piCard = (g, conf, key, tag) => {
+      if (!g) {
+        return '<div class="br-series"><div class="br-empty po-g3-pending">G3 对阵待定<br><small>（G1 负者 vs G2 胜者）</small></div></div>';
+      }
+      const ref = "pi-" + conf + "-" + key;
+      piRefs[ref] = g;
+      const aWin = g.winner === g.a, bWin = g.winner === g.b;
+      const userA = g.a === my, userB = g.b === my;
+      const myWon = g.done && g.winner === my;
+      const myLost = g.done && (userA || userB) && g.winner !== my;
+      const isUserActive = !g.done && (userA || userB) && ps.piUserGame && ps.piUserGame.key === key;
+      return '<div class="br-series br-clickable' + (userA || userB ? " mine" : "") +
+        (myWon ? " won" : "") + (myLost ? " lost" : "") + (g.done ? " done" : "") +
+        (isUserActive ? " active" : "") + '" data-ref="' + ref + '" data-round="附加赛">' +
+        '<div class="br-team' + (aWin ? " adv" : "") + (userA ? " me" : "") + '">' +
+          '<span class="br-seed">' + (g.seedA || "") + '</span>' +
+          '<span class="br-logo">' + (g.a ? teamLogoHtml(g.a) : "") + '</span>' +
+          '<span class="br-tname">' + esc(teamShort(g.a)) + '</span>' +
+          '<span class="br-score' + (aWin ? " win" : "") + '">' + (g.wa || 0) + '</span>' +
+        '</div>' +
+        '<div class="br-team' + (bWin ? " adv" : "") + (userB ? " me" : "") + '">' +
+          '<span class="br-seed">' + (g.seedB || "") + '</span>' +
+          '<span class="br-logo">' + (g.b ? teamLogoHtml(g.b) : "") + '</span>' +
+          '<span class="br-tname">' + esc(teamShort(g.b)) + '</span>' +
+          '<span class="br-score' + (bWin ? " win" : "") + '">' + (g.wb || 0) + '</span>' +
+        '</div>' +
+        '<div class="br-hint">▸ ' + tag + '</div>' +
+        '</div>';
+    };
+    const confBox = (c) => {
+      const d = ps.pi[c];
+      const seedLine = (label, abbr, cls) => '<div class="pi-seed ' + cls + '"><b>' + label + '</b> ' +
+        (abbr ? teamLogoHtml(abbr) + esc(teamShort(abbr)) : '<span class="pi-tbd">待定</span>') + '</div>';
+      return '<div class="pi-conf">' +
+        '<div class="po-conf-label">' + (c === "E" ? "东部" : "西部") + "附加赛</div>" +
+        '<div class="pi-games">' +
+          piCard(d.g1, c, "g1", "G1 · 胜者锁定第 7 种子") +
+          piCard(d.g2, c, "g2", "G2 · 负者直接淘汰") +
+          piCard(d.g3, c, "g3", "G3 · 胜者拿到第 8 种子") +
+        "</div>" +
+        '<div class="pi-seeds">' + seedLine("第 7 种子", d.seed7, "s7") + seedLine("第 8 种子", d.seed8, "s8") + "</div>" +
+        "</div>";
+    };
+    const tip = ps.piUserGame
+      ? '<div class="br-user-series">⚡ 你的附加赛：' + esc(ps.piUserGame.label) + " · " + (ps.piUserGame.userHome ? "主场" : "客场") + "（单场定胜负，请到主控台出战）</div>"
+      : '<div class="br-user-series">附加赛进行中……</div>';
+    return { html: tip + '<div class="pi-wrap">' + confBox("E") + confBox("W") + "</div>", seriesByRef: piRefs };
+  }
   const logo = abbr => abbr ? teamLogoHtml(abbr) : "";
   const rounds = ps.rounds;
   const seriesCard = (s, isUserInvolved, ref, roundName) => {
@@ -3762,7 +3863,9 @@ RENDERERS["regular-end"] = function () {
   const st = save.standings[my] || { w: 0, l: 0 };
   const conf = confOf(my);
   const myRank = confRanking(save, conf).find(r => r.abbr === my);
-  const madePlayoffs = !!(save.playoffs && save.playoffs.userSeries) || (save.playoffs && save.playoffs.userResult && save.playoffs.userResult !== "未进季后赛");
+  const playInPending = !!(save.playoffs && save.playoffs.stage === "playin" && save.playoffs.piUserGame);
+  const madePlayoffs = !!(save.playoffs && save.playoffs.userSeries) ||
+    (save.playoffs && save.playoffs.userResult && save.playoffs.userResult !== "未进季后赛" && save.playoffs.userResult !== "附加赛淘汰");
   const awards = seasonAwards(save);
   /* 奖项获奖人 */
   const mvp = awards.mvp[0] || null;
@@ -3825,9 +3928,10 @@ RENDERERS["regular-end"] = function () {
     '<h2 class="screen-title">常规赛结束</h2>' +
     '<p class="screen-sub">第 ' + save.seasonNo + " 赛季常规赛 · 战绩 " + st.w + "-" + st.l +
     (myRank ? " · " + confLabel(conf) + "第" + myRank.seed + "位" : "") + "</p>" +
-    '<div class="se-card' + (madePlayoffs ? " gold" : "") + '">' +
-    '<div class="champ-line">' + (madePlayoffs ? "🏀 恭喜！你的球队进入季后赛！" : "赛季结束，你的球队未进入季后赛") + "</div>" +
-    '<div class="ng-meta">' + esc(confLabel(conf)) + "排名：第 " + (myRank ? myRank.seed : "?") + " 位 · 胜率 " + (st.w + st.l ? ((st.w / (st.w + st.l)) * 100).toFixed(1) : "0") + "%</div></div>" +
+    '<div class="se-card' + ((madePlayoffs || playInPending) ? " gold" : "") + '">' +
+    '<div class="champ-line">' + (madePlayoffs ? "🏀 恭喜！你的球队进入季后赛！" : playInPending ? "⚡ 你的球队获得附加赛资格！" : "赛季结束，你的球队未进入季后赛") + "</div>" +
+    '<div class="ng-meta">' + esc(confLabel(conf)) + "排名：第 " + (myRank ? myRank.seed : "?") + " 位 · 胜率 " + (st.w + st.l ? ((st.w / (st.w + st.l)) * 100).toFixed(1) : "0") + "%" +
+    (playInPending ? " · 附加赛单场淘汰，赢球才能进季后赛" : "") + "</div></div>" +
     '<div class="se-card"><h3>年度个人奖项</h3>' +
     awardRow("MVP", mvp, true) +
     awardRow("DPOY", dpoy, false, dpoyFmt) +
@@ -3853,11 +3957,20 @@ RENDERERS["regular-end"] = function () {
     teamCard("最佳新秀 二阵", awards.allRookie2) +
     (madePlayoffs
       ? '<button class="btn btn-primary" id="btn-to-playoffs">进入季后赛</button>'
-      : '<button class="btn btn-primary" id="btn-to-seasonend">查看赛季总结</button>') +
+      : playInPending
+        ? '<button class="btn btn-primary" id="btn-to-playin">出战附加赛</button>'
+        : '<button class="btn btn-primary" id="btn-to-seasonend">查看赛季总结</button>') +
     '<button class="btn btn-outline" id="re-hub">返回经理室</button>';
   const btnPO = $("#btn-to-playoffs");
   if (btnPO) btnPO.onclick = () => {
     toast("季后赛开始！");
+    RENDERERS.hub();
+    state.stack = [];
+    activate("hub");
+  };
+  const btnPI = $("#btn-to-playin");
+  if (btnPI) btnPI.onclick = () => {
+    toast("附加赛开始，单场定胜负！");
     RENDERERS.hub();
     state.stack = [];
     activate("hub");

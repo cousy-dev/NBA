@@ -588,7 +588,7 @@ function seasonIncome(save) {
   let income = 145 + (typeof marketTier === "function" ? marketTier(my) : 0.5) * 75;
   income += (st.w || 0) * 0.4;
   const ps = save.playoffs;
-  if (ps && ps.userResult && ps.userResult !== "未进季后赛") {
+  if (ps && ps.userResult && ps.userResult !== "未进季后赛" && ps.userResult !== "附加赛淘汰") {
     income += 8;
     if (/决赛/.test(ps.userResult)) income += 5;          /* 分区决赛 */
     if (/总决赛|冠军|亚军/.test(ps.userResult)) income += 10;
@@ -791,7 +791,7 @@ function saveSeasonHonors(save, awards) {
     if (save.playoffs.champion === my)
       list.push({ season: save.seasonNo, cat: "team", type: "champion", label: "总冠军" });
     const ur = save.playoffs.userResult;
-    if (ur && ur !== "夺冠" && ur !== "未进季后赛")
+    if (ur && ur !== "夺冠" && ur !== "未进季后赛" && ur !== "附加赛淘汰")
       list.push({ season: save.seasonNo, cat: "team", type: "playoff", label: ur });
   }
   /* 球员个人荣誉 */
@@ -826,24 +826,219 @@ function saveSeasonHonors(save, awards) {
 
 /* ===== 季后赛 ===== */
 function buildPlayoffs(save) {
-  const mk = list => {
+  /* ===== 附加赛 Play-In：东西部 7-10 名，单场淘汰 =====
+     G1: 7vs8（胜者=第7种子）；G2: 9vs10（负者淘汰）；G3: G1负者 vs G2胜者（胜者=第8种子）
+     stage: "playin"（piUserGame 待用户手动打）→ finalizePlayIn 后 "playoffs"（16 队对阵） */
+  const rankE = confRanking(save, "E");
+  const rankW = confRanking(save, "W");
+  const my = myAbbr(save);
+  const myConf = confOf(my);
+  const mySeedE = rankE.findIndex(r => r.abbr === my) + 1;
+  const mySeedW = rankW.findIndex(r => r.abbr === my) + 1;
+  const mySeed = myConf === "E" ? mySeedE : mySeedW;
+
+  save.playoffs = {
+    stage: "playin",
+    pi: { E: mkPlayIn(rankE), W: mkPlayIn(rankW) },
+    piUserGame: null, piUserEliminated: false,
+    rounds: [null, null, null, null],
+    round: null, done: false, champion: null, userResult: null
+  };
+
+  /* 另一区（无用户）立即全部模拟 */
+  simPIConf(save, myConf === "E" ? "W" : "E");
+
+  if (mySeed === 0 || mySeed > 10) {
+    /* 用户未进附加赛（11 名及以后）：模拟本区附加赛后直接建正赛并 AI 全程 */
+    simPIConf(save, myConf);
+    finalizePlayIn(save);
+    save.playoffs.userResult = "未进季后赛";
+    finishAllAI(save);
+    return;
+  }
+  if (mySeed <= 6) {
+    /* 前六直通：本区附加赛 AI 模拟，用户直接进正赛 */
+    simPIConf(save, myConf);
+    finalizePlayIn(save);
+    return;
+  }
+  /* 用户 7-10 名：推进到需要他亲手打的那场（G1 或 G2） */
+  advancePlayIn(save);
+}
+
+/* 构建一个区的附加赛状态（a 侧恒为高种子：G1=7、G2=9） */
+function mkPlayIn(rank) {
+  const g = (aIdx, bIdx) => ({
+    a: rank[aIdx].abbr, b: rank[bIdx].abbr,
+    seedA: rank[aIdx].seed, seedB: rank[bIdx].seed,
+    wa: 0, wb: 0, done: false, winner: null, loser: null, games: []
+  });
+  return { t7: rank[6].abbr, t8: rank[7].abbr, t9: rank[8].abbr, t10: rank[9].abbr,
+    g1: g(6, 7), g2: g(8, 9), g3: null, seed7: null, seed8: null };
+}
+
+/* 附加赛单场 AI 模拟（单场定胜负；homeSide="a" 表示 a 侧高种子主场） */
+function simPIGame(save, g, homeSide) {
+  if (!g || g.done) return;
+  const sA = strengthOf(save, g.a), sB = strengthOf(save, g.b);
+  const formA = (Math.random() + Math.random() + Math.random() - 1.5) * 1.5
+    + (Math.random() < 0.08 ? (Math.random() < 0.5 ? 3 : -3) : 0);
+  const formB = (Math.random() + Math.random() + Math.random() - 1.5) * 1.5
+    + (Math.random() < 0.08 ? (Math.random() < 0.5 ? 3 : -3) : 0);
+  const aWins = Math.random() < winProb(sA + formA, sB + formB, homeSide === "a");
+  if (aWins) g.wa = 1; else g.wb = 1;
+  g.done = true;
+  g.winner = aWins ? g.a : g.b;
+  g.loser = aWins ? g.b : g.a;
+}
+
+/* G1 结束后构建 G3：G1 负者（主场 a 侧）vs G2 胜者 */
+function mkPIG3(pi) {
+  const g1LoserSeed = pi.g1.loser === pi.g1.a ? pi.g1.seedA : pi.g1.seedB;
+  const g2WinnerSeed = pi.g2.winner === pi.g2.a ? pi.g2.seedA : pi.g2.seedB;
+  return { a: pi.g1.loser, b: pi.g2.winner, seedA: g1LoserSeed, seedB: g2WinnerSeed,
+    wa: 0, wb: 0, done: false, winner: null, loser: null, games: [] };
+}
+
+/* AI 模拟完一整个区的附加赛（无用户参与时） */
+function simPIConf(save, conf) {
+  const pi = save.playoffs.pi[conf];
+  if (!pi.seed7) {
+    simPIGame(save, pi.g1, "a");
+    simPIGame(save, pi.g2, "a");
+    if (!pi.g3) pi.g3 = mkPIG3(pi);
+    /* G3 主场 = G1 负者（原 7/8 名，高种子）即 a 侧 */
+    simPIGame(save, pi.g3, "a");
+    pi.seed7 = pi.g1.winner;
+    pi.seed8 = pi.g3.winner;
+  }
+}
+
+/* 推进用户区附加赛：AI 场立即模拟，遇到用户比赛则挂起为 piUserGame */
+function advancePlayIn(save) {
+  const ps = save.playoffs;
+  const my = myAbbr(save);
+  const conf = confOf(my);
+  const pi = ps.pi[conf];
+
+  const makeUserGame = (key, g, userHome, label) => {
+    ps.piUserGame = { conf, key, a: g.a, b: g.b, userHome, label };
+  };
+
+  /* G2（9vs10）：用户 9/10 则手打，否则 AI */
+  if (!pi.g2.done) {
+    if (pi.g2.a === my || pi.g2.b === my) {
+      makeUserGame("g2", pi.g2, pi.g2.a === my, "附加赛 G2（9 vs 10，负者淘汰）");
+      return;
+    }
+    simPIGame(save, pi.g2, "a");
+  }
+  /* G1（7vs8）：用户 7/8 则手打，否则 AI */
+  if (!pi.g1.done) {
+    if (pi.g1.a === my || pi.g1.b === my) {
+      makeUserGame("g1", pi.g1, pi.g1.a === my, "附加赛 G1（7 vs 8，胜者锁定第 7）");
+      return;
+    }
+    simPIGame(save, pi.g1, "a");
+  }
+  /* G3：G1 负者 vs G2 胜者 */
+  if (pi.g1.done && pi.g2.done && !pi.g3) {
+    pi.g3 = mkPIG3(pi);
+  }
+  if (pi.g3 && !pi.g3.done) {
+    if (pi.g3.a === my || pi.g3.b === my) {
+      /* G3 主场属于 G1 负者（原 7/8）；用户若从 G2 胜出则客场 */
+      makeUserGame("g3", pi.g3, pi.g3.a === my, "附加赛 G3（生死战，胜者第 8 种子）");
+      return;
+    }
+    simPIGame(save, pi.g3, "a");
+  }
+  /* 本区附加赛结束 */
+  if (pi.g1.done && pi.g3.done) {
+    pi.seed7 = pi.g1.winner;
+    pi.seed8 = pi.g3.winner;
+    ps.piUserGame = null;
+    finalizePlayIn(save);
+  }
+}
+
+/* 用户打完一场附加赛后提交结果（win=用户是否获胜） */
+function applyPlayInUserResult(save, win, score) {
+  const ps = save.playoffs;
+  const ug = ps.piUserGame;
+  if (!ug) return;
+  const pi = ps.pi[ug.conf];
+  const g = pi[ug.key];
+  if (g.done) return;
+  const my = myAbbr(save);
+  /* g.wa/g.wb 为 a 侧视角；用户可能在 b 侧（第 10 名 / G3 客队），需换算 */
+  const userOnA = g.a === my;
+  const aWon = userOnA ? win : !win;
+  if (aWon) g.wa = 1; else g.wb = 1;
+  g.done = true;
+  g.winner = aWon ? g.a : g.b;
+  g.loser = aWon ? g.b : g.a;
+  /* 比分按 a/b 侧存储（completeGame 给的是 [我方, 对方]） */
+  if (score) g.games.push({ score: userOnA ? score.slice() : [score[1], score[0]], aWin: aWon });
+  /* 9/10 输 G2 或任何人输 G3 → 附加赛淘汰 */
+  const eliminated = !win && (ug.key === "g2" || ug.key === "g3");
+  if (eliminated) ps.piUserEliminated = true;
+  if (!eliminated) ps.piUserWonKey = ug.key;  /* 供 UI 判断锁定第 7 还是第 8 */
+  ps.piUserGame = null;
+  if (eliminated) {
+    /* 该区剩余场次 AI 补齐（用户输 G1 时不淘汰，还会进 G3） */
+    simPIConf(save, ug.conf);
+    finalizePlayIn(save);
+    ps.userResult = "附加赛淘汰";
+    finishAllAI(save);
+  } else {
+    advancePlayIn(save);
+  }
+}
+
+/* 两区附加赛完成 → 按 1-6 + seed7 + seed8 建 16 队正赛对阵 */
+function finalizePlayIn(save) {
+  const ps = save.playoffs;
+  ["E", "W"].forEach(c => {
+    const pi = ps.pi[c];
+    if (!pi.seed7) {
+      pi.seed7 = pi.g1.winner;
+      pi.seed8 = pi.g3.winner;
+    }
+  });
+  const mk = conf => {
+    const rank = confRanking(save, conf);
+    const top6 = rank.slice(0, 6);
+    const seeds = top6.map(r => ({ abbr: r.abbr, seed: r.seed }))
+      .concat([{ abbr: ps.pi[conf].seed7, seed: 7 }, { abbr: ps.pi[conf].seed8, seed: 8 }]);
     const series = [];
-    const pairs = [[0, 7], [3, 4], [2, 5], [1, 6]]; // 1v8 4v5 3v6 2v7
-    pairs.forEach(([hi, lo]) => series.push({
-      a: list[hi].abbr, b: list[lo].abbr, seedA: list[hi].seed, seedB: list[lo].seed,
+    [[0, 7], [3, 4], [2, 5], [1, 6]].forEach(([hi, lo]) => series.push({
+      a: seeds[hi].abbr, b: seeds[lo].abbr, seedA: seeds[hi].seed, seedB: seeds[lo].seed,
       wa: 0, wb: 0, done: false, winner: null, games: []
     }));
     return series;
   };
-  save.playoffs = {
-    rounds: [
-      { name: ROUND_NAMES[0], E: mk(confRanking(save, "E")), W: mk(confRanking(save, "W")) },
-      null, null, null
-    ],
-    round: 0, done: false, champion: null, userResult: null
-  };
+  ps.stage = "playoffs";
+  ps.rounds = [
+    { name: ROUND_NAMES[0], E: mk("E"), W: mk("W") },
+    null, null, null
+  ];
+  ps.round = 0;
+  ps.piUserGame = null;
+  /* 16 支正赛球队快照：供休赛期选秀乐透区分（附加赛淘汰者算乐透区） */
+  const snap = {};
+  TEAMS.forEach(t => { snap[t.abbr] = { madePlayoffs: false }; });
+  ps.rounds[0].E.concat(ps.rounds[0].W).forEach(s => {
+    snap[s.a].madePlayoffs = true;
+    snap[s.b].madePlayoffs = true;
+  });
+  ps.standingsSnapshot = snap;
   syncUserSeries(save);
-  if (!save.playoffs.userSeries) { save.playoffs.userResult = "未进季后赛"; finishAllAI(save); }
+  if (!ps.userSeries && !ps.userResult) {
+    /* 用户附加赛淘汰（已在 applyPlayInUserResult 设置文案）或未参赛 */
+    if (!ps.userResult) ps.userResult = "未进季后赛";
+    finishAllAI(save);
+  }
 }
 /* 用户恒为 a 侧（归一化），便于主场/比分方向统一 */
 function syncUserSeries(save) {

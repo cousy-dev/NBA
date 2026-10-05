@@ -1591,3 +1591,16 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .od-btns { display: flex; gap: 8px; flex-shrink: 0; }
 .od-btns .btn { padding: 7px 12px; font-size: 12.5px; }
 .btn.danger { color: #e04c4c; border-color: rgba(224,76,76,.4); }
+
+/* ===== 附加赛 Play-In 面板 ===== */
+.pi-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
+@media (max-width: 720px) { .pi-wrap { grid-template-columns: 1fr; } }
+.pi-conf { background: rgba(255,255,255,0.02); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 12px; }
+.pi-games { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.pi-games .br-series { max-width: 320px; }
+.po-g3-pending { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.pi-seeds { display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.pi-seed { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.pi-seed b { color: var(--gold); min-width: 64px; font-size: 12px; }
+.pi-seed .br-logo { width: 22px; height: 22px; font-size: 14px; }
+.pi-tbd { color: var(--muted); font-size: 12px; }
