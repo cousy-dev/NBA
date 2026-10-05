@@ -248,10 +248,10 @@ body {
 .team-hero-logo { width: 56px; height: 56px; flex: none; display: flex; align-items: center; justify-content: center; }
 .team-hero-logo img { width: 100%; height: 100%; object-fit: contain; }
 .th-fb { width: 100%; height: 100%; border-radius: 18px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
-.th-info { flex: 1; min-width: 0; }
-.th-name { font-size: 19px; font-weight: 900; line-height: 1.2; }
-.th-sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
-.th-stats { display: flex; gap: 6px; flex: none; flex-wrap: wrap; margin-left: auto; }
+.th-info { flex: 1 1 130px; min-width: 130px; }
+.th-name { font-size: 19px; font-weight: 900; line-height: 1.2; white-space: nowrap; }
+.th-sub { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.th-stats { display: flex; gap: 6px; flex: 1 1 auto; flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
 .th-stat { text-align: center; padding: 4px 8px; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; min-width: 48px; }
 .th-stat b { display: block; font-size: 15px; font-weight: 900; color: var(--gold); line-height: 1.1; }
 .th-stat span { font-size: 9.5px; color: var(--muted); }
