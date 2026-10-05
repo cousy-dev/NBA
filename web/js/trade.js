@@ -570,6 +570,8 @@ function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPi
   const aiExisting = new Set(aiList);
   myOfferIds.forEach(id => { if (!aiExisting.has(id)) { aiExisting.add(id); aiList.push(id); } });
   save.aiRosters[aiTeamAbbr] = aiList;
+  /* 硬上限：交易后 AI 名单不得超过 17 人（超出裁掉最弱边缘人） */
+  if (typeof enforceAIRosterHardCap === "function") enforceAIRosterHardCap(save, aiTeamAbbr, 17);
   /* 选秀权交换 */
   if (myPickOffers && myPickOffers.length) {
     myPickOffers.forEach(pk => { pk.team = aiTeamAbbr; });

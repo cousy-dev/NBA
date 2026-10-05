@@ -468,7 +468,8 @@ function _genExtraFA(save) {
   if (save.aiRosters) {
     Object.values(save.aiRosters).forEach(arr => (arr || []).forEach(id => aiRosterIds.add(id)));
   }
-  const avail = PLAYERS_RATED.players.filter(p => !rosterIds.has(p.id) && !faIds.has(p.id) && !aiRosterIds.has(p.id));
+  const avail = PLAYERS_RATED.players.filter(p => !rosterIds.has(p.id) && !faIds.has(p.id) && !aiRosterIds.has(p.id)
+    && !(save.retired && save.retired[p.id]));
   const n = 15 + Math.floor(Math.random() * 11);
   const shuffled = avail.slice().sort(() => Math.random() - 0.5);
   shuffled.slice(0, n).forEach(p => {
@@ -625,6 +626,12 @@ function extendContract(save, playerId, newYears, newSalary) {
 function signFreeAgent(save, playerId, years, salary, exception) {
   const faItem = (save.faPool || []).find(f => f.id === playerId);
   if (!faItem) { toast("该球员已签约其他球队"); return false; }
+  /* 已退役球员不允许签约（旧档僵尸球员防御） */
+  if (save.retired && save.retired[playerId]) {
+    save.faPool = save.faPool.filter(f => f.id !== playerId);
+    toast("该球员已经退役");
+    return false;
+  }
   if (faCategory(faItem) === "RFA") {
     toast("受限制自由球员需走报价流程");
     return false;
@@ -800,7 +807,7 @@ function aiClaimOnWaivers(save, id, entry) {
   const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
   const my = myAbbr(save);
   const findP = pid => (save.customPlayers || []).find(x => x.id === pid) || PLAYERS_RATED.players.find(x => x.id === pid);
-  /* 帽下空间足够的球队，按当前胜率升序（最差队优先认领） */
+  /* 帽下空间足够的球队，按当前胜率升序（最差队优先认领）；名单满 17 人不再认领 */
   const cands = TEAMS.filter(t => t.abbr !== my).map(t => {
     const ts = save.standings[t.abbr] || { w: 0, l: 0 };
     const wp = (ts.w + ts.l) ? ts.w / (ts.w + ts.l) : 0.5;
@@ -809,8 +816,9 @@ function aiClaimOnWaivers(save, id, entry) {
       const pp = findP(pid);
       if (pp) pay += estimateSalary((pp.ovr || 70) + ((save.ovrAdj || {})[pid] || 0), pid);
     });
-    return { abbr: t.abbr, room: cap - pay, wp };
-  }).filter(c => c.room >= sal).sort((a, b) => a.wp - b.wp);
+    return { abbr: t.abbr, room: cap - pay, wp, n: ((save.aiRosters || {})[t.abbr] || []).length };
+  }).filter(c => c.room >= sal && c.n < 17 &&
+    !((save.aiRosters || {})[c.abbr] || []).includes(id)).sort((a, b) => a.wp - b.wp);
   if (!cands.length) return null;
   const ratio = fairVal / Math.max(0.5, sal);
   let prob = ovr >= 80 ? 0.95 : ratio >= 1.1 ? 0.8 : ratio >= 0.9 ? 0.5 : 0.2;
@@ -868,6 +876,54 @@ function _waivedToFA(save, id, p, entry) {
   save.faPool.push({ id, ovr, age, birdYears: 0, isRookieScale: false, originTeam: myAbbr(save) });
 }
 
+/* ===== AI 队名单容量管理（修复名单无限膨胀） ===== */
+const AI_ROSTER_PRE_FA = 12;   /* 自由市场开启前保留人数（预留签约+新秀名额） */
+const AI_ROSTER_FULL = 14;     /* 自由市场后人数上限（随后选秀再加 1-2 名新秀） */
+const AI_ROSTER_HARD = 17;     /* 赛季中硬上限（15 正式合同 + 2 双向） */
+const AI_ROOKIE_PROTECT_AGE = 24;  /* ≤24 岁视为新秀合同期，保障不被当作边缘人裁掉 */
+
+/* 球员当前 OVR / 年龄（含老化累计） */
+function _aiCurOvr(save, id) {
+  const p = (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+  return p ? (p.ovr || 70) + ((save.ovrAdj || {})[id] || 0) : 0;
+}
+function _aiCurAge(save, id) {
+  const p = (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+  return p ? (p.age || 24) + ((save.ageAdj || {})[id] || 0) : 99;
+}
+
+/* 去重 + 清除退役/失踪球员，返回是否有改动 */
+function _sanitizeAIRoster(save, abbr) {
+  const old = save.aiRosters[abbr] || [];
+  const seen = new Set();
+  const next = [];
+  old.forEach(id => {
+    if (seen.has(id)) return;
+    if (save.retired && save.retired[id]) return;
+    const p = (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+    if (!p) return;
+    seen.add(id);
+    next.push(id);
+  });
+  save.aiRosters[abbr] = next;
+  return next.length !== old.length;
+}
+
+/* 硬上限裁剪（赛季中交易/认领后调用）：优先保留年轻球员与高 OVR，裁掉的人直接离队 */
+function enforceAIRosterHardCap(save, abbr, max) {
+  if (!save.aiRosters || !save.aiRosters[abbr]) return;
+  _sanitizeAIRoster(save, abbr);
+  let list = save.aiRosters[abbr];
+  if (list.length <= max) return;
+  list.sort((a, b) => {
+    const pa = _aiCurAge(save, a) <= AI_ROOKIE_PROTECT_AGE ? 1 : 0;
+    const pb = _aiCurAge(save, b) <= AI_ROOKIE_PROTECT_AGE ? 1 : 0;
+    if (pa !== pb) return pb - pa;                 /* 年轻合同优先保留 */
+    return _aiCurOvr(save, b) - _aiCurOvr(save, a);
+  });
+  save.aiRosters[abbr] = list.slice(0, max);
+}
+
 /* ===== AI 队自由市场签约模拟（球员驱动 + 球队吸引力） ===== */
 function simAIFreeAgency(save) {
   /* 初始化 AI 队 roster */
@@ -878,19 +934,61 @@ function simAIFreeAgency(save) {
       let roster = playersByTeam(t.abbr).map(p => p.id);
       roster = roster.filter(id => {
         const p = PLAYERS_RATED.players.find(x => x.id === id);
-        return p && p.team === t.abbr && !save.retired[id];
+        return p && p.team === t.abbr && !(save.retired && save.retired[id]);
       });
       save.aiRosters[t.abbr] = roster;
     }
+    _sanitizeAIRoster(save, t.abbr);
   });
 
-  /* Phase 1：AI 队续约本队 RFA */
+  /* 全局去重保险：同一球员若因历史 BUG/旧档同时挂在多支球队，只保留首个所属队 */
+  const owner = new Set((save.roster || []).map(r => r.id));
+  TEAMS.forEach(t => {
+    if (t.abbr === myAbbr(save)) return;
+    save.aiRosters[t.abbr] = (save.aiRosters[t.abbr] || []).filter(id => {
+      if (owner.has(id)) return false;
+      owner.add(id);
+      return true;
+    });
+  });
+
+  /* Phase 0：合同年清洗。AI 队无逐年合同数据，统一在此模拟到期/不续约：
+     保障年轻新秀合同（≤24 岁），老将按 OVR 留最强 12 人，
+     被放弃的边缘球员进入 FA 池成为 UFA（可被任何队签下，模拟真实人员流动） */
+  save.faPool = save.faPool || [];
+  TEAMS.forEach(t => {
+    if (t.abbr === myAbbr(save)) return;
+    let list = save.aiRosters[t.abbr] || [];
+    const young = [], vets = [];
+    list.forEach(id => (_aiCurAge(save, id) <= AI_ROOKIE_PROTECT_AGE ? young : vets).push(id));
+    young.sort((a, b) => _aiCurOvr(save, b) - _aiCurOvr(save, a));
+    vets.sort((a, b) => _aiCurOvr(save, b) - _aiCurOvr(save, a));
+    /* 年轻球员最多保留 10 人（极端堆积时放弃最弱的） */
+    const keptYoung = young.slice(0, 10);
+    const vetSlots = Math.max(0, AI_ROSTER_PRE_FA - keptYoung.length);
+    const keptVets = vets.slice(0, vetSlots);
+    const released = list.filter(id => !keptYoung.includes(id) && !keptVets.includes(id));
+    released.forEach(id => {
+      if (save.faPool.some(f => f.id === id)) return;
+      const ovr = _aiCurOvr(save, id);
+      if (ovr < 60) return;  /* 联盟边缘人直接离队，由 _genExtraFA 随机补充 */
+      save.faPool.push({
+        id, ovr, age: _aiCurAge(save, id),
+        birdYears: 0, isRookieScale: false, originTeam: t.abbr
+      });
+    });
+    save.aiRosters[t.abbr] = keptYoung.concat(keptVets);
+  });
+
+  /* Phase 1：AI 队续约本队 RFA（有空位才续，且去重） */
   TEAMS.forEach(t => {
     if (t.abbr === myAbbr(save)) return;
     const mine = (save.faPool || []).filter(f => f.originTeam === t.abbr && faCategory(f) === "RFA")
       .sort((a, b) => b.ovr - a.ovr);
-    mine.slice(0, 8).forEach(f => {
-      save.aiRosters[t.abbr].push(f.id);
+    mine.forEach(f => {
+      const roster = save.aiRosters[t.abbr];
+      if (roster.length >= AI_ROSTER_FULL || roster.includes(f.id)) return;
+      roster.push(f.id);
       save.faPool = save.faPool.filter(x => x.id !== f.id);
     });
   });
@@ -908,7 +1006,7 @@ function simAIFreeAgency(save) {
     .sort((a, b) => b.ovr - a.ovr);
 
   ufai.forEach(fa => {
-    /* 筛选有空位（< 13 人）的 AI 队，按吸引力降序 */
+    /* 筛选有空位（< 14 人）的 AI 队，按吸引力降序 */
     const candidates = TEAMS
       .filter(t => t.abbr !== myAbbr(save))
       .map(t => ({
@@ -916,7 +1014,7 @@ function simAIFreeAgency(save) {
         roster: save.aiRosters[t.abbr] || [],
         tier: t.market
       }))
-      .filter(c => c.roster.length < 13)
+      .filter(c => c.roster.length < AI_ROSTER_FULL)
       .map(c => ({ ...c, attr: teamAttractiveness(save, c.abbr) }))
       .sort((a, b) => b.attr - a.attr);
 
@@ -943,9 +1041,33 @@ function simAIFreeAgency(save) {
     const baseWillingness = signingWillingness(fa, save, chosen.abbr);
     if (Math.random() > baseWillingness) return;
 
+    if (save.aiRosters[chosen.abbr].length >= AI_ROSTER_FULL ||
+        save.aiRosters[chosen.abbr].includes(fa.id)) return;
     save.aiRosters[chosen.abbr].push(fa.id);
     save.faPool = save.faPool.filter(x => x.id !== fa.id);
   });
+
+  /* Phase 3：最低名单兜底。吸引力弱的小球市在 Phase 2 可能签不到人，
+     现实中他们会用底薪/训练营合同填满名额 —— 人数最少的队优先，
+     从剩余 UFA 中按 OVR 从高到低补到 12 人（60+ 才签，太弱的留待随机新秀补充） */
+  let underfilled = TEAMS
+    .filter(t => t.abbr !== myAbbr(save))
+    .map(t => ({ abbr: t.abbr, roster: save.aiRosters[t.abbr] || [] }))
+    .filter(c => c.roster.length < AI_ROSTER_PRE_FA)
+    .sort((a, b) => a.roster.length - b.roster.length);
+  underfilled.forEach(c => {
+    while (c.roster.length < AI_ROSTER_PRE_FA) {
+      const pick = (save.faPool || [])
+        .filter(f => faCategory(f) === "UFA" && f.ovr >= 60)
+        .sort((a, b) => b.ovr - a.ovr)[0];
+      if (!pick) break;
+      c.roster.push(pick.id);
+      save.faPool = save.faPool.filter(x => x.id !== pick.id);
+    }
+  });
+
+  /* 收尾保险：任何 AI 队都不允许超过硬上限 */
+  TEAMS.forEach(t => { if (t.abbr !== myAbbr(save)) enforceAIRosterHardCap(save, t.abbr, AI_ROSTER_HARD); });
 
   writeSave(save);
 }

@@ -1208,6 +1208,17 @@ function doAging(save) {
   /* 退役判定 */
   save.retired = save.retired || {};
   save.retireLog = [];
+  /* 清理：旧版本漏洞可能让已退役球员仍留在用户阵容中（僵尸球员），直接移除 */
+  save.roster = save.roster.filter(r => {
+    if (save.retired[r.id]) {
+      const rp = findPlayer(r.id);
+      const ra = rp ? (rp.age || 24) + (save.ageAdj[r.id] || 0) : 0;
+      const ro = rp ? (rp.ovr || 70) + (save.ovrAdj[r.id] || 0) : 0;
+      save.retireLog.push({ id: r.id, name: rp ? rp.nameCn : "球员", team: "", age: ra, ovr: ro });
+      return false;
+    }
+    return true;
+  });
   const allIds = new Set();
   save.roster.forEach(r => allIds.add(r.id));
   if (save.aiRosters) Object.values(save.aiRosters).forEach(arr => (arr || []).forEach(id => allIds.add(id)));
@@ -1215,24 +1226,29 @@ function doAging(save) {
     if (save.aiRosters && save.aiRosters[t.abbr]) return;
     playersByTeam(t.abbr).forEach(p => allIds.add(p.id));
   });
+  /* 按年龄的基础退役概率：36 岁起小概率，40 后快速上升，45 岁强制退役
+     （现实最老球员约 43 岁，如卡特 43、詹姆斯 40+） */
+  const retireChanceByAge = {
+    36: 0.04, 37: 0.07, 38: 0.12, 39: 0.20,
+    40: 0.32, 41: 0.48, 42: 0.65, 43: 0.82, 44: 0.94
+  };
   allIds.forEach(id => {
     if (save.retired[id]) return;
     const p = findPlayer(id);
     if (!p) return;
     const adjAge = (p.age || 24) + (save.ageAdj[id] || 0);
     const currentOvr = (p.ovr || 70) + (save.ovrAdj[id] || 0);
-    let chance = 0;
-    if (adjAge >= 42) chance = 0.70;
-    else if (adjAge >= 40) chance = 0.45;
-    else if (adjAge >= 38) chance = 0.22;
-    else if (adjAge >= 36) chance = 0.08;
-    /* 低 OVR 退役加成仅适用于 30 岁以上老将；年轻球员（含新秀）即使 OVR 低也不退役，
+    /* 45 岁硬性退役，任何球员都不能超过这个年龄继续打球 */
+    let chance = retireChanceByAge[adjAge] || (adjAge >= 45 ? 1 : 0);
+    /* 超级球星（仍有 88+）在 40 岁前更耐打，退役意愿更低（参照卡特/詹姆斯） */
+    if (currentOvr >= 88 && adjAge <= 40) chance *= 0.6;
+    /* 低 OVR 退役加成仅适用于 32 岁以上老将；年轻球员（含新秀）即使 OVR 低也不退役，
        他们有成长空间，不应因能力值低而消失 */
-    if (adjAge >= 30) {
-      if (currentOvr < 60) chance += 0.15;
-      if (currentOvr < 50) chance += 0.20;
+    if (adjAge >= 32) {
+      if (currentOvr < 62) chance += 0.15;
+      if (currentOvr < 55) chance += 0.20;
     }
-    if (chance > 0 && Math.random() < chance) {
+    if (chance > 0 && (chance >= 1 || Math.random() < chance)) {
       save.retired[id] = save.seasonNo;
       save.retireLog.push({ id, name: p.nameCn, team: p.team, age: adjAge, ovr: currentOvr });
       save.roster = save.roster.filter(r => r.id !== id);
@@ -1247,6 +1263,7 @@ function doAging(save) {
 
 /* 单个球员成长/衰退 */
 function _agePlayer(save, id, findPlayer) {
+  if (save.retired && save.retired[id]) return;  /* 已退役球员不再老化/成长 */
   const p = findPlayer(id);
   if (!p) return;
   const adjAge = (p.age || 24) + (save.ageAdj[id] || 0);
@@ -1256,36 +1273,65 @@ function _agePlayer(save, id, findPlayer) {
 
   save.ageAdj[id] = (save.ageAdj[id] || 0) + 1;
 
+  /* 衰退速率与生涯级别挂钩：超级球星靠技术/球商维持巅峰更久，
+     角色球员（尤其运动能力型）下滑更快（参照詹姆斯/卡特 40+ 岁仍有 80+）。
+     用"基础值与当前值取大"判定级别，避免老将跌破阈值后衰退反而加速的坠落效应 */
+  const base = p.ovr || 70;
+  const star = currentOvr >= 88 || base >= 88;   /* 超级球星（含生涯曾达此级别者） */
+  const good = currentOvr >= 82 || base >= 83;   /* 明星/优质首发 */
   let delta;
-  if (adjAge <= 21) {
-    /* 19-21: 快速成长期，潜力越高涨越多 */
+  if (adjAge <= 20) {
+    /* 19-20: 高速成长期，潜力越高涨越多 */
+    const room = Math.max(0, potential - currentOvr);
+    delta = 2 + Math.round(hash01(id, 11) * 2);  /* +2~4 */
+    if (room > 8) delta += 1;
+    if (room <= 0) delta = 0;
+  } else if (adjAge <= 21) {
+    /* 21: 快速成长期 */
     const room = Math.max(0, potential - currentOvr);
     delta = 1 + Math.round(hash01(id, 11) * 2);  /* +1~3 */
-    if (room > 10) delta += 1;                    /* 潜力空间大，多涨 */
-    if (room <= 0) delta = 0;                     /* 已达上限，不涨 */
-  } else if (adjAge <= 24) {
-    /* 22-24: 稳定成长期 */
-    const room = Math.max(0, potential - currentOvr);
-    delta = Math.round(hash01(id, 12));            /* 0~1 */
-    if (room > 5) delta += 1;                      /* 潜力空间够，多涨 */
+    if (room > 10) delta += 1;
     if (room <= 0) delta = 0;
-  } else if (adjAge <= 27) {
-    /* 25-27: 巅峰期，基本不变 */
+  } else if (adjAge <= 23) {
+    /* 22-23: 稳定成长期 */
+    const room = Math.max(0, potential - currentOvr);
+    delta = 1 + Math.round(hash01(id, 12));       /* +1~2 */
+    if (room > 8) delta += 1;                     /* 潜力空间够，多涨 */
+    if (room <= 0) delta = 0;
+  } else if (adjAge <= 25) {
+    /* 24-25: 巅峰前夜，仍有小幅上升空间 */
+    const room = Math.max(0, potential - currentOvr);
+    delta = Math.round(hash01(id, 17));           /* 0~1 */
+    if (room > 6) delta += 1;
+    if (room <= 0) delta = 0;
+  } else if (adjAge <= 28) {
+    /* 26-28: 巅峰期，基本不变 */
     delta = 0;
   } else if (adjAge <= 30) {
-    /* 28-30: 缓慢下滑 */
-    delta = -Math.round(hash01(id, 13));           /* 0 或 -1 */
+    /* 29-30: 极其缓慢下滑 */
+    delta = -Math.round(hash01(id, 13) * (star ? 0.4 : 0.7)); /* 球星几乎不动，其他 0/-1 */
   } else if (adjAge <= 33) {
-    /* 31-33: 加速衰退 */
-    delta = -1 - Math.round(hash01(id, 14));      /* -1 或 -2 */
+    /* 31-33: 缓慢衰退，球星靠技术维持 */
+    if (star) delta = -Math.round(hash01(id, 14) * 0.6);       /* 0 或 -1 */
+    else if (good) delta = -Math.round(hash01(id, 14));        /* 0 或 -1 */
+    else delta = -1 - Math.round(hash01(id, 18) * 0.5);        /* -1 或 -2，多数 -1 */
   } else if (adjAge <= 36) {
-    /* 34-36: 快速衰退 */
-    delta = -2 - Math.round(hash01(id, 15));      /* -2 或 -3 */
+    /* 34-36: 明显衰退 */
+    if (star) delta = -1 - Math.round(hash01(id, 15) * 0.5);   /* -1 或 -2 */
+    else if (good) delta = -1 - Math.round(hash01(id, 15));    /* -1 或 -2 */
+    else delta = -1 - Math.round(hash01(id, 15) * 1.5);        /* -1~-3 */
+  } else if (adjAge <= 39) {
+    /* 37-39: 加速衰退，但球星仍能保持 80+ */
+    if (star) delta = -Math.round(hash01(id, 16) * 0.8);       /* 0 或 -1，多数 -1 */
+    else if (good) delta = -1 - Math.round(hash01(id, 16));    /* -1 或 -2 */
+    else delta = -2 - Math.round(hash01(id, 16));              /* -2 或 -3 */
   } else {
-    /* 37+: 严重衰退 */
-    delta = -3 - Math.round(hash01(id, 16) * 2);  /* -3 ~ -5 */
+    /* 40+: 深度衰退，球星每年 -1 左右、明星 -1/-2、角色球员 -2~-4 */
+    if (star) delta = -1 - Math.round(hash01(id, 19) * 0.3);   /* -1，偶发 -2 */
+    else if (good) delta = -1 - Math.round(hash01(id, 19));    /* -1 或 -2 */
+    else delta = -2 - Math.round(hash01(id, 19) * 2);          /* -2~-4 */
   }
-  save.ovrAdj[id] = Math.max(-20, Math.min(20, ovrAdj + delta));
+  save.ovrAdj[id] = Math.max(-20, Math.min(22, ovrAdj + delta));
 }
 
 /* ===== 新赛季重置（含历史归档） ===== */

@@ -632,7 +632,11 @@ function processPick(save, rookie, teamAbbr, pickNumber, results, origTeam) {
         });
     }
     if (!save.aiRosters[teamAbbr].includes(rookie.id)) {
-      save.aiRosters[teamAbbr].push(rookie.id);
+      /* 名单硬上限保护：超过 18 人先裁边缘人（极端堆积的旧档），保证新秀有位置 */
+      if (save.aiRosters[teamAbbr].length >= 18 && typeof enforceAIRosterHardCap === "function") {
+        enforceAIRosterHardCap(save, teamAbbr, 17);
+      }
+      if (save.aiRosters[teamAbbr].length < 18) save.aiRosters[teamAbbr].push(rookie.id);
     }
   }
   results.push({ pick: pickNumber, abbr: teamAbbr, rookie, orig: origTeam || teamAbbr });
