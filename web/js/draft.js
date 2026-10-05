@@ -572,12 +572,15 @@ function signRookie(save, rookie) {
   const sal = rookie.pick ? rookieScaleSalary(rookie.pick) : estimateSalary(rookie.ovr, rookie.id);
   const years = rookieContractYears(rookie.potential || 75);
   /* 新秀合同：birdYears 从 0 开始，isRookieScale=true（到期后享受 RFA 资格）
-     首轮新秀标尺合同逐年 8% 递增，次轮 5% */
+     首轮新秀标尺合同逐年 8% 递增，次轮 5%
+     首轮 2+2：第 3、4 年为球队选项（rookieTO:[3,4]，休赛期由经理逐一手動决策） */
+  const isFirstRound = rookie.pick && rookie.pick <= 30;
   save.roster.push({
-    id: rookie.id, salary: sal, years, raise: rookie.pick && rookie.pick <= 30 ? 0.08 : 0.05,
+    id: rookie.id, salary: sal, years, raise: isFirstRound ? 0.08 : 0.05,
     birdYears: 0,
     optionType: null, optionYear: 0, optionSalary: 0,
-    isRookieScale: true, signedVia: "draft"
+    isRookieScale: true, signedVia: "draft",
+    rookieTO: isFirstRound ? [3, 4] : null
   });
   /* 持久化新秀到存档（防止刷新丢失） */
   save.customPlayers = save.customPlayers || [];

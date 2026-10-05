@@ -1579,3 +1579,15 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .block-chip { font-size: 10.5px; font-weight: 800; color: #ffa94d; background: rgba(255,169,77,.14); border-radius: 5px; padding: 1px 6px; margin-left: 6px; }
 .tr-box { max-width: 480px; }
 .tr-box h3 { color: #ffa94d; }
+
+/* ===== 休赛期合同决策卡片（TO/QO） ===== */
+.opt-decisions { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.od-section-title { font-size: 13px; font-weight: 800; color: var(--gold); margin: 4px 0 2px; }
+.od-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--card); border: 1px solid rgba(255,169,77,.3); border-radius: 10px; padding: 10px 12px; flex-wrap: wrap; }
+.od-main { flex: 1; min-width: 180px; }
+.od-name { font-weight: 800; font-size: 14px; }
+.od-ovr { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+.od-meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.od-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.od-btns .btn { padding: 7px 12px; font-size: 12.5px; }
+.btn.danger { color: #e04c4c; border-color: rgba(224,76,76,.4); }

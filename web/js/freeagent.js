@@ -334,21 +334,36 @@ function maybeAssignOption(rosterEntry, ovr, id) {
   }
 }
 
-/* ===== 选项处理（休赛期，decrementContracts 内部调用） ===== */
+/* ===== 选项处理（休赛期，decrementContracts 内部调用） =====
+   用户队规则（save.roster 即用户阵容）：
+   - 球员选项（PO）：球员自己决定，按 OVR 概率跳出/执行（经理无权干涉）
+   - 球队选项（TO）/ 新秀 2+2 选项：一律暂定执行并登记到 save.pendingTeamOptions，
+     由经理在自由市场页逐一点击"执行/放弃"，未全部决策前不能开始新赛季 */
 function processOptions(save) {
   if (!save.roster) return;
   const customMap = new Map((save.customPlayers || []).map(p => [p.id, p]));
   const ratedMap = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
-  const myTeam = myAbbr(save);
+  save.pendingTeamOptions = [];
   save.roster.forEach(r => {
-    if (!r.optionType) return;
-    /* 选项触发条件：合同年数到达选项年 */
-    if (r.years !== 1) return; /* 选项年 = 合同最后一年 */
     const p = customMap.get(r.id) || ratedMap.get(r.id);
     const ovr = (p ? p.ovr : 70) + ((save.ovrAdj || {})[r.id] || 0);
+
+    /* 1. 首轮新秀 2+2 球队选项：years===3 决策第 3 年，years===2 决策第 4 年 */
+    if (r.rookieTO && r.rookieTO.length) {
+      if (r.years === 3 && r.rookieTO.includes(3)) {
+        const nextSal = Math.round(r.salary * (1 + (r.raise || 0)) * 10) / 10;
+        save.pendingTeamOptions.push({ id: r.id, name: p ? p.nameCn : "球员", ovr, kind: "rookie3", salary: nextSal });
+      } else if (r.years === 2 && r.rookieTO.includes(4)) {
+        const nextSal = Math.round(r.salary * (1 + (r.raise || 0)) * 10) / 10;
+        save.pendingTeamOptions.push({ id: r.id, name: p ? p.nameCn : "球员", ovr, kind: "rookie4", salary: nextSal });
+      }
+      return;  /* 新秀无 PO/普通 TO，后续逻辑不适用 */
+    }
+
+    if (!r.optionType) return;
+    if (r.years !== 1) return; /* 普通选项年 = 合同最后一年 */
     if (r.optionType === "player") {
-      /* 球员选项：高 OVR 跳出试水 FA，低 OVR 执行求稳。
-         用户自己的球员也走 AI 判定（球员选项是球员的决定，不是球队） */
+      /* 球员选项：高 OVR 跳出试水 FA，低 OVR 执行求稳（球员的决定，不是球队） */
       const jumpProb = ovr >= 90 ? 0.80 : ovr >= 85 ? 0.60 : ovr >= 80 ? 0.40 : 0.20;
       if (Math.random() < jumpProb) {
         r.years = 0; /* 跳出，标记到期 */
@@ -358,27 +373,40 @@ function processOptions(save) {
         r._skipDecYears = true; /* 执行了选项，跳过后续 years-1 */
       }
     } else if (r.optionType === "team") {
-      /* 球队选项：用户队自动执行保留（用户可后续手动放弃或交易）；
-         AI 队按 OVR 概率决定执行或放弃 */
-      if (myTeam && save.team && (save.team.abbr || "CUS") === myTeam) {
-        /* 用户球队选项：自动执行 */
-        r.salary = r.optionSalary || r.salary;
-        r.optionType = null; r.optionYear = 0;
-        r._skipDecYears = true;
-      } else {
-        /* AI 球队选项：高 OVR 执行保留，低 OVR 放弃 */
-        const execProb = ovr >= 88 ? 0.95 : ovr >= 80 ? 0.75 : ovr >= 70 ? 0.50 : 0.25;
-        if (Math.random() < execProb) {
-          r.salary = r.optionSalary || r.salary;
-          r.optionType = null; r.optionYear = 0;
-          r._skipDecYears = true;
-        } else {
-          r.years = 0; /* 放弃，进入 FA */
-          r.optionType = null; r.optionYear = 0;
-        }
-      }
+      /* 球队选项：暂定执行（保留合同），登记由经理手动决策；放弃时再移出阵容 */
+      r.salary = r.optionSalary || r.salary;
+      r.optionType = null; r.optionYear = 0;
+      r._skipDecYears = true;
+      save.pendingTeamOptions.push({ id: r.id, name: p ? p.nameCn : "球员", ovr, kind: "team", salary: r.salary });
     }
   });
+}
+
+/* 经理决策球队选项/新秀选项：exec=false 时球员立即离开阵容进入 UFA 池 */
+function decideTeamOption(save, id, exec, kind) {
+  save.pendingTeamOptions = (save.pendingTeamOptions || []).filter(o => o.id !== id);
+  if (exec) { writeSave(save); return { ok: true }; }
+  /* 放弃：移出阵容，进入自由市场（UFA；在队服役年限保留为鸟权累计） */
+  const entry = save.roster.find(r => r.id === id);
+  save.roster = save.roster.filter(r => r.id !== id);
+  save.faPool = save.faPool || [];
+  if (!save.faPool.some(f => f.id === id)) {
+    const p = (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+    const ovr = p ? (p.ovr || 70) + ((save.ovrAdj || {})[id] || 0) : 70;
+    const age = p ? (p.age || 24) + ((save.ageAdj || {})[id] || 0) : 24;
+    save.faPool.push({ id, ovr, age, birdYears: entry ? (entry.birdYears || 0) : 0, isRookieScale: false, originTeam: myAbbr(save) });
+  }
+  writeSave(save);
+  return { ok: true };
+}
+
+/* 经理决策资质报价（QO）：provide=true → 受限制自由球员（可匹配别队报价）；false → UFA */
+function decideQO(save, id, provide) {
+  const f = (save.faPool || []).find(x => x.id === id);
+  if (f) { f.isRookieScale = !!provide; f.qoPending = false; }
+  save.pendingQOs = (save.pendingQOs || []).filter(q => q.id !== id);
+  writeSave(save);
+  return { ok: true };
 }
 
 /* ===== 赛季结束：选项处理 → 合同年数 -1 → 到期球员进入 FA 池 ===== */
@@ -408,17 +436,23 @@ function decrementContracts(save) {
   /* 3. 到期球员进入 FA 池（带鸟权信息 + 母队标记，用于 RFA） */
   const customMap = new Map((save.customPlayers || []).map(p => [p.id, p]));
   const ratedMap = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+  save.pendingQOs = [];  /* 资质报价待决策（新秀标尺合同到期） */
   expired.forEach(r => {
     const p = customMap.get(r.id) || ratedMap.get(r.id);
     if (!p) return;
     const ovr = (p.ovr || 70) + ((save.ovrAdj || {})[p.id] || 0);
     const age = (p.age || 24) + ((save.ageAdj || {})[p.id] || 0);
+    /* 新秀合同到期：QO 决策前暂不入 UFA/RFA 列表（isRookieScale=false + qoPending），
+       经理提供资质报价后才成为 RFA，否则以 UFA 进入市场 */
+    const qoPending = !!r.isRookieScale;
     save.faPool.push({
       id: p.id, ovr, age,
       birdYears: r.birdYears || 0,
-      isRookieScale: !!r.isRookieScale,
+      isRookieScale: false,
+      qoPending,
       originTeam: myAbbr
     });
+    if (qoPending) save.pendingQOs.push({ id: p.id, name: p.nameCn, ovr, salary: r.salary });
   });
   /* 4. 生成额外自由球员（联盟边缘球员 + 随机新秀）填充市场 */
   _genExtraFA(save);
@@ -928,13 +962,43 @@ RENDERERS.freeagent = function () {
   const pct = Math.min(100, total / budget * 100);
   const myAbr = myAbbr(save);
 
-  /* FA 分类：UFA / RFA / 我的续约 */
-  const ufa = fa.filter(f => faCategory(f) === "UFA").sort((a, b) => b.ovr - a.ovr);
+  /* FA 分类：UFA / RFA / 我的续约（QO 待决策球员在决策卡片处理，不进列表） */
+  const faDecided = fa.filter(f => !f.qoPending);
+  const ufa = faDecided.filter(f => faCategory(f) === "UFA").sort((a, b) => b.ovr - a.ovr);
   /* RFA tab 只显示其他球队的 RFA（用户的 RFA 球员走"我的续约"直接续约，不走 AI 匹配） */
-  const rfa = fa.filter(f => faCategory(f) === "RFA" && f.originTeam !== myAbr).sort((a, b) => b.ovr - a.ovr);
+  const rfa = faDecided.filter(f => faCategory(f) === "RFA" && f.originTeam !== myAbr).sort((a, b) => b.ovr - a.ovr);
   /* 我的续约：本队到期球员（含 UFA 和 RFA），用户自行决定是否续约 */
-  const myRenew = fa.filter(f => f.originTeam === myAbr && f.birdYears >= 1)
+  const myRenew = faDecided.filter(f => f.originTeam === myAbr && f.birdYears >= 1)
     .sort((a, b) => b.ovr - a.ovr);
+
+  /* 合同决策卡片：球队选项/新秀2+2 + 资质报价（QO），未全部决策不能开始新赛季 */
+  const pendingOpts = save.pendingTeamOptions || [];
+  const pendingQOList = save.pendingQOs || [];
+  const OPT_KIND_LABEL = { team: "球队选项", rookie3: "新秀合同第 3 年球队选项（2+2）", rookie4: "新秀合同第 4 年球队选项（2+2）" };
+  const decisionsHtml = (pendingOpts.length || pendingQOList.length)
+    ? '<div class="opt-decisions">' +
+      (pendingOpts.length ? '<div class="od-section-title">📋 合同选项决策（须逐一决定）</div>' : "") +
+      pendingOpts.map(o =>
+        '<div class="od-card">' +
+        '<div class="od-main"><div class="od-name">' + esc(o.name) + ' <span class="od-ovr">' + o.ovr + "</span></div>" +
+        '<div class="od-meta">' + OPT_KIND_LABEL[o.kind] + " · 选项工资 " + fmtM(o.salary) + "/年</div></div>" +
+        '<div class="od-btns">' +
+        '<button class="btn btn-primary od-btn" data-id="' + o.id + '" data-kind="' + o.kind + '" data-exec="1">执行选项</button>' +
+        '<button class="btn btn-outline od-btn danger" data-id="' + o.id + '" data-kind="' + o.kind + '" data-exec="0">放弃（进自由市场）</button>' +
+        "</div></div>"
+      ).join("") +
+      (pendingQOList.length ? '<div class="od-section-title">📨 资质报价 QO（新秀合同到期）</div>' : "") +
+      pendingQOList.map(q =>
+        '<div class="od-card">' +
+        '<div class="od-main"><div class="od-name">' + esc(q.name) + ' <span class="od-ovr">' + q.ovr + "</span></div>" +
+        '<div class="od-meta">提供资质报价 → 成为 RFA（可匹配其他球队报价）；不提供 → 成为 UFA</div></div>' +
+        '<div class="od-btns">' +
+        '<button class="btn btn-primary od-qo" data-id="' + q.id + '" data-provide="1">提供 QO（RFA）</button>' +
+        '<button class="btn btn-outline od-qo danger" data-id="' + q.id + '" data-provide="0">不提供（UFA）</button>' +
+        "</div></div>"
+      ).join("") +
+      "</div>"
+    : "";
 
   const customMap = new Map((save.customPlayers || []).map(p => [p.id, p]));
   const ratedMap = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
@@ -1043,6 +1107,7 @@ RENDERERS.freeagent = function () {
     capLinesHtml + excHtml + hardCapHtml +
     "</div>" +
     (save.roster.length < 8 ? '<div class="fa-warning">⚠ 阵容不足 8 人，无法开始赛季</div>' : "") +
+    decisionsHtml +
     '<div class="fa-tabs">' +
     '  <button class="fa-tab active" data-tab="ufa">UFA (' + ufa.length + ")</button>" +
     '  <button class="fa-tab" data-tab="rfa">RFA (' + rfa.length + ")</button>" +
@@ -1053,7 +1118,8 @@ RENDERERS.freeagent = function () {
     '  <div class="aw-list">' + ufaRows + "</div>" +
     "</div>" +
     '<div class="fa-actions">' +
-    '<button class="btn btn-primary" id="btn-fa-done"' + (save.roster.length < 8 ? " disabled" : "") + ">开始新赛季</button>" +
+    '<button class="btn btn-primary" id="btn-fa-done"' + ((save.roster.length < 8 || pendingOpts.length || pendingQOList.length) ? " disabled" : "") + ">开始新赛季</button>" +
+    (pendingOpts.length || pendingQOList.length ? '<div class="fa-warning" style="margin:0">⚠ 还有 ' + (pendingOpts.length + pendingQOList.length) + ' 项合同决策未处理</div>' : "") +
     '<button class="btn btn-outline" id="btn-fa-trade">休赛期交易</button>' +
     "</div>";
 
@@ -1062,7 +1128,9 @@ RENDERERS.freeagent = function () {
   const rosterHtml = mine.sort((a, b) => b.p.ovr - a.p.ovr).map((x, i) => {
     const r = save.roster.find(rr => rr.id === x.p.id) || {};
     const optTag = r.optionType === "player" ? '<span class="fa-tag opt-po">球员选项</span>'
-      : r.optionType === "team" ? '<span class="fa-tag opt-to">球队选项</span>' : "";
+      : r.optionType === "team" ? '<span class="fa-tag opt-to">球队选项</span>'
+      : (r.rookieTO && r.rookieTO.length) ? '<span class="fa-tag opt-to">新秀2+2 TO</span>'
+      : "";
     return '<div class="r-row" data-id="' + x.p.id + '">' +
       '  <span class="r-idx">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
@@ -1259,6 +1327,30 @@ RENDERERS.freeagent = function () {
   }
 
   bindSignButtons("ufa");
+
+  /* 合同选项决策（球队选项/新秀 2+2） */
+  $$("#screen-freeagent .od-btn").forEach(btn => {
+    btn.onclick = () => {
+      const id = Number(btn.dataset.id);
+      const kind = btn.dataset.kind;
+      const exec = btn.dataset.exec === "1";
+      const o = (save.pendingTeamOptions || []).find(x => x.id === id);
+      decideTeamOption(save, id, exec, kind);
+      if (exec) toast("✅ 执行选项：" + (o ? o.name : "球员") + " 留队（" + fmtM(o ? o.salary : 0) + "/年）");
+      else toast("🚪 放弃选项：" + (o ? o.name : "球员") + " 进入自由市场");
+      RENDERERS.freeagent();
+    };
+  });
+  /* 资质报价 QO 决策 */
+  $$("#screen-freeagent .od-qo").forEach(btn => {
+    btn.onclick = () => {
+      const id = Number(btn.dataset.id);
+      const provide = btn.dataset.provide === "1";
+      decideQO(save, id, provide);
+      toast(provide ? "📨 已向该球员提供资质报价（RFA，可匹配报价）" : "✉ 未提供资质报价，该球员成为 UFA");
+      RENDERERS.freeagent();
+    };
+  });
 
   $("#btn-fa-done").onclick = () => {
     if (save.roster.length < 8) { toast("阵容不足 8 人，请先签约球员"); return; }
