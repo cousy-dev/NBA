@@ -3194,6 +3194,19 @@ RENDERERS.awards = function () {
   const scoringRows = ranks.scoringTop.map((c, i) => rankRow(c, i, c.st.ppg, v => v.toFixed(1) + "分")).join("");
   const assistRows = ranks.assistTop.map((c, i) => rankRow(c, i, c.st.apg, v => v.toFixed(1) + "助")).join("");
   const reboundRows = ranks.reboundTop.map((c, i) => rankRow(c, i, c.st.rpg, v => v.toFixed(1) + "板")).join("");
+  const stealRows = ranks.stealTop.map((c, i) => rankRow(c, i, c.st.spg, v => v.toFixed(1) + "断")).join("");
+  const blockRows = ranks.blockTop.map((c, i) => rankRow(c, i, c.st.bpg, v => v.toFixed(1) + "帽")).join("");
+  const mipRows = ranks.mipTop.length
+    ? ranks.mipTop.map((c, i) => rankRow(c, i, c.mipGain, v => "+" + v + " OVR")).join("")
+    : '<div class="empty-stats">最快进步奖第 2 赛季起评选（对比上赛季 OVR，限 26 岁以下非新秀）</div>';
+  /* COY 为球队奖，单独渲染球队行（不可点进球员页） */
+  const coyRows = ranks.coyTop.length
+    ? ranks.coyTop.map((c, i) =>
+        '<div class="aw-row' + (c.mine ? " me" : "") + '"><span class="aw-rank">' + (i + 1) + "</span>" +
+        '<div class="aw-name">' + esc(teamName(c.abbr)) + (c.mine ? '<span class="aw-team">你</span>' : "") + "</div>" +
+        '<div class="aw-val">' + (c.winPct * 100).toFixed(0) + "% <small>预期" + (c.expected * 100).toFixed(0) + "% · +" + (c.gain * 100).toFixed(0) + "%</small></div></div>"
+      ).join("")
+    : '<div class="empty-stats">暂无数据（需打 5 场以上）</div>';
   const sixthRows = ranks.sixthTop.length
     ? ranks.sixthTop.map((c, i) => rankRow(c, i, c.sixth, v => v.toFixed(1))).join("")
     : '<div class="empty-stats">暂无替补球员数据（需打 5 场以上）</div>';
@@ -3208,24 +3221,32 @@ RENDERERS.awards = function () {
     '  <button class="aw-tab active" data-tab="mvp">MVP</button>' +
     '  <button class="aw-tab" data-tab="dpoy">DPOY</button>' +
     '  <button class="aw-tab" data-tab="6th">第六人</button>' +
+    '  <button class="aw-tab" data-tab="mip">MIP</button>' +
+    '  <button class="aw-tab" data-tab="coy">最佳教练</button>' +
     '  <button class="aw-tab" data-tab="rookie">最佳新秀</button>' +
     '  <button class="aw-tab" data-tab="pts">得分王</button>' +
     '  <button class="aw-tab" data-tab="ast">助攻王</button>' +
     '  <button class="aw-tab" data-tab="reb">篮板王</button>' +
+    '  <button class="aw-tab" data-tab="stl">抢断王</button>' +
+    '  <button class="aw-tab" data-tab="blk">盖帽王</button>' +
     "</div>" +
     '<div class="aw-panel" id="aw-panel">' +
     '  <div class="aw-list">' + mvpRows + "</div>" +
     "</div>";
 
-  const panels = { mvp: mvpRows, dpoy: dpoyRows, "6th": sixthRows, rookie: rookieRows, pts: scoringRows, ast: assistRows, reb: reboundRows };
+  const panels = { mvp: mvpRows, dpoy: dpoyRows, "6th": sixthRows, mip: mipRows, coy: coyRows, rookie: rookieRows, pts: scoringRows, ast: assistRows, reb: reboundRows, stl: stealRows, blk: blockRows };
   const labels = {
     mvp: "MVP 候选（综合得分+篮板+助攻+胜率）",
     dpoy: "最佳防守（抢断+盖帽+防守属性）",
     "6th": "最佳第六人（替补得分+助攻）",
+    mip: "最快进步球员（OVR 较上赛季涨幅，限 26 岁以下非新秀）",
+    coy: "最佳教练（实际胜率超出球队战力预期最多）",
     rookie: "最佳新秀（新秀球员综合分）",
     pts: "得分王（场均得分）",
     ast: "助攻王（场均助攻）",
-    reb: "篮板王（场均篮板）"
+    reb: "篮板王（场均篮板）",
+    stl: "抢断王（场均抢断）",
+    blk: "盖帽王（场均盖帽）"
   };
   $$("#aw-tabs .aw-tab").forEach(tab => {
     tab.onclick = () => {
@@ -3604,6 +3625,10 @@ RENDERERS["regular-end"] = function () {
   const scoring = awards.scoring;
   const assists = awards.assists;
   const rebounds = awards.rebounds;
+  const stealer = awards.stealer;
+  const blocker = awards.blocker;
+  const mip = awards.mip;
+  const coy = awards.coy;
   const bestRookie = awards.bestRookie;
   const awardRow = (icon, c, highlight, statFmt) => {
     if (!c) return '<div class="aw-row"><span class="aw-rank">' + icon + '</span><div class="aw-name">暂无数据</div></div>';
@@ -3636,6 +3661,20 @@ RENDERERS["regular-end"] = function () {
   };
   const dpoyFmt = st => st ? st.spg.toFixed(1) + "断 " + st.bpg.toFixed(1) + "帽" : "";
   const sixthFmt = st => st ? st.ppg.toFixed(1) + "分 " + st.rpg.toFixed(1) + "板 " + st.apg.toFixed(1) + "助" : "";
+  const stealFmt = st => st ? st.spg.toFixed(1) + "断" : "";
+  const blockFmt = st => st ? st.bpg.toFixed(1) + "帽" : "";
+  /* MIP 行：显示 OVR 涨幅 */
+  const mipRow = mip
+    ? '<div class="aw-row' + (mip.mine ? " me" : "") + '"><span class="aw-rank">MIP</span>' +
+      '<div class="aw-name">' + esc(mip.p.nameCn) + '<span class="aw-team">' + esc(teamName(mip.teamAbbr || mip.p.team)) + "</span></div>" +
+      '<div class="aw-line">+' + mip.mipGain + " OVR（" + mip.p.ovr + "）</div></div>"
+    : '<div class="aw-row"><span class="aw-rank">MIP</span><div class="aw-name">暂无数据</div></div>';
+  /* COY 行：球队奖 */
+  const coyRow = coy
+    ? '<div class="aw-row' + (coy.mine ? " me" : "") + '"><span class="aw-rank">COY</span>' +
+      '<div class="aw-name">' + esc(teamName(coy.abbr)) + (coy.mine ? '<span class="aw-team">你</span>' : "") + "</div>" +
+      '<div class="aw-line">' + (coy.winPct * 100).toFixed(0) + "% 胜率 · 超出预期 +" + (coy.gain * 100).toFixed(0) + "%</div></div>"
+    : '<div class="aw-row"><span class="aw-rank">COY</span><div class="aw-name">暂无数据</div></div>';
   $("#screen-regular-end").innerHTML =
     '<h2 class="screen-title">常规赛结束</h2>' +
     '<p class="screen-sub">第 ' + save.seasonNo + " 赛季常规赛 · 战绩 " + st.w + "-" + st.l +
@@ -3648,9 +3687,13 @@ RENDERERS["regular-end"] = function () {
     awardRow("DPOY", dpoy, false, dpoyFmt) +
     awardRow("ROY", bestRookie, false) +
     awardRow("6MOY", sixth, false, sixthFmt) +
+    mipRow +
+    coyRow +
     awardRow("得分王", scoring) +
     awardRow("助攻王", assists) +
     awardRow("篮板王", rebounds) +
+    awardRow("抢断王", stealer, false, stealFmt) +
+    awardRow("盖帽王", blocker, false, blockFmt) +
     "</div>" +
     '<h3 class="section-h">最佳阵容</h3>' +
     teamCard("最佳阵容 一阵", awards.allNBA1) +

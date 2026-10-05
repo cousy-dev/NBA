@@ -402,6 +402,8 @@ function liveAwardRanks(save) {
   const mineSorted = loadMyPlayers(save).slice().sort((a, b) => b.p.ovr - a.p.ovr);
   const starterIds = new Set(mineSorted.slice(0, 5).map(x => x.p.id));
 
+  /* MIP（最快进步）：成长前 OVR 快照差值，限 ≤26 岁非新秀；无快照（第1赛季）榜为空 */
+  const prevOvr = save.prevSeasonOvr || null;
   const candidates = PLAYERS_RATED.players.map(p0 => {
     const p = curSeasonPlayer(p0, save);
     let st = adjEstStats(p, save, teamMap.get(p.id), curEstStats(p0, p, est));
@@ -420,7 +422,13 @@ function liveAwardRanks(save) {
     const isSixth = isMine && !starterIds.has(p.id);
     const sixth = isSixth ? st.ppg + st.apg * 0.5 : 0;
     const realGP = rs ? rs.g : 0;
-    return { p, st, mvp, dpoy, sixth, mine: isMine, winPct, realGP, teamAbbr: teamMap.get(p.id) || p.team };
+    /* MIP 涨幅：上赛季末 OVR → 本赛季 OVR 的差值 */
+    const adjAge = (p.age || 24) + ((save.ageAdj || {})[p.id] || 0);
+    let mipGain = -99;
+    if (prevOvr && prevOvr[p.id] != null && adjAge <= 26 && !isRookiePlayer(p, save.seasonNo)) {
+      mipGain = p.ovr - prevOvr[p.id];
+    }
+    return { p, st, mvp, dpoy, sixth, mine: isMine, winPct, realGP, mipGain, teamAbbr };
   });
 
   const mvpTop = candidates.slice().sort((a, b) => b.mvp - a.mvp).slice(0, 10);
@@ -432,19 +440,36 @@ function liveAwardRanks(save) {
   const assistTop = candidates.slice().sort((a, b) => b.st.apg - a.st.apg).slice(0, 10);
   /* 篮板王 */
   const reboundTop = candidates.slice().sort((a, b) => b.st.rpg - a.st.rpg).slice(0, 10);
+  /* 抢断王 / 盖帽王 */
+  const stealTop = candidates.slice().sort((a, b) => b.st.spg - a.st.spg).slice(0, 10);
+  const blockTop = candidates.slice().sort((a, b) => b.st.bpg - a.st.bpg).slice(0, 10);
+  /* MIP 实时榜（至少涨 1 点） */
+  const mipTop = candidates.filter(c => c.mipGain >= 1).sort((a, b) => b.mipGain - a.mipGain).slice(0, 10);
+  /* COY（最佳教练）：实际胜率超出战力预期最多的球队。
+     预期胜率映射：战力 70=0.50，每差 1 点 ≈ 2.5% 胜率 */
+  const coyTop = TEAMS.map(t => {
+    const ts = save.standings[t.abbr];
+    const games = ts ? ts.w + ts.l : 0;
+    if (games < 5) return null;
+    const actual = ts.w / games;
+    const expected = Math.max(0.12, Math.min(0.88, 0.5 + (strengthOf(save, t.abbr) - 70) / 40));
+    return { abbr: t.abbr, gain: actual - expected, winPct: actual, expected, games, mine: t.abbr === my };
+  }).filter(x => x).sort((a, b) => b.gain - a.gain).slice(0, 10);
   /* 最佳新秀实时榜（expYears === 0） */
   const rookieTop = candidates.filter(c => isRookiePlayer(c.p, save.seasonNo))
     .sort((a, b) => b.mvp - a.mvp).slice(0, 10);
 
-  return { mvpTop, dpoyTop, sixthTop, scoringTop, assistTop, reboundTop, rookieTop, gp };
+  return { mvpTop, dpoyTop, sixthTop, scoringTop, assistTop, reboundTop, stealTop, blockTop, mipTop, coyTop, rookieTop, gp };
 }
 
 /* ===== 奖项：MVP / DPOY（联盟榜 + 用户真实数据覆盖） ===== */
 function seasonAwards(save) {
   const real = save.playerStats || {};
   const myIds = new Set(save.roster.map(r => r.id));
+  const myTeam = myAbbr(save);
   const est = leagueEst();
   const teamMap = buildPlayerTeamMap(save);
+  const prevOvr = save.prevSeasonOvr || null;
   adjEstStats._callCount = 0;  /* 重置计数器 */
   console.log("[seasonAwards] called, seasonNo=", save.seasonNo, "total players=", PLAYERS_RATED.players.length);
   const candidates = PLAYERS_RATED.players.map(p0 => {
@@ -458,14 +483,35 @@ function seasonAwards(save) {
     const teamAbbr = teamMap.get(p.id) || p.team;
     const teamSt = save.standings[teamAbbr];
     if (teamSt) { const gp = teamSt.w + teamSt.l; if (gp) winPct = teamSt.w / gp; }
-    return { p, st, mvp: st.ppg + st.rpg * 1.2 + st.apg * 1.5 + winPct * 10, dpoy: (st.spg * 2 + st.bpg * 2.2) + (p.attrs ? p.attrs.def : p.ovr * 0.3) * 0.25, mine: myIds.has(p.id), teamAbbr: teamMap.get(p.id) || p.team };
+    /* MIP 涨幅（≤26 岁非新秀，需要上赛季快照） */
+    const adjAge = (p.age || 24) + ((save.ageAdj || {})[p.id] || 0);
+    let mipGain = -99;
+    if (prevOvr && prevOvr[p.id] != null && adjAge <= 26 && !isRookiePlayer(p, save.seasonNo)) {
+      mipGain = p.ovr - prevOvr[p.id];
+    }
+    return { p, st, mvp: st.ppg + st.rpg * 1.2 + st.apg * 1.5 + winPct * 10, dpoy: (st.spg * 2 + st.bpg * 2.2) + (p.attrs ? p.attrs.def : p.ovr * 0.3) * 0.25, mipGain, mine: myIds.has(p.id), winPct, teamAbbr: teamMap.get(p.id) || p.team };
   });
   const mvp = candidates.slice().sort((a, b) => b.mvp - a.mvp).slice(0, 5);
   const dpoy = candidates.slice().sort((a, b) => b.dpoy - a.dpoy).slice(0, 3);
-  /* 得分王 / 助攻王 / 篮板王 */
+  /* 得分王 / 助攻王 / 篮板王 / 抢断王 / 盖帽王 */
   const scoring = candidates.slice().sort((a, b) => b.st.ppg - a.st.ppg)[0] || null;
   const assists = candidates.slice().sort((a, b) => b.st.apg - a.st.apg)[0] || null;
   const rebounds = candidates.slice().sort((a, b) => b.st.rpg - a.st.rpg)[0] || null;
+  const stealer = candidates.slice().sort((a, b) => b.st.spg - a.st.spg)[0] || null;
+  const blocker = candidates.slice().sort((a, b) => b.st.bpg - a.st.bpg)[0] || null;
+  /* MIP 最快进步球员：至少进步 2 点 OVR（第1赛季无快照时回退为空） */
+  const mip = candidates.filter(c => c.mipGain >= 2).sort((a, b) => b.mipGain - a.mipGain)[0] || null;
+  /* COY 最佳教练：实际胜率超出战力预期最多的球队（至少执教/模拟 20 场） */
+  let coy = null;
+  TEAMS.forEach(t => {
+    const ts = save.standings[t.abbr];
+    const games = ts ? ts.w + ts.l : 0;
+    if (games < 20) return;
+    const actual = ts.w / games;
+    const expected = Math.max(0.12, Math.min(0.88, 0.5 + (strengthOf(save, t.abbr) - 70) / 40));
+    const gain = actual - expected;
+    if (!coy || gain > coy.gain) coy = { abbr: t.abbr, gain, winPct: actual, expected, games, mine: t.abbr === myTeam };
+  });
   /* 第六人：全联盟各队替补中得分最高者（非首发5人之外） */
   /* 超级第六人 = 能力强但被放替补的球员，上场时间不少、得分高 */
   const allRosters = {};
@@ -562,7 +608,7 @@ function seasonAwards(save) {
     }).filter(x => x).sort((a, b) => b.score - a.score)[0] || null;
   }
 
-  return { mvp, dpoy, sixth, scoring, assists, rebounds, fmvp,
+  return { mvp, dpoy, sixth, scoring, assists, rebounds, stealer, blocker, mip, coy, fmvp,
     bestRookie, allNBA1, allNBA2, allNBA3, allDef1, allDef2, allRookie1, allRookie2 };
 }
 function avgPts(real, id) { const r = real[id]; return r && r.g ? r.pts / r.g : 0; }
@@ -594,7 +640,14 @@ function saveSeasonHonors(save, awards) {
   add("scoring", "得分王", awards.scoring);
   add("assists", "助攻王", awards.assists);
   add("rebounds", "篮板王", awards.rebounds);
+  add("steals", "抢断王", awards.stealer);
+  add("blocks", "盖帽王", awards.blocker);
+  add("MIP", "最快进步球员", awards.mip);
   add("FMVP", "总决赛MVP", awards.fmvp);
+  /* COY 最佳教练：球队荣誉，获奖者为玩家球队时记录 */
+  if (awards.coy && awards.coy.mine) {
+    list.push({ season: save.seasonNo, cat: "team", type: "COY", label: "最佳教练" });
+  }
   awards.allNBA1.forEach(c => add("AllNBA1", "最佳阵容一阵", c));
   awards.allNBA2.forEach(c => add("AllNBA2", "最佳阵容二阵", c));
   awards.allNBA3.forEach(c => add("AllNBA3", "最佳阵容三阵", c));
@@ -890,7 +943,7 @@ function newSeason(save) {
   /* 累计球员个人荣誉 */
   save.playerAccolades = save.playerAccolades || {};
   const _acc = (id, key) => {
-    save.playerAccolades[id] = save.playerAccolades[id] || { mvp: 0, fmvp: 0, champ: 0, allNBA: 0, allDef: 0, dpoy: 0, scoring: 0, assists: 0, rebounds: 0, allRookie: 0 };
+    save.playerAccolades[id] = save.playerAccolades[id] || { mvp: 0, fmvp: 0, champ: 0, allNBA: 0, allDef: 0, dpoy: 0, scoring: 0, assists: 0, rebounds: 0, allRookie: 0, mip: 0, steals: 0, blocks: 0 };
     save.playerAccolades[id][key]++;
   };
   if (aw.mvp && aw.mvp[0]) _acc(aw.mvp[0].p.id, "mvp");
@@ -903,9 +956,19 @@ function newSeason(save) {
   if (aw.scoring) _acc(aw.scoring.p.id, "scoring");
   if (aw.assists) _acc(aw.assists.p.id, "assists");
   if (aw.rebounds) _acc(aw.rebounds.p.id, "rebounds");
+  if (aw.stealer) _acc(aw.stealer.p.id, "steals");
+  if (aw.blocker) _acc(aw.blocker.p.id, "blocks");
+  if (aw.mip) _acc(aw.mip.p.id, "mip");
   (aw.allNBA1 || []).concat(aw.allNBA2 || [], aw.allNBA3 || []).forEach(c => _acc(c.p.id, "allNBA"));
   (aw.allDef1 || []).concat(aw.allDef2 || []).forEach(c => _acc(c.p.id, "allDef"));
   (aw.allRookie1 || []).concat(aw.allRookie2 || []).forEach(c => _acc(c.p.id, "allRookie"));
+  /* 成长前 OVR 快照：供下赛季 MIP 评选（curOvr - prevSeasonOvr） */
+  const _snapFind = id => (save.customPlayers || []).find(p => p.id === id) || PLAYERS_RATED.players.find(p => p.id === id);
+  const _snap = {};
+  const _allIds = new Set((save.roster || []).map(r => r.id));
+  Object.keys(save.aiRosters || {}).forEach(a => (save.aiRosters[a] || []).forEach(id => _allIds.add(id)));
+  _allIds.forEach(id => { const p = _snapFind(id); if (p) _snap[id] = (p.ovr || 70) + ((save.ovrAdj || {})[id] || 0); });
+  save.prevSeasonOvr = _snap;
   doAging(save);
   save.seasonNo++;
   save.gameNo = 0;
@@ -1175,6 +1238,9 @@ function hofScore(save, id) {
   score += (acc.scoring || 0) * 3;
   score += (acc.assists || 0) * 3;
   score += (acc.rebounds || 0) * 3;
+  score += (acc.steals || 0) * 2;
+  score += (acc.blocks || 0) * 2;
+  score += (acc.mip || 0) * 2;
   return Math.round(score);
 }
 
