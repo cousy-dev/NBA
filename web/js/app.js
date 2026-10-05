@@ -3639,7 +3639,7 @@ function buildPlayoffBracket(save, viewMode) {
     const confBox = (c) => {
       const d = ps.pi[c];
       const seedLine = (label, abbr, cls) => '<div class="pi-seed ' + cls + '"><b>' + label + '</b> ' +
-        (abbr ? teamLogoHtml(abbr) + esc(teamShort(abbr)) : '<span class="pi-tbd">待定</span>') + '</div>';
+        (abbr ? '<span class="br-logo">' + teamLogoHtml(abbr) + '</span>' + esc(teamShort(abbr)) : '<span class="pi-tbd">待定</span>') + '</div>';
       return '<div class="pi-conf">' +
         '<div class="po-conf-label">' + (c === "E" ? "东部" : "西部") + "附加赛</div>" +
         '<div class="pi-games">' +
