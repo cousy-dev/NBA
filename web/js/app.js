@@ -4081,6 +4081,7 @@ RENDERERS.seasonend = function () {
         '<button class="btn btn-primary" id="btn-fired-menu">返回主菜单</button></div>'
       : '<button class="btn btn-primary" id="btn-newseason">开启第 ' + (save.seasonNo + 1) + " 赛季</button>" +
         '<button class="btn btn-outline" id="btn-se-trade">休赛期交易</button>' +
+        '<button class="btn btn-outline" id="btn-se-search">🔍 交易搜索</button>' +
         '<button class="btn btn-outline" id="se-hub">返回经理室</button>');
   const btnNS = $("#btn-newseason");
   if (btnNS) btnNS.onclick = () => {
@@ -4112,6 +4113,8 @@ RENDERERS.seasonend = function () {
   if (seHubBtn) seHubBtn.onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
   const seTrade = $("#btn-se-trade");
   if (seTrade) seTrade.onclick = () => go("trade");
+  const seSearch = $("#btn-se-search");
+  if (seSearch) seSearch.onclick = () => go("trade-search");
   /* 被解雇：返回主菜单（该存档标记 fired，主菜单仍可查看但生涯已结束） */
   const firedBtn = $("#btn-fired-menu");
   if (firedBtn) firedBtn.onclick = () => { RENDERERS.start(); state.stack = []; activate("start"); };
@@ -4444,8 +4447,8 @@ RENDERERS["trade-deal"] = function () {
   $("#btn-back-trade").onclick = () => back();
 };
 
-/* ===== 交易搜索器 ===== */
-state.tradeSearch = { offers: [], filter: "all", posFilter: "all", openPlayer: null };
+/* ===== 交易搜索：选择本队球员为主体 → 扫描全联盟可行报价 ===== */
+state.tradeSearch = { subjId: null, offersCache: {}, confirmTeam: null };
 RENDERERS["trade-search"] = function () {
   const save = state.save;
   if (save.tradeDeadlinePassed) {
@@ -4453,137 +4456,125 @@ RENDERERS["trade-search"] = function () {
     RENDERERS.hub(); state.stack = []; activate("hub");
     return;
   }
-  /* 搜索或使用缓存 */
-  if (!state.tradeSearch.offers.length) {
-    state.tradeSearch.offers = searchTradeOffers(save);
+  const ts = state.tradeSearch;
+  const mine = loadMyPlayers(save).slice().sort((a, b) => b.p.ovr - a.p.ovr);
+  const subj = ts.subjId ? mine.find(x => x.p.id === ts.subjId) : null;
+
+  /* 选中主体后即时扫描（结果按球员缓存） */
+  if (subj && !ts.offersCache[subj.p.id]) {
+    ts.offersCache[subj.p.id] = buildSubjectTradeOffers(save, subj.p.id);
   }
-  const offers = state.tradeSearch.offers;
-  const filter = state.tradeSearch.filter;
-  const posFilter = state.tradeSearch.posFilter;
-  let filtered = filter === "all" ? offers : offers.filter(o => o.rating === filter);
-  /* 位置筛选：按 AI 球员位置过滤 */
-  const posCount = { G: 0, F: 0, C: 0 };
-  offers.forEach(o => { const c = catOf(o.aiPlayer.pos); if (c) posCount[c]++; });
-  if (posFilter !== "all") {
-    filtered = filtered.filter(o => catOf(o.aiPlayer.pos) === posFilter);
-  }
-  /* 按用户球员分组 */
-  const byPlayer = {};
-  filtered.forEach(o => {
-    const k = o.myPlayer.id;
-    (byPlayer[k] = byPlayer[k] || []).push(o);
-  });
-  const playerIds = Object.keys(byPlayer).map(Number);
-  /* 按该球员的最佳报价评级排序 */
-  playerIds.sort((a, b) => {
-    const ra = byPlayer[a][0].rating === "steal" ? 0 : byPlayer[a][0].rating === "good" ? 1 : 2;
-    const rb = byPlayer[b][0].rating === "steal" ? 0 : byPlayer[b][0].rating === "good" ? 1 : 2;
-    return ra - rb;
-  });
-  const openId = state.tradeSearch.openPlayer;
+  const offers = subj ? (ts.offersCache[subj.p.id] || []) : [];
+
+  /* 本队球员行（主体选择列表） */
+  const subjectRow = x => {
+    const injured = isInjured(save, x.p.id);
+    return '<div class="r-row ts2-subj' + (injured ? " is-injured" : "") + '" data-id="' + x.p.id + '">' +
+      '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
+      '  <div class="r-main"><div class="r-name">' + esc(x.p.nameCn) + "</div>" +
+      '    <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " +
+      (x.p.age || "-") + "岁 · " + fmtM(x.sal) + (injured ? " · 伤病中不可交易" : "") + "</div></div>" +
+      (injured ? "" : '<span class="ts2-go">›</span>') +
+      "</div>";
+  };
+
+  /* 报价中的球员 mini 行 */
+  const itemRow = it =>
+    '<div class="ts2-p">' +
+    '  <div class="ovr-badge ' + ovrClass(it.ovr) + '">' + it.ovr + "</div>" +
+    '  <div class="ts2-p-main"><div class="ts2-p-name">' + esc(it.name) + "</div>" +
+    '    <div class="ts2-p-meta">' + esc(posLabel({ pos: it.pos })) + " · " + fmtM(it.sal) + "</div></div>" +
+    "</div>";
+
+  /* 报价卡片 */
+  const offerCard = o => {
+    const confirming = ts.confirmTeam === o.aiTeam;
+    const pickRows = o.aiPicks.map(pk =>
+      '<div class="ts2-p ts2-pick"><span class="ts2-pick-ico">🎯</span>' +
+      '<div class="ts2-p-main"><div class="ts2-p-name">' + esc(pk.label) + "</div>" +
+      '<div class="ts2-p-meta">原属 ' + esc(teamName(pk.originalTeam)) + "</div></div></div>").join("");
+    return '<div class="ts2-card ts2-' + o.rating + '">' +
+      '  <div class="ts2-card-head">' +
+      '    <span class="br-logo">' + teamLogoHtml(o.aiTeam) + "</span>" +
+      "    <b>" + esc(teamName(o.aiTeam)) + "</b>" +
+      '    <span class="ts2-status">' + STATUS_LABELS[o.status] + "</span>" +
+      '    <span class="ts2-badge ts2-badge-' + o.rating + '">' + o.ratingLabel +
+      "（净值 " + (o.net >= 0 ? "+" : "") + o.net + "）</span>" +
+      "  </div>" +
+      '  <div class="ts2-cols">' +
+      '    <div class="ts2-col ts2-out"><div class="ts2-col-h">你送出 <em>' + fmtM(o.mySal) + "</em></div>" +
+      o.myOut.map(itemRow).join("") + "</div>" +
+      '    <div class="ts2-swap">⇄</div>' +
+      '    <div class="ts2-col ts2-in"><div class="ts2-col-h">你收到 <em>' + fmtM(o.aiSal) + "</em></div>" +
+      o.aiOut.map(itemRow).join("") + pickRows + "</div>" +
+      "  </div>" +
+      '  <div class="ts2-reason">✓ 薪资已配平 · 双方阵容齐整 · ' + esc(o.reason) + "</div>" +
+      '  <button class="btn ts2-accept' + (confirming ? " confirm" : " btn-primary") + '" data-team="' + o.aiTeam + '">' +
+      (confirming ? "⚠ 再点一次确认成交" : "接受这笔交易") + "</button>" +
+      "</div>";
+  };
+
   $("#screen-trade-search").innerHTML =
-    '<h2 class="screen-title">交易搜索器</h2>' +
-    '<p class="screen-sub">扫描全联盟 29 队，找到 AI 会接受的 1v1 交易方案</p>' +
-    '<div class="ts-tabs">' +
-    '  <button class="ts-tab' + (filter === "all" ? " active" : "") + '" data-f="all">全部 (' + offers.length + ')</button>' +
-    '  <button class="ts-tab' + (filter === "steal" ? " active" : "") + '" data-f="steal">超值 (' + offers.filter(o => o.rating === "steal").length + ')</button>' +
-    '  <button class="ts-tab' + (filter === "good" ? " active" : "") + '" data-f="good">公道 (' + offers.filter(o => o.rating === "good").length + ')</button>' +
-    '  <button class="ts-tab' + (filter === "fair" ? " active" : "") + '" data-f="fair">可接受 (' + offers.filter(o => o.rating === "fair").length + ')</button>' +
-    '</div>' +
-    '<div class="ts-tabs ts-pos-tabs">' +
-    '  <button class="ts-tab' + (posFilter === "all" ? " active" : "") + '" data-pf="all">全部位置</button>' +
-    '  <button class="ts-tab' + (posFilter === "G" ? " active" : "") + '" data-pf="G">后卫 (' + posCount.G + ')</button>' +
-    '  <button class="ts-tab' + (posFilter === "F" ? " active" : "") + '" data-pf="F">前锋 (' + posCount.F + ')</button>' +
-    '  <button class="ts-tab' + (posFilter === "C" ? " active" : "") + '" data-pf="C">中锋 (' + posCount.C + ')</button>' +
-    '</div>' +
-    (playerIds.length === 0
-      ? '<div class="empty-stats">暂无符合的交易方案</div>'
-      : playerIds.map(pid => {
-        const list = byPlayer[pid];
-        const p = list[0].myPlayer;
-        const isOpen = openId === pid;
-        const stealN = list.filter(o => o.rating === "steal").length;
-        const goodN = list.filter(o => o.rating === "good").length;
-        const tags = [];
-        if (stealN) tags.push('<span class="ts-count ts-tag-steal">超值' + stealN + '</span>');
-        if (goodN) tags.push('<span class="ts-count ts-tag-good">公道' + goodN + '</span>');
-        if (list.length - stealN - goodN > 0) tags.push('<span class="ts-count ts-tag-fair">其他' + (list.length - stealN - goodN) + '</span>');
-        return '<div class="ts-player-group' + (isOpen ? " open" : "") + '">' +
-          '<div class="ts-player-header" data-pid="' + pid + '">' +
-          '  <div class="ovr-badge ' + ovrClass(p.ovr) + '">' + p.ovr + '</div>' +
-          '  <div class="ts-player-name">' + esc(p.nameCn) + '</div>' +
-          '  <div class="ts-player-count">' + list.length + ' 条报价</div>' +
-          '  <div class="ts-player-tags">' + tags.join("") + '</div>' +
-          '  <span class="ts-chevron">' + (isOpen ? "▾" : "▸") + '</span>' +
-          '</div>' +
-          (isOpen
-            ? '<div class="ts-offer-list">' + list.map(o => {
-              const myT = valueTier(o.myVal);
-              const aiT = valueTier(o.aiVal);
-              return '<div class="ts-offer ts-' + o.rating + '" data-my="' + o.myPlayer.id + '" data-ai="' + o.aiPlayer.id + '" data-team="' + o.aiTeam + '">' +
-                '<div class="ts-side ts-theirs">' +
-                '  <div class="ovr-badge ' + ovrClass(o.aiPlayer.ovr) + '">' + o.aiPlayer.ovr + '</div>' +
-                '  <div class="ts-name">' + esc(o.aiPlayer.nameCn) + '</div>' +
-                '  <div class="ts-val ' + aiT.color + '">★' + aiT.stars + ' (' + o.aiVal + ')</div>' +
-                '  <div class="ts-team">' + esc(teamName(o.aiTeam)) + '</div>' +
-                '</div>' +
-                '<div class="ts-tag ts-tag-' + o.rating + '">' + o.ratingLabel + '</div>' +
-                '</div>';
-            }).join("") + '</div>'
-            : "") +
-          '</div>';
-      }).join("")) +
-    '<button class="btn btn-outline" id="ts-refresh">🔄 刷新搜索</button>' +
-    '<button class="btn btn-outline" id="ts-back">返回经理室</button>';
-  $("#ts-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
-  $("#ts-refresh").onclick = () => {
-    state.tradeSearch.offers = [];
-    state.tradeSearch.openPlayer = null;
-    toast("正在扫描全联盟...");
-    state.tradeSearch.offers = searchTradeOffers(save);
+    '<h2 class="screen-title">交易搜索</h2>' +
+    '<p class="screen-sub">选择一名球员作为交易主体，系统扫描全联盟 29 队，列出双方都能接受的报价（自动配平薪资、考虑阵容需求与选秀权补偿）</p>' +
+    (subj
+      ? '<button class="ts2-back" id="ts2-reselect">‹ 重新选择球员</button>' +
+        '<div class="ts2-subject-card">' +
+        '  <div class="ovr-badge ' + ovrClass(subj.p.ovr) + '">' + subj.p.ovr + "</div>" +
+        '  <div class="ts2-subj-main"><div class="ts2-subj-name">' + esc(subj.p.nameCn) + "</div>" +
+        '    <div class="r-meta"><span class="pos-chip ' + posClass(subj.p.pos) + '">' + esc(posLabel(subj.p)) + "</span> " +
+        (subj.p.age || "-") + "岁 · " + fmtM(subj.sal) + "</div></div>" +
+        '  <button class="ts2-rescan" id="ts2-rescan">🔄 重新扫描</button>' +
+        "</div>" +
+        (offers.length
+          ? '<div class="ts2-list">' + offers.map(offerCard).join("") + "</div>"
+          : '<div class="empty-stats">全联盟暂时没有球队能为 <b>' + esc(subj.p.nameCn) + "</b> 提供双方都满意的报价<br>（薪资、阵容需求或价值无法对齐），换名球员试试吧</div>")
+      : '<div class="roster-table">' + mine.map(subjectRow).join("") + "</div>");
+
+  /* 选择主体 */
+  $$("#screen-trade-search .ts2-subj").forEach(row => {
+    if (row.classList.contains("is-injured")) return;
+    row.onclick = () => {
+      ts.subjId = Number(row.dataset.id);
+      ts.confirmTeam = null;
+      RENDERERS["trade-search"]();
+    };
+  });
+  /* 重新选择 / 重新扫描 */
+  const btnBack = $("#ts2-reselect");
+  if (btnBack) btnBack.onclick = () => { ts.subjId = null; ts.confirmTeam = null; RENDERERS["trade-search"](); };
+  const btnRescan = $("#ts2-rescan");
+  if (btnRescan) btnRescan.onclick = () => {
+    if (subj) delete ts.offersCache[subj.p.id];
+    ts.confirmTeam = null;
+    toast("正在重新扫描全联盟…");
     RENDERERS["trade-search"]();
   };
-  $$("#screen-trade-search .ts-tab[data-f]").forEach(tab => {
-    tab.onclick = () => {
-      state.tradeSearch.filter = tab.dataset.f;
-      state.tradeSearch.openPlayer = null;
-      RENDERERS["trade-search"]();
-    };
-  });
-  $$("#screen-trade-search .ts-tab[data-pf]").forEach(tab => {
-    tab.onclick = () => {
-      state.tradeSearch.posFilter = tab.dataset.pf;
-      state.tradeSearch.openPlayer = null;
-      RENDERERS["trade-search"]();
-    };
-  });
-  $$("#screen-trade-search .ts-player-header").forEach(header => {
-    header.onclick = () => {
-      const pid = Number(header.dataset.pid);
-      state.tradeSearch.openPlayer = (state.tradeSearch.openPlayer === pid) ? null : pid;
-      RENDERERS["trade-search"]();
-    };
-  });
-  $$("#screen-trade-search .ts-offer").forEach(card => {
-    card.onclick = () => {
-      const myId = Number(card.dataset.my);
-      const aiId = Number(card.dataset.ai);
-      const aiTeam = card.dataset.team;
-      /* 跳转到交易谈判页，预填球员 */
-      state.trade.aiTeam = aiTeam;
-      state.trade.myPicks = [];
-      state.trade.aiPicks = [];
-      state.trade.myDraftPicks = [];
-      state.trade.aiDraftPicks = [];
-      state.trade.result = null;
-      /* 预选 */
-      const mine = loadMyPlayers(save);
-      const mp = mine.find(x => x.p.id === myId);
-      if (mp) state.trade.myPicks.push(mp);
-      const aiPlayers = getTradable(aiTeam, state.save);
-      const ap = aiPlayers.find(x => x.p.id === aiId);
-      if (ap) state.trade.aiPicks.push(ap);
-      go("trade-deal");
+  /* 接受报价：两次点击防误触 */
+  $$("#screen-trade-search .ts2-accept").forEach(btn => {
+    btn.onclick = () => {
+      const team = btn.dataset.team;
+      const o = offers.find(x => x.aiTeam === team);
+      if (!o) return;
+      if (ts.confirmTeam !== team) {
+        ts.confirmTeam = team;
+        RENDERERS["trade-search"]();
+        return;
+      }
+      /* 二次确认 → 解析真实选秀权对象并成交（未举行的签无 pick 号，按赛季/轮次/原属队匹配） */
+      const realPicks = o.aiPicks.map(snap =>
+        getTeamPicks(save, team).find(pk =>
+          pk.round === snap.round && pk.season === snap.season &&
+          pk.originalTeam === snap.originalTeam)
+      ).filter(Boolean);
+      const ok = executeTrade(save, myAbbr(save),
+        o.myOut.map(x => x.id), o.aiOut.map(x => x.id), team, [], realPicks);
+      if (ok === false) return;  /* executeTrade 已弹失败 toast */
+      /* 清缓存（阵容已变） */
+      ts.subjId = null; ts.confirmTeam = null; ts.offersCache = {};
+      toast("🤝 交易达成：" + o.aiOut.map(x => x.name).join("、"));
+      state.stack = [];
+      RENDERERS.hub(); activate("hub");
     };
   });
 };

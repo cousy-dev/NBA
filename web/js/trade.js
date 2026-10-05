@@ -592,56 +592,220 @@ function getTradable(aiTeamAbbr, save) {
     .sort((a, b) => b.p.ovr - a.p.ovr);
 }
 
-/* ===== 交易搜索器 ===== */
-/* 遍历用户球员 × AI 球员，找出 AI 会接受的所有 1v1 交易方案
-   返回 [{ myPlayer, aiPlayer, aiTeam, myVal, aiVal, rating, ratingLabel }]
-   rating: 'fair' | 'good' | 'steal'  —— 从用户视角评估 */
-function searchTradeOffers(save) {
+/* ===== 以指定球员为主体的交易搜索 =====
+   选定本队一名球员 subjId，扫描全联盟 29 队，为每队构造一个"双方都能接受"的包裹：
+   - 对方回礼核心球员 + 自动用添头为双方配平薪资（salaryMatchOk 双向校验）
+   - 差价可由对方附 1 个选秀权补偿（先保用户不吃亏，且 AI 视角比值仍 ≥ ~1.0）
+   - 阵容人数（8/9~21）、位置掏空（positionHole）、非卖品门槛（untouchableOvr）全部复用
+   - 阵容需求溢价：对方急需该位置时允许接近等值（0.92）成交
+   - 用户视角回收打包价值 ≥ 送出 90%，挡掉坑用户的报价
+   返回最多 8 个报价（每队最优 1 个），按 超值 > 公道 > 可接受、净值降序排列 */
+function buildSubjectTradeOffers(save, subjId) {
   const my = myAbbr(save);
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
   const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));
   const byId = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
-  /* 用户球员（排除伤病） */
-  const myPlayers = save.roster
-    .map(r => { const p0 = customById.get(r.id) || byId.get(r.id); return p0 ? { p: applyAdj(p0, save), sal: r.salary, years: r.years } : null; })
+  const loadP = id => {
+    const p0 = customById.get(id) || byId.get(id);
+    return p0 ? applyAdj(p0, save) : null;
+  };
+  const vOf = x => tradeValue(x.p, x.sal, { years: x.years, morale: moraleOf(save, x.p.id) });
+
+  const subjEntry = save.roster.find(r => r.id === subjId);
+  if (!subjEntry) return [];
+  const subjP = loadP(subjId);
+  if (!subjP || isInjured(save, subjId)) return [];
+
+  /* 本队其余球员（可能被系统选为配平添头），按交易价值从低到高——优先出让边缘人 */
+  const myBench = save.roster
+    .filter(r => r.id !== subjId && !isInjured(save, r.id))
+    .map(r => {
+      const p = loadP(r.id);
+      const x = p ? { p, sal: r.salary, years: r.years } : null;
+      return x ? Object.assign(x, { v: vOf(x) }) : null;
+    })
     .filter(Boolean)
-    .filter(x => !isInjured(save, x.p.id));
-  /* 所有 AI 队 */
-  const aiAbbrs = TEAMS.filter(t => t.abbr !== my).map(t => t.abbr);
+    .sort((a, b) => a.v - b.v);
+
+  const myAllItems = loadMyPlayers(save).map(x => ({ p: x.p }));
+  const myPosBefore = positionCountsAfter(myAllItems, [], []);
+  const myPayroll = save.roster.reduce((s, r) => s + (r.salary || 0), 0);
+  const posCN = c => c === "G" ? "后卫" : c === "F" ? "前锋" : "中锋";
+
+  /* AI 视角打包估值：复刻 aiEvaluateTrade 的价值算法（需求溢价/溢价合同惩罚/冗余减损/年龄偏好） */
+  const aiViewValues = (abbr, st, itemsOut, itemsIn, picksIn) => {
+    const incoming = itemsIn.map(x => {
+      let v = tradeValue(x.p, x.sal, { years: x.years, morale: moraleOf(save, x.p.id) });
+      const mkt = estimateSalary(x.p.ovr, x.p.id);
+      if (x.sal > 0 && mkt > 0 && x.sal > mkt * 1.3) {
+        v = Math.max(5, v - Math.round((x.sal - mkt * 1.3) * 1.5));
+      }
+      return { v, need: positionNeedBonus(save, abbr, x.p.pos) };
+    }).sort((a, b) => b.v - a.v)
+      .map((it, i) => ({ _v: Math.round(it.v + it.need * (i === 0 ? 1 : 0.4)) }));
+    const incomingVal = packagedValue(incoming, []);
+    const outgoing = itemsOut.map(x => ({
+      _v: tradeValue(x.p, x.sal, {
+        years: x.years, morale: moraleOf(save, x.p.id),
+        needBonus: -positionNeedBonus(save, abbr, x.p.pos) * 0.75
+      })
+    }));
+    let outgoingVal = packagedValue(outgoing, picksIn || []);
+    /* 球队状态的年龄偏好：摆烂队不收老将（拒绝"潜力股换即期老将"），争冠队偏好即战力 */
+    const ageAvg = xs => xs.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, xs.length);
+    const dAge = ageAvg(itemsIn) - ageAvg(itemsOut);
+    let ageMult = 1.0;
+    if (st === STATUS_TANKING) ageMult = dAge < -1.5 ? 1.12 : dAge > 2 ? 0.85 : 1.0;
+    else if (st === STATUS_CONTENDING) ageMult = dAge >= -1 ? 1.04 : 0.96;
+    return { incomingVal: incomingVal * ageMult, outgoingVal };
+  };
+
   const offers = [];
-  myPlayers.forEach(mine => {
-    aiAbbrs.forEach(abbr => {
-      const aiRoster = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
-      aiRoster.forEach(id => {
-        if (isInjured(save, id)) return;
-        const p0 = customById.get(id) || byId.get(id);
-        if (!p0) return;
-        const aiP = applyAdj(p0, save);
-        if (aiP.ovr >= 93) return; /* 超级巨星不交易 */
-        const aiSal = estimateSalary(aiP.ovr, aiP.id);
-        const aiYears = realYearsForId(aiP.id) || 2;
-        /* 模拟 AI 评估 */
-        const result = aiEvaluateTrade(save, abbr,
-          [{ p: mine.p, sal: mine.sal, ctx: { years: mine.years, morale: moraleOf(save, mine.p.id) } }],
-          [{ p: aiP, sal: aiSal, ctx: { years: aiYears, morale: moraleOf(save, aiP.id) } }],
-          [], []);
-        if (!result.accept) return;
-        /* 计算用户视角评级 */
-        const myVal = tradeValue(mine.p, mine.sal);
-        const aiVal = tradeValue(aiP, aiSal);
-        const diff = aiVal - myVal;
-        let rating, ratingLabel;
-        if (diff >= 5) { rating = "steal"; ratingLabel = "超值"; }
-        else if (diff >= -2) { rating = "good"; ratingLabel = "公道"; }
-        else { rating = "fair"; ratingLabel = "可接受"; }
-        offers.push({
-          myPlayer: mine.p, mySalary: mine.sal, myVal,
-          aiPlayer: aiP, aiSalary: aiSal, aiVal, aiTeam: abbr,
-          rating, ratingLabel
-        });
+  TEAMS.filter(t => t.abbr !== my).forEach(team => {
+    const abbr = team.abbr;
+    const fin = aiTeamFinances(save, abbr);
+    if (fin.players.length < 9) return;
+    const status = teamStatus(save, abbr);
+    const untOvr = untouchableOvr(status);
+    const aiPosBefore = positionCountsAfter(fin.players, [], []);
+    /* 对方可出让球员（非非卖品、非伤病） */
+    const tradable = fin.players
+      .filter(x => x.p.ovr < untOvr && !isInjured(save, x.p.id))
+      .map(x => {
+        const years = realYearsForId(x.p.id) || 2;
+        return { p: x.p, sal: x.sal, years };
       });
-    });
+    /* 对方选秀权（价值降序，搜索中最多附 1 个补偿差价）
+       未举行的选秀没有 pick 字段，用战绩预估顺位补齐（副本，不改存档对象） */
+    const decoratePick = pk => {
+      if (pk.pick != null) return pk;
+      const est = (typeof estimatePickPosition === "function")
+        ? estimatePickPosition(save, pk)
+        : (pk.round === 1 ? 15 : 45);
+      return Object.assign({}, pk, { pick: est });
+    };
+    const picksAvail = getTeamPicks(save, abbr).map(decoratePick)
+      .sort((a, b) => pickValue(b) - pickValue(a));
+    /* 主体给对方带来的需求加成（决定急需队能否接受接近等值报价） */
+    const subjNeed = positionNeedBonus(save, abbr, subjP.pos);
+
+    let best = null;
+    for (const core of tradable) {
+      const myOut = [{ p: subjP, sal: subjEntry.salary, years: subjEntry.years }];
+      const aiOut = [core];
+
+      /* ---- 薪资配平循环：不通过的一侧补自己的添头，最多 5 轮 ---- */
+      let salaryOk = false;
+      for (let iter = 0; iter < 5; iter++) {
+        const myOutSal = myOut.reduce((s, x) => s + x.sal, 0);
+        const aiOutSal = aiOut.reduce((s, x) => s + x.sal, 0);
+        const uOk = salaryMatchOk(myOutSal, aiOutSal, myPayroll - myOutSal, cap).ok;
+        const aOk = salaryMatchOk(aiOutSal, myOutSal, fin.payroll - aiOutSal, cap).ok;
+        if (uOk && aOk) { salaryOk = true; break; }
+        let progressed = false;
+        if (!uOk && myOut.length < 2) {
+          const usedIds = myOut.map(x => x.p.id);
+          const fill = myBench
+            .filter(x => !usedIds.includes(x.p.id))
+            .filter(x => {
+              const after = positionCountsAfter(myAllItems, usedIds.concat([x.p.id]), aiOut.map(y => ({ p: y.p })));
+              return !positionHole(myPosBefore, after);
+            })
+            .filter(x => salaryMatchOk(myOutSal + x.sal, aiOutSal, myPayroll - myOutSal - x.sal, cap).ok)
+            .sort((a, b) => a.v - b.v)[0];  /* 价值最低者优先，保护有用轮换 */
+          if (fill) { myOut.push(fill); progressed = true; }
+        }
+        if (!progressed && !aOk && aiOut.length < 3) {
+          const usedIds = aiOut.map(x => x.p.id);
+          const fill = tradable
+            .filter(x => !usedIds.includes(x.p.id))
+            .filter(x => {
+              const after = positionCountsAfter(fin.players, usedIds.concat([x.p.id]), myOut.map(y => ({ p: y.p })));
+              return !positionHole(aiPosBefore, after);
+            })
+            .filter(x => salaryMatchOk(aiOutSal + x.sal, myOutSal, fin.payroll - aiOutSal - x.sal, cap).ok)
+            .map(x => Object.assign({ v: vOf(x) }, x))
+            .sort((a, b) => a.v - b.v)[0];
+          if (fill) { aiOut.push(fill); progressed = true; }
+        }
+        if (!progressed) break;
+      }
+      if (!salaryOk) continue;
+
+      /* ---- 人数规则 ---- */
+      const myCnt = save.roster.length - myOut.length + aiOut.length;
+      const aiCnt = fin.ids.length - aiOut.length + myOut.length;
+      if (myCnt < 8 || myCnt > 21 || aiCnt < 9 || aiCnt > 21) continue;
+      /* ---- 位置掏空复核 ---- */
+      if (positionHole(myPosBefore, positionCountsAfter(myAllItems, myOut.map(x => x.p.id), aiOut.map(x => ({ p: x.p }))))) continue;
+      if (positionHole(aiPosBefore, positionCountsAfter(fin.players, aiOut.map(x => x.p.id), myOut.map(x => ({ p: x.p }))))) continue;
+
+      /* ---- 双方价值对等 ---- */
+      const eval0 = aiViewValues(abbr, status, aiOut, myOut, []);
+      const userOutVal = packagedValue(myOut.map(x => ({ _v: vOf(x) })), []);
+      const userInVal0 = packagedValue(aiOut.map(x => ({ _v: vOf(x) })), []);
+      /* AI 接受线：通常 ≥1.0；对方急需主体位置时 0.92 即可（雪中送炭） */
+      const aiFloor = subjNeed >= 6 ? 0.92 : 1.0;
+      if (eval0.incomingVal / Math.max(1, eval0.outgoingVal) + 1e-9 < aiFloor) continue;
+
+      /* 用户回收不足：尝试让对方附 1 个签位，同时保证 AI 侧仍不亏 */
+      let attachedPick = null;
+      let userInVal = userInVal0;
+      if (userInVal0 < userOutVal * 0.9) {
+        for (const pk of picksAvail) {
+          const inWithPick = packagedValue(aiOut.map(x => ({ _v: vOf(x) })), [pk]);
+          if (inWithPick < userOutVal * 0.9) continue;
+          const ev = aiViewValues(abbr, status, aiOut, myOut, [pk]);
+          if (ev.incomingVal / Math.max(1, ev.outgoingVal) + 1e-9 >= aiFloor) {
+            attachedPick = pk; userInVal = inWithPick; break;
+          }
+        }
+        if (!attachedPick) continue;
+      }
+      /* 用户侧球星门槛：打包边际递减会让"两个角色球员=超巨"，必须单独拦截。
+         90+ 头牌：回礼头牌 OVR ≥ 主体-6，或对方附首轮签
+         85+ 头牌：回礼头牌 OVR ≥ 主体-10，或对方附首轮签 */
+      const bestInOvr = aiOut.reduce((m, x) => Math.max(m, x.p.ovr), 0);
+      const hasFR = !!attachedPick && attachedPick.round === 1;
+      if (subjP.ovr >= 90 && bestInOvr < subjP.ovr - 6 && !hasFR) continue;
+      if (subjP.ovr >= 85 && subjP.ovr < 90 && bestInOvr < subjP.ovr - 10 && !hasFR) continue;
+      const net = Math.round(userInVal - userOutVal);
+      let rating, ratingLabel;
+      if (net >= 4) { rating = "steal"; ratingLabel = "超值"; }
+      else if (net >= -3) { rating = "good"; ratingLabel = "公道"; }
+      else { rating = "fair"; ratingLabel = "可接受"; }
+
+      /* ---- 推荐理由 ---- */
+      const why = [];
+      if (subjNeed >= 6) why.push("对方" + posCN(catOf(subjP.pos)) + "位置人手不足，" + subjP.nameCn + "能直接成为首发");
+      else if (subjNeed >= 3) why.push("对方" + posCN(catOf(subjP.pos)) + "位置需要补强");
+      else if (status === STATUS_CONTENDING) why.push("对方正在争冠，急需即战力");
+      else if (status === STATUS_TANKING) why.push("对方处于重建期，愿意收集即战资产");
+      else why.push("对方希望补强阵容深度");
+      if (attachedPick) why.push("附上" + (attachedPick.round === 1 ? "首轮" : "次轮") + "签平衡差价");
+      if (myOut.length > 1 || aiOut.length > 1) why.push("添头用于配平薪资");
+
+      const offer = {
+        aiTeam: abbr,
+        status,
+        myOut: myOut.map(x => ({ id: x.p.id, ovr: x.p.ovr, name: x.p.nameCn, pos: x.p.pos, sal: round1(x.sal) })),
+        aiOut: aiOut.map(x => ({ id: x.p.id, ovr: x.p.ovr, name: x.p.nameCn, pos: x.p.pos, sal: round1(x.sal) })),
+        aiPicks: attachedPick ? [{
+          round: attachedPick.round, pick: attachedPick.pick, season: attachedPick.season,
+          originalTeam: attachedPick.originalTeam, label: pickLabel(attachedPick)
+        }] : [],
+        mySal: round1(myOut.reduce((s, x) => s + x.sal, 0)),
+        aiSal: round1(aiOut.reduce((s, x) => s + x.sal, 0)),
+        rating, ratingLabel, net, reason: why.join("；")
+      };
+      if (!best || net > best.net) best = offer;
+    }
+    if (best) offers.push(best);
   });
-  /* 按价值差降序：最有利的交易排前面 */
-  offers.sort((a, b) => (b.aiVal - b.myVal) - (a.aiVal - a.myVal));
-  return offers;
+
+  const rank = { steal: 0, good: 1, fair: 2 };
+  offers.sort((a, b) => (rank[a.rating] - rank[b.rating]) || (b.net - a.net));
+  return offers.slice(0, 8);
 }
+
+function round1(v) { return Math.round(v * 10) / 10; }
