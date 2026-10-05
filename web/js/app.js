@@ -1954,20 +1954,20 @@ RENDERERS.hub = function () {
     "  </div>" +
     "</div>" +
     '<div class="hub-nav">' +
-    '  <button class="mc-btn primary" id="btn-roster-list">球队名单</button>' +
-    '  <button class="mc-btn" id="btn-standings">联盟排名</button>' +
+    '  <button class="mc-btn primary" id="btn-roster-list"><span class="hn-ico">📋</span><span>球队名单</span></button>' +
+    '  <button class="mc-btn" id="btn-standings"><span class="hn-ico">📊</span><span>联盟排名</span></button>' +
     (save.tradeDeadlinePassed
-      ? '<button class="mc-btn disabled" disabled>交易截止</button>' +
-        '<button class="mc-btn" id="btn-buyout-market">买断市场' + ((save.buyoutMarket || []).length ? ' (' + save.buyoutMarket.length + ')' : '') + '</button>'
-      : '<button class="mc-btn" id="btn-trade">交易中心</button>' +
-    '<button class="mc-btn" id="btn-trade-search">交易搜索</button>') +
-    '<button class="mc-btn" id="btn-extend">提前续约</button>' +
-    '<button class="mc-btn" id="btn-coach">教练战术</button>' +
-    '<button class="mc-btn" id="btn-scout">球探中心</button>' +
-    '<button class="mc-btn" id="btn-awards">奖项追踪</button>' +
-    '<button class="mc-btn" id="btn-retired">退役球员</button>' +
-    '<button class="mc-btn" id="btn-hof">名人堂</button>' +
-    '<button class="mc-btn" id="btn-trophyroom">荣誉室</button>' +
+      ? '<button class="mc-btn disabled" disabled><span class="hn-ico">⏳</span><span>交易截止</span></button>' +
+        '<button class="mc-btn" id="btn-buyout-market"><span class="hn-ico">🛒</span><span>买断市场' + ((save.buyoutMarket || []).length ? ' (' + save.buyoutMarket.length + ')' : '') + '</span></button>'
+      : '<button class="mc-btn" id="btn-trade"><span class="hn-ico">🔄</span><span>交易中心</span></button>' +
+    '<button class="mc-btn" id="btn-trade-search"><span class="hn-ico">🔍</span><span>交易搜索</span></button>') +
+    '<button class="mc-btn" id="btn-extend"><span class="hn-ico">✍️</span><span>提前续约</span></button>' +
+    '<button class="mc-btn" id="btn-coach"><span class="hn-ico">🎯</span><span>教练战术</span></button>' +
+    '<button class="mc-btn" id="btn-scout"><span class="hn-ico">🔭</span><span>球探中心</span></button>' +
+    '<button class="mc-btn" id="btn-awards"><span class="hn-ico">🏅</span><span>奖项追踪</span></button>' +
+    '<button class="mc-btn" id="btn-retired"><span class="hn-ico">🎖️</span><span>退役球员</span></button>' +
+    '<button class="mc-btn" id="btn-hof"><span class="hn-ico">🏛️</span><span>名人堂</span></button>' +
+    '<button class="mc-btn" id="btn-trophyroom"><span class="hn-ico">🏆</span><span>荣誉室</span></button>' +
     "</div>" +
     '<div class="hub-tabs">' +
     '  <button class="hub-tab' + (hubTab === "overview" ? " active" : "") + '" data-tab="overview">概览</button>' +
