@@ -1574,3 +1574,8 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .bm-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
 .bm-sign { flex-shrink: 0; padding: 6px 14px; font-size: 12.5px; }
 .bm-empty { text-align: center; color: var(--muted); font-size: 13px; padding: 26px 0; }
+
+/* ===== 交易请求（球员不满） ===== */
+.block-chip { font-size: 10.5px; font-weight: 800; color: #ffa94d; background: rgba(255,169,77,.14); border-radius: 5px; padding: 1px 6px; margin-left: 6px; }
+.tr-box { max-width: 480px; }
+.tr-box h3 { color: #ffa94d; }

@@ -1195,6 +1195,8 @@ function newSeason(save) {
     });
   }
   save.lastPlayoffs = lp;
+  /* 结算上赛季"承诺补强"：未进季后赛则承诺破裂、球员士气-20（须在清 playoffs 前） */
+  settlePromises(save);
   save.playoffs = null;
   save.pendingDraft = true;  /* 标记需要选秀 */
   return save;
@@ -1204,6 +1206,91 @@ function newSeason(save) {
 const DEFAULT_MORALE = 75;
 function moraleOf(save, id) {
   return (save.morale && save.morale[id] != null) ? save.morale[id] : DEFAULT_MORALE;
+}
+
+/* ===== 球员不满：低士气球员主动提出交易请求 =====
+   save.pendingTradeRequest {id,name} 待经理决策（hub 弹窗消费）
+   save.tradeRequestActive {id:gameNo} 已被放上货架（名单显示标记，交易走/赛季末清除）
+   save.tradeRequestCooldown {id:gameNo} 拒绝后 10 场冷却、安抚后本赛季不再闹
+   save.promiseSeason {id:seasonNo} 承诺补强，未进季后赛则新赛季士气-20 */
+function checkTradeRequests(save) {
+  if (save.pendingTradeRequest) return;
+  if (!save.gameNo || save.gameNo < 10 || save.gameNo > 82) return;
+  save.tradeRequestCooldown = save.tradeRequestCooldown || {};
+  const ts = save.standings[myAbbr(save)] || { w: 0, l: 0 };
+  const gp = ts.w + ts.l;
+  const wp = gp ? ts.w / gp : 0.5;
+  const findP = id => (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+  for (const r of save.roster) {
+    const id = r.id;
+    if (save.tradeRequestActive && save.tradeRequestActive[id] != null) continue;
+    if (save.gameNo - (save.tradeRequestCooldown[id] != null ? save.tradeRequestCooldown[id] : -99) < 20) continue;
+    if (isInjured(save, id)) continue;
+    const m = moraleOf(save, id);
+    if (m > 25) continue;
+    const p = findP(id);
+    if (!p) continue;
+    const ovr = (p.ovr || 70) + ((save.ovrAdj || {})[id] || 0);
+    const age = (p.age || 24) + ((save.ageAdj || {})[id] || 0);
+    if (ovr < 72 || age > 34) continue;  /* 只有主力轮换级别、当打之年会公开闹 */
+    let prob = 0.12 + (25 - m) * 0.004;
+    if (wp < 0.4) prob += 0.08;
+    if (Math.random() < prob) {
+      save.pendingTradeRequest = { id, name: p.nameCn, ovr, age, morale: m };
+      save.tradeRequestActive = save.tradeRequestActive || {};
+      save.tradeRequestActive[id] = save.gameNo;
+      break;  /* 同时只处理一个事件 */
+    }
+  }
+}
+
+/* 处理交易请求：action="block" 放上货架 / "promise" 承诺留下 / "refuse" 强留
+   返回 { action, goTrade } */
+function resolveTradeRequest(save, action) {
+  const req = save.pendingTradeRequest;
+  if (!req) return { ok: false };
+  const id = req.id;
+  save.tradeRequestCooldown = save.tradeRequestCooldown || {};
+  if (action === "block") {
+    /* 答应放上货架：球员安心，士气回升；active 保留（交易走或赛季末清除） */
+    setMorale(save, id, moraleOf(save, id) + 10);
+  } else if (action === "promise") {
+    setMorale(save, id, moraleOf(save, id) + 15);
+    save.promiseSeason = save.promiseSeason || {};
+    save.promiseSeason[id] = save.seasonNo;
+    if (save.tradeRequestActive) delete save.tradeRequestActive[id];
+    save.tradeRequestCooldown[id] = save.gameNo + 100;  /* 本赛季不再闹 */
+  } else {
+    /* 强留：矛盾激化，士气大跌，10 场后可能再提 */
+    setMorale(save, id, moraleOf(save, id) - 15);
+    if (save.tradeRequestActive) delete save.tradeRequestActive[id];
+    save.tradeRequestCooldown[id] = save.gameNo + 10;
+  }
+  save.pendingTradeRequest = null;
+  writeSave(save);
+  return { ok: true, action, goTrade: action === "block" };
+}
+
+/* 新赛季开始时结算上赛季承诺：未进季后赛 → 承诺破裂，士气-20 */
+function settlePromises(save) {
+  const broken = [];
+  if (save.promiseSeason) {
+    const madePlayoffs = save.playoffs && /首轮|半决赛|分区决赛|总决赛|冠军/.test(save.playoffs.userResult || "");
+    const findP = id => (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+    Object.keys(save.promiseSeason).forEach(sid => {
+      const id = Number(sid);
+      if (!save.roster.some(r => r.id === id)) return;  /* 已离队 */
+      if (!madePlayoffs) {
+        setMorale(save, id, moraleOf(save, id) - 20);
+        const p = findP(id);
+        broken.push({ id, name: p ? p.nameCn : "球员" });
+      }
+    });
+    save.promiseSeason = {};
+  }
+  save.tradeRequestActive = {};
+  save.tradeRequestCooldown = {};
+  if (broken.length) save.pendingBrokenPromises = (save.pendingBrokenPromises || []).concat(broken);
 }
 function setMorale(save, id, v) {
   if (!save.morale) save.morale = {};

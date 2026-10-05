@@ -1613,6 +1613,51 @@ function showBuyoutMarketModal(save) {
   });
 }
 
+/* ===== 球员要求交易事件弹窗（三选一：上货架 / 承诺补强 / 强留） ===== */
+function showTradeRequestModal(save) {
+  const req = save.pendingTradeRequest;
+  if (!req) return;
+  const old = $("#trade-req-modal");
+  if (old) old.remove();
+  const m = document.createElement("div");
+  m.id = "trade-req-modal";
+  m.className = "modal-overlay";
+  m.innerHTML =
+    '<div class="modal-box tr-box">' +
+    '<h3>⚠ 球员要求交易</h3>' +
+    '<p class="modal-sub"><b>' + esc(req.name) + '</b>（' + req.ovr + " 总评 · " + req.age + ' 岁 · 士气 ' + req.morale +
+      '）对球队现状严重不满，经纪人已公开提出交易请求。媒体正在等待你的回应……</p>' +
+    '<button class="waive-opt" id="tr-block">' +
+      '<span class="waive-title">📦 答应请求，放上货架</span>' +
+      '<span class="waive-desc">前往交易中心兜售该球员（低士气下交易价值已受损）。球员态度缓和（士气+10），名单中标记"交易中"</span>' +
+    '</button>' +
+    '<button class="waive-opt" id="tr-promise">' +
+      '<span class="waive-title">🤝 承诺围绕他补强</span>' +
+      '<span class="waive-desc">安抚留队（士气+15），本赛季不会再提交易。<b>但若本赛季未能打进季后赛，承诺破裂，下赛季士气-20</b></span>' +
+    '</button>' +
+    '<button class="waive-opt" id="tr-refuse">' +
+      '<span class="waive-title">🔒 拒绝交易，强行留队</span>' +
+      '<span class="waive-desc">他只能留队但矛盾激化（士气-15，场上表现进一步下滑），短期内可能再次提出</span>' +
+    '</button>' +
+    '</div>';
+  $("#screen-hub").appendChild(m);
+  const done = (action, msg) => {
+    const res = resolveTradeRequest(save, action);
+    m.remove();
+    if (!res.ok) return;
+    toast(msg);
+    if (res.goTrade) {
+      if (save.tradeDeadlinePassed) toast("⏳ 交易截止日已过，将在休赛期处理他的交易");
+      else go("trade");
+    } else {
+      RENDERERS.hub();
+    }
+  };
+  $("#tr-block").onclick = () => done("block", "📦 已将 " + req.name + " 放上交易货架");
+  $("#tr-promise").onclick = () => done("promise", "🤝 你向 " + req.name + " 承诺本赛季围绕他补强（务必打进季后赛）");
+  $("#tr-refuse").onclick = () => done("refuse", "🔒 你拒绝了 " + req.name + " 的交易请求，双方关系紧张（士气-15）");
+}
+
 /* ===== 经理室 ===== */
 RENDERERS.hub = function () {
   const save = state.save;
@@ -1820,11 +1865,13 @@ RENDERERS.hub = function () {
       const m = moraleOf(save, x.p.id);
       const inj = save.injuries && save.injuries[x.p.id];
       const injTag = inj ? '<span class="inj-chip">🩹' + inj.name + ' ' + inj.gamesLeft + '场</span>' : "";
+      const onBlock = save.tradeRequestActive && save.tradeRequestActive[x.p.id] != null;
+      const blockTag = onBlock ? '<span class="block-chip">📦交易中</span>' : "";
       return '<div class="r-row' + (inj ? " r-injured" : "") + '" data-id="' + x.p.id + '">' +
         '  <span class="r-idx">' + (i + 1) + "</span>" +
         '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
         '  <div class="r-main">' +
-        '    <div class="r-name">' + esc(x.p.nameCn) + (starterIds.includes(x.p.id) ? '<span class="starter">首发</span>' : "") + injTag + "</div>" +
+        '    <div class="r-name">' + esc(x.p.nameCn) + (starterIds.includes(x.p.id) ? '<span class="starter">首发</span>' : "") + injTag + blockTag + "</div>" +
         '    <div class="r-meta"><span class="pos-chip ' + posClass(x.p.pos) + '">' + esc(posLabel(x.p)) + "</span> " + (x.p.age || "-") + '岁 <span class="morale-chip" style="color:' + moraleColor(m) + '">士气' + m + '</span></div>' +
         "  </div>" +
         '  <div class="r-salary">' + fmtM(x.sal) + " · " + (save.roster.find(rr => rr.id === x.p.id) || {}).years + "年</div>" +
@@ -2007,6 +2054,14 @@ RENDERERS.hub = function () {
       if (ser) openSeriesModal(ser, card.dataset.round);
     };
   });
+  /* 承诺破裂：上赛季承诺补强但未进季后赛 */
+  if (save.pendingBrokenPromises && save.pendingBrokenPromises.length) {
+    save.pendingBrokenPromises.forEach(b => toast("💔 承诺破裂：" + b.name + " 对你极其失望（士气-20）"));
+    save.pendingBrokenPromises = [];
+    writeSave(save);
+  }
+  /* 球员主动要求交易：强制三选一弹窗 */
+  if (save.pendingTradeRequest) showTradeRequestModal(save);
   $("#btn-quit").onclick = () => {
     /* 返回主菜单但保留存档（多槽位，删除在开始页单独操作） */
     if (state.save) writeSave(state.save);
@@ -2485,6 +2540,8 @@ function completeGame(sim, win) {
     simLeagueRound(save);
     /* 月最佳球员：跨月时评选上月东西部最佳 */
     checkMonthlyAwards(save);
+    /* 球员不满：士气极低的主力有概率主动提出交易请求（hub 弹窗决策） */
+    checkTradeRequests(save);
     /* 全明星周末：第 42 场打完后触发（赛季中旬，对应 7 天 gap） */
     if (save.gameNo === ALL_STAR_TRIGGER_GAME && (!save.allStar || !save.allStar.done || save.allStar.seasonNo !== save.seasonNo)) {
       state._allStarPending = true;
