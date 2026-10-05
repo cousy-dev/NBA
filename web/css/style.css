@@ -1558,3 +1558,9 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .fired-card { border: 1px solid rgba(224,76,76,.5); background: linear-gradient(135deg, rgba(224,76,76,.12), rgba(224,76,76,.03)); text-align: center; }
 .fired-card h3 { color: #e04c4c; }
 .neg-num { color: #e04c4c !important; }
+
+/* ===== 裁员/买断弹窗 ===== */
+.waive-opt { display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; background: var(--card); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s, background .15s; }
+.waive-opt:hover { border-color: var(--gold); background: rgba(255,255,255,.05); }
+.waive-title { font-weight: 800; font-size: 14px; }
+.waive-desc { font-size: 12px; line-height: 1.6; color: var(--muted); }

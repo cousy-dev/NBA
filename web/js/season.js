@@ -554,10 +554,12 @@ function seasonIncome(save) {
   return Math.round(income * 10) / 10;
 }
 
-/* 当季工资总支出：阵容薪资 + 买断/延伸条款分摊（save.buyoutCharges） */
+/* 当季工资总支出：阵容薪资 + 买断/延伸条款当季分摊（save.buyoutCharges 按 season 匹配） */
 function currentPayroll(save) {
   const rosterSal = (save.roster || []).reduce((s, r) => s + (r.salary || 0), 0);
-  const buyoutSal = (save.buyoutCharges || []).reduce((s, c) => s + (c.amount || 0), 0);
+  const buyoutSal = (save.buyoutCharges || [])
+    .filter(c => c.season === save.seasonNo)
+    .reduce((s, c) => s + (c.amount || 0), 0);
   return Math.round((rosterSal + buyoutSal) * 10) / 10;
 }
 

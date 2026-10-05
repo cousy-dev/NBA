@@ -745,6 +745,95 @@ function releasePlayer(save, playerId) {
   writeSave(save);
 }
 
+/* ===== 裁员/买断系统：waivers 认领 + 协商买断 + 延伸条款 ===== */
+
+/* 剩余合同总金额（按 raise 逐年递增求和） */
+function remainingContractTotal(entry) {
+  let total = 0, sal = entry.salary || 0;
+  for (let i = 0; i < (entry.years || 0); i++) { total += sal; sal *= 1 + (entry.raise || 0); }
+  return Math.round(total * 10) / 10;
+}
+
+/* AI 队 waiver 认领判定：帽下球队按战绩倒序（现实 waiver wire 顺序），
+   高薪低能（薪水 > 估值 1.35 倍且 OVR<82）无人认领。返回认领队 abbr 或 null */
+function aiClaimOnWaivers(save, id, entry) {
+  const p = (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+  if (!p) return null;
+  const ovr = (p.ovr || 70) + ((save.ovrAdj || {})[id] || 0);
+  const sal = entry.salary || 0;
+  const fairVal = estimateSalary(ovr, id);
+  if (sal > fairVal * 1.35 && ovr < 82) return null;
+  const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+  const my = myAbbr(save);
+  const findP = pid => (save.customPlayers || []).find(x => x.id === pid) || PLAYERS_RATED.players.find(x => x.id === pid);
+  /* 帽下空间足够的球队，按当前胜率升序（最差队优先认领） */
+  const cands = TEAMS.filter(t => t.abbr !== my).map(t => {
+    const ts = save.standings[t.abbr] || { w: 0, l: 0 };
+    const wp = (ts.w + ts.l) ? ts.w / (ts.w + ts.l) : 0.5;
+    let pay = 0;
+    ((save.aiRosters || {})[t.abbr] || []).forEach(pid => {
+      const pp = findP(pid);
+      if (pp) pay += estimateSalary((pp.ovr || 70) + ((save.ovrAdj || {})[pid] || 0), pid);
+    });
+    return { abbr: t.abbr, room: cap - pay, wp };
+  }).filter(c => c.room >= sal).sort((a, b) => a.wp - b.wp);
+  if (!cands.length) return null;
+  const ratio = fairVal / Math.max(0.5, sal);
+  let prob = ovr >= 80 ? 0.95 : ratio >= 1.1 ? 0.8 : ratio >= 0.9 ? 0.5 : 0.2;
+  for (const c of cands) { if (Math.random() < prob) return c.abbr; }
+  return null;
+}
+
+/* 裁员：mode="waiver"（先认领；无人认领付剩余合同 50% 一次性买断，球员进 FA）
+   mode="stretch"（延伸条款：付 40%，分摊 2N+1 年计入工资帽，球员直接进 FA）
+   返回 { ok, mode, claimed, cost, per, years } */
+function waivePlayer(save, id, mode) {
+  const entry = save.roster.find(r => r.id === id);
+  if (!entry) return { ok: false };
+  const p = (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+  if (!p) return { ok: false };
+  const total = remainingContractTotal(entry);
+  save.roster = save.roster.filter(r => r.id !== id);
+  save.buyoutCharges = save.buyoutCharges || [];
+
+  if (mode === "stretch") {
+    const buyout = Math.round(total * 0.4 * 10) / 10;
+    const years = (entry.years || 1) * 2 + 1;
+    const per = Math.round(buyout / years * 10) / 10;
+    for (let k = 0; k < years; k++) {
+      save.buyoutCharges.push({ id, name: p.nameCn, amount: per, season: save.seasonNo + k });
+    }
+    _waivedToFA(save, id, p, entry);
+    writeSave(save);
+    return { ok: true, mode: "stretch", claimed: null, cost: buyout, per, years };
+  }
+
+  /* waiver：AI 认领接盘合同 → 0 成本 */
+  const claimer = aiClaimOnWaivers(save, id, entry);
+  if (claimer) {
+    save.aiRosters = save.aiRosters || {};
+    save.aiRosters[claimer] = save.aiRosters[claimer] || [];
+    if (!save.aiRosters[claimer].includes(id)) save.aiRosters[claimer].push(id);
+    writeSave(save);
+    return { ok: true, mode: "waiver", claimed: claimer, cost: 0 };
+  }
+  /* 无人认领：球员进入自由市场，剩余合同 50% 一次性买断（计入当前赛季工资帽/支出） */
+  const buyout = Math.round(total * 0.5 * 10) / 10;
+  if (buyout > 0) save.buyoutCharges.push({ id, name: p.nameCn, amount: buyout, season: save.seasonNo });
+  _waivedToFA(save, id, p, entry);
+  writeSave(save);
+  return { ok: true, mode: "waiver", claimed: null, cost: buyout };
+}
+
+/* 被裁球员加入 FA 池（鸟权清零，非新秀标尺） */
+function _waivedToFA(save, id, p, entry) {
+  save.faPool = save.faPool || [];
+  if (save.faPool.some(f => f.id === id)) return;
+  const ovr = (p.ovr || 70) + ((save.ovrAdj || {})[id] || 0);
+  const age = (p.age || 24) + ((save.ageAdj || {})[id] || 0);
+  save.faPool.push({ id, ovr, age, birdYears: 0, isRookieScale: false, originTeam: myAbbr(save) });
+}
+
 /* ===== AI 队自由市场签约模拟（球员驱动 + 球队吸引力） ===== */
 function simAIFreeAgency(save) {
   /* 初始化 AI 队 roster */
@@ -944,6 +1033,12 @@ RENDERERS.freeagent = function () {
     '<div class="fa-budget">' +
     '  <div class="fa-budget-row"><span>阵容人数</span><b>' + save.roster.length + "</b></div>" +
     '  <div class="fa-budget-row"><span>总工资 / 预算</span><b>' + fmtM(total) + " / " + fmtM(budget) + "</b></div>" +
+    (function () {
+      const ch = (save.buyoutCharges || []).filter(c => c.season === save.seasonNo);
+      if (!ch.length) return "";
+      const sum = Math.round(ch.reduce((s, c) => s + c.amount, 0) * 10) / 10;
+      return '<div class="fa-budget-row"><span>买断/延伸条款分摊（' + ch.length + '笔）</span><b class="neg-num">' + fmtM(sum) + "</b></div>";
+    })() +
     '  <div class="fa-budget-bar"><div class="fb-fill' + (pct > 95 ? " over" : "") + '" style="width:' + pct + '%"></div></div>' +
     capLinesHtml + excHtml + hardCapHtml +
     "</div>" +
@@ -973,7 +1068,7 @@ RENDERERS.freeagent = function () {
       '  <div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
       '  <div class="r-name">' + esc(x.p.nameCn) + (starterIds.includes(x.p.id) ? '<span class="starter">首发</span>' : "") + "</div>" +
       '  <div class="r-meta">' + esc(posLabel(x.p)) + " · " + fmtM(x.sal) + " · " + (r.years || 1) + "年 " + optTag + "</div>" +
-      '  <button class="fa-release" data-id="' + x.p.id + '">释放</button>' +
+      '  <button class="fa-release" data-id="' + x.p.id + '">裁员</button>' +
       "</div>";
   }).join("");
 
@@ -991,8 +1086,7 @@ RENDERERS.freeagent = function () {
             e.stopPropagation();
             const id = Number(btn.dataset.id);
             if (save.roster.length <= 5) { toast("阵容不足 6 人，无法释放"); return; }
-            releasePlayer(save, id);
-            RENDERERS.freeagent();
+            showWaiveModal(save, id);
           };
         });
       } else if (tt === "ufa") {
@@ -1039,6 +1133,59 @@ RENDERERS.freeagent = function () {
     $$("#screen-freeagent .fa-row[data-id]").forEach(row => {
       row.onclick = () => openPlayer(Number(row.dataset.id));
     });
+  }
+
+  /* 裁员弹窗：Waivers（可能被认领=0成本 / 否则50%买断） vs 延伸条款（40%分摊2N+1年） */
+  function showWaiveModal(save, playerId) {
+    const entry = save.roster.find(r => r.id === playerId);
+    if (!entry) return;
+    const p = (save.customPlayers || []).find(x => x.id === playerId) || PLAYERS_RATED.players.find(x => x.id === playerId);
+    if (!p) return;
+    const old = $("#waive-modal");
+    if (old) old.remove();
+    const years = entry.years || 0;
+    const total = remainingContractTotal(entry);
+    const wCost = Math.round(total * 0.5 * 10) / 10;   /* 无人认领时买断 */
+    const sCost = Math.round(total * 0.4 * 10) / 10;   /* 延伸总额 */
+    const sYears = years * 2 + 1;
+    const sPer = Math.round(sCost / sYears * 10) / 10;
+    const m = document.createElement("div");
+    m.id = "waive-modal";
+    m.className = "modal-overlay";
+    m.innerHTML =
+      '<div class="modal-box">' +
+      '<h3>裁员 / 买断</h3>' +
+      '<p class="modal-sub">' + esc(p.nameCn) + " · 剩余 " + years + " 年合同 · 年薪 " + fmtM(entry.salary) +
+        (entry.raise ? " · 逐年+" + Math.round(entry.raise * 100) + "%" : "") + " · 剩余总额 " + fmtM(total) + "</p>" +
+      '<button class="waive-opt" id="waive-waiver">' +
+        '<span class="waive-title">🏷 裁员（Waivers 澄清期）</span>' +
+        '<span class="waive-desc">帽下球队可认领并接盘剩余合同 → 你 0 成本；<b>无人认领</b>则球员成自由身，你支付 <b class="neg-num">' + fmtM(wCost) + "</b>（剩余合同 50%）一次性计入本赛季工资帽</span>" +
+      "</button>" +
+      '<button class="waive-opt" id="waive-stretch">' +
+        '<span class="waive-title">📏 协商买断 + 延伸条款</span>' +
+        '<span class="waive-desc">支付 <b class="neg-num">' + fmtM(sCost) + "</b>（40%），分摊到 " + sYears + " 年（每年 " + fmtM(sPer) + " 计入工资帽），球员立即成为自由球员</span>" +
+      "</button>" +
+      '<button class="btn btn-outline" id="waive-cancel">取消</button>' +
+      "</div>";
+    $("#screen-freeagent").appendChild(m);
+    const close = () => m.remove();
+    $("#waive-cancel").onclick = close;
+    m.onclick = e => { if (e.target === m) close(); };
+    $("#waive-waiver").onclick = () => {
+      const res = waivePlayer(save, playerId, "waiver");
+      close();
+      if (!res.ok) { toast("操作失败"); return; }
+      if (res.claimed) toast("🏟 " + teamName(res.claimed) + " 认领了 " + p.nameCn + "，接盘全部剩余合同（0 成本）");
+      else toast("📋 无人认领，" + p.nameCn + " 成为自由球员 · 支付买断金 " + fmtM(res.cost) + "（计入工资帽）");
+      RENDERERS.freeagent();
+    };
+    $("#waive-stretch").onclick = () => {
+      const res = waivePlayer(save, playerId, "stretch");
+      close();
+      if (!res.ok) { toast("操作失败"); return; }
+      toast("📏 与 " + p.nameCn + " 达成买断：" + fmtM(res.cost) + " 分摊 " + res.years + " 年，每年 " + fmtM(res.per));
+      RENDERERS.freeagent();
+    };
   }
 
   /* 特例选择弹窗：超帽签约 UFA 时让用户选 MLE/纳税人中产/双年/取消 */
