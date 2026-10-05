@@ -1556,6 +1556,63 @@ function restoreFromSave(save) {
   activate("hub");
 }
 
+/* ===== 买断市场（交易截止日后，赛季中底薪签约被买断老将） ===== */
+
+/* 底薪签约买断市场球员：1 年底薪到期，超帽也可签（底薪特权） */
+function signBuyoutPlayer(save, id) {
+  const f = (save.buyoutMarket || []).find(x => x.id === id);
+  if (!f) return { ok: false, msg: "球员不在买断市场" };
+  if (!save.roster || save.roster.length >= 15) return { ok: false, msg: "阵容已满（15 人上限）" };
+  const sal = buyoutMinSalary(f.age);
+  save.roster.push({ id, salary: sal, years: 1, raise: 0, birdYears: 0 });
+  save.buyoutMarket = save.buyoutMarket.filter(x => x.id !== id);
+  writeSave(save);
+  return { ok: true, salary: sal };
+}
+
+function showBuyoutMarketModal(save) {
+  const old = $("#buyout-modal");
+  if (old) old.remove();
+  const findP = pid => (save.customPlayers || []).find(x => x.id === pid) || PLAYERS_RATED.players.find(x => x.id === pid);
+  const list = (save.buyoutMarket || []).slice().sort((a, b) => b.ovr - a.ovr);
+  const rows = list.map(f => {
+    const p = findP(f.id);
+    if (!p) return "";
+    const sal = buyoutMinSalary(f.age);
+    return '<div class="bm-row">' +
+      '<div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + '</div>' +
+      '<div class="bm-info"><div class="bm-name">' + esc(p.nameCn) + '</div>' +
+      '<div class="bm-meta">' + esc(posLabel(p)) + " · " + f.age + " 岁 · 老将底薪 " + fmtM(sal) + '/年（1年到期）</div></div>' +
+      '<button class="btn btn-primary bm-sign" data-id="' + f.id + '">签下</button>' +
+      '</div>';
+  }).join("");
+  const m = document.createElement("div");
+  m.id = "buyout-modal";
+  m.className = "modal-overlay";
+  m.innerHTML =
+    '<div class="modal-box bm-box">' +
+    '<h3>🏪 买断市场</h3>' +
+    '<p class="modal-sub">交易截止日后与母队完成买断的球员 · 仅可老将底薪签约（不计鸟权，超帽可签）· 阵容 ' + save.roster.length + '/15</p>' +
+    (list.length ? '<div class="bm-list">' + rows + '</div>' : '<div class="bm-empty">暂时没有被买断的球员，之后再来看看</div>') +
+    '<button class="btn btn-outline" id="bm-close">关闭</button>' +
+    '</div>';
+  $("#screen-hub").appendChild(m);
+  const close = () => m.remove();
+  $("#bm-close").onclick = close;
+  m.onclick = e => { if (e.target === m) close(); };
+  $$("#buyout-modal .bm-sign").forEach(btn => {
+    btn.onclick = () => {
+      const id = Number(btn.dataset.id);
+      const p = findP(id);
+      const res = signBuyoutPlayer(save, id);
+      if (!res.ok) { toast(res.msg); return; }
+      toast("✅ 底薪签下 " + (p ? p.nameCn : "球员") + "（" + fmtM(res.salary) + "/年，赛季末到期）");
+      close();
+      RENDERERS.hub();
+    };
+  });
+}
+
 /* ===== 经理室 ===== */
 RENDERERS.hub = function () {
   const save = state.save;
@@ -1826,7 +1883,8 @@ RENDERERS.hub = function () {
     '  <button class="mc-btn primary" id="btn-roster-list">球队名单</button>' +
     '  <button class="mc-btn" id="btn-standings">联盟排名</button>' +
     (save.tradeDeadlinePassed
-      ? '<button class="mc-btn disabled" disabled>交易截止</button>'
+      ? '<button class="mc-btn disabled" disabled>交易截止</button>' +
+        '<button class="mc-btn" id="btn-buyout-market">买断市场' + ((save.buyoutMarket || []).length ? ' (' + save.buyoutMarket.length + ')' : '') + '</button>'
       : '<button class="mc-btn" id="btn-trade">交易中心</button>' +
     '<button class="mc-btn" id="btn-trade-search">交易搜索</button>') +
     '<button class="mc-btn" id="btn-extend">提前续约</button>' +
@@ -1896,6 +1954,8 @@ RENDERERS.hub = function () {
   if (bt) bt.onclick = () => go("trade");
   const bts = $("#btn-trade-search");
   if (bts) bts.onclick = () => go("trade-search");
+  const bbm = $("#btn-buyout-market");
+  if (bbm) bbm.onclick = () => showBuyoutMarketModal(save);
   const be = $("#btn-extend");
   if (be) be.onclick = () => go("extend");
   const ba = $("#btn-awards");

@@ -227,6 +227,49 @@ function simLeagueRound(save) {
       rollInjuries(save, ids);
     });
   });
+  /* 交易截止日后：生成/流转买断市场（赛季中老将与重建队协商买断） */
+  if (save.tradeDeadlinePassed && save.gameNo <= 82) generateBuyoutMarket(save);
+}
+
+/* ===== 买断市场：截止日后被 AI 队买断的老将进入池子，可被底薪签下 ===== */
+function generateBuyoutMarket(save) {
+  save.buyoutMarket = save.buyoutMarket || [];
+  const findP = pid => (save.customPlayers || []).find(x => x.id === pid) || PLAYERS_RATED.players.find(x => x.id === pid);
+  const my = myAbbr(save);
+  /* 池中球员有小概率被其他 AI 队签走，保持市场流转 */
+  save.buyoutMarket = save.buyoutMarket.filter(f => Math.random() > 0.08);
+  if (save.buyoutMarket.length >= 6) return;
+  /* 每轮 35% 概率新增一名：候选来自战绩后 10 名球队的老将 */
+  if (Math.random() > 0.35) return;
+  const weak = confRanking(save, "East").slice(-5).map(r => r.abbr)
+    .concat(confRanking(save, "West").slice(-5).map(r => r.abbr))
+    .filter(a => a !== my);
+  shuffleArr(weak);
+  for (const abbr of weak) {
+    const ids = (save.aiRosters || {})[abbr] || [];
+    const cands = ids.map(pid => {
+      const p = findP(pid);
+      if (!p) return null;
+      const ovr = (p.ovr || 70) + ((save.ovrAdj || {})[pid] || 0);
+      const age = (p.age || 24) + ((save.ageAdj || {})[pid] || 0);
+      return { pid, ovr, age };
+    }).filter(c => c && c.age >= 30 && c.ovr >= 65 && c.ovr <= 79
+      && !save.buyoutMarket.some(f => f.id === c.pid)
+      && !(save.roster || []).some(r => r.id === c.pid)
+      && !save.retired[c.pid]);
+    if (!cands.length) continue;
+    /* 队里倾向放走最高薪/最老的边缘轮换：取年龄最大者中 OVR 适中的 */
+    cands.sort((a, b) => b.age - a.age || b.ovr - a.ovr);
+    const pick = cands[0];
+    save.aiRosters[abbr] = ids.filter(x => x !== pick.pid);
+    save.buyoutMarket.push({ id: pick.pid, ovr: pick.ovr, age: pick.age });
+    return;
+  }
+}
+
+/* 老将底薪（买断市场签约价，百万）：按年龄段，1 年到期 */
+function buyoutMinSalary(age) {
+  return age >= 32 ? 2.4 : age >= 28 ? 1.9 : 1.5;
 }
 
 /* ===== 排名榜：分部排序（胜率→战力），含种子序号 ===== */
@@ -1097,6 +1140,7 @@ function newSeason(save) {
   save.gameNo = 0;
   save.record = { w: 0, l: 0 };
   save.tradeDeadlinePassed = false;  /* 重置交易截止日标志 */
+  save.buyoutMarket = [];  /* 清空买断市场（新赛季重新生成） */
   save.injuries = {};  /* 新赛季伤病清零 */
   save.injuryLog = [];
   /* 新赛季重置工资帽硬帽状态：硬帽触发、特例使用全部清零（每季独立结算） */
