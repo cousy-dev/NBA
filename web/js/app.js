@@ -1819,6 +1819,7 @@ RENDERERS.hub = function () {
     '    <div class="th-stat"><b>' + (myRank ? confLabel(conf) + myRank.seed : "-") + '</b><span>排名</span></div>' +
     '    <div class="th-stat"><b>' + ovr + '</b><span>总评</span></div>' +
     '    <div class="th-stat"><b>' + fmtM(total) + '</b><span>工资</span></div>' +
+    '    <div class="th-stat"><b class="' + ((save.finances && save.finances.cash < 0) ? "neg-num" : "") + '">' + fmtM(save.finances ? save.finances.cash : 60) + '</b><span>现金</span></div>' +
     "  </div>" +
     "</div>" +
     '<div class="hub-nav">' +
@@ -3765,6 +3766,10 @@ RENDERERS.seasonend = function () {
   const myRank = confRanking(save, confOf(my)).find(r => r.abbr === my);
   const awards = seasonAwards(save);
   saveSeasonHonors(save, awards);
+  /* 赛季财务结算（幂等）：收入/工资/奢侈税账单/现金余额 */
+  const fin = settleSeasonFinance(save);
+  const finRec = fin.rec;
+  const fired = fin.fired;
   writeSave(save);
   const iChamp = ps && ps.champion === my;
   /* 本赛季本队荣誉（从 save.honors 提取本赛季记录） */
@@ -3829,10 +3834,26 @@ RENDERERS.seasonend = function () {
       '<div class="cs-item"><span class="cs-label">常规赛战绩</span><span class="cs-val">' + st.w + "-" + st.l + '</span></div>' +
       (myRank ? '<div class="cs-item"><span class="cs-label">分区排名</span><span class="cs-val">' + confLabel(confOf(my)) + '第' + myRank.seed + '</span></div>' : '') +
     '</div>' +
-    '<button class="btn btn-primary" id="btn-newseason">开启第 ' + (save.seasonNo + 1) + " 赛季</button>" +
-    '<button class="btn btn-outline" id="btn-se-trade">休赛期交易</button>' +
-    '<button class="btn btn-outline" id="se-hub">返回经理室</button>';
-  $("#btn-newseason").onclick = () => {
+    /* 财务账单 */
+    '<div class="se-card finance-card' + (finRec.net < 0 ? " loss" : "") + '"><h3>💰 赛季财务账单</h3>' +
+      '<div class="fin-row"><span>赛季收入（票房/赞助/分成）</span><b>+' + fmtM(finRec.income) + '</b></div>' +
+      '<div class="fin-row"><span>球员工资支出</span><b class="neg">−' + fmtM(finRec.payroll) + '</b></div>' +
+      '<div class="fin-row"><span>奢侈税' + (finRec.tax > 0 ? '（超线 ' + fmtM(finRec.payroll - (typeof TAX_LINE !== "undefined" ? TAX_LINE : 200.4)) + '）' : "") + '</span><b class="' + (finRec.tax > 0 ? "neg" : "") + '">−' + fmtM(finRec.tax) + '</b></div>' +
+      '<div class="fin-row total"><span>赛季净盈亏</span><b class="' + (finRec.net < 0 ? "neg" : "pos") + '">' + (finRec.net >= 0 ? "+" : "") + fmtM(finRec.net) + '</b></div>' +
+      '<div class="fin-row"><span>老板现金储备</span><b class="' + (finRec.cash < 0 ? "neg" : "") + '">' + fmtM(finRec.cash) + '</b></div>' +
+      (finRec.tax > 0 ? '<div class="fin-warn">⚠ 本队缴纳奢侈税 ' + fmtM(finRec.tax) + '，连续亏损将耗尽老板现金储备</div>' : "") +
+    '</div>' +
+    /* 解雇结局 */
+    (fired
+      ? '<div class="se-card fired-card"><h3>💼 你被解雇了</h3>' +
+        '<div class="champ-line">连续两个赛季亏损且现金储备耗尽，老板对你失去了耐心。</div>' +
+        '<div class="ng-meta">执教生涯到此结束 · 共执教 ' + save.seasonNo + ' 个赛季</div>' +
+        '<button class="btn btn-primary" id="btn-fired-menu">返回主菜单</button></div>'
+      : '<button class="btn btn-primary" id="btn-newseason">开启第 ' + (save.seasonNo + 1) + " 赛季</button>" +
+        '<button class="btn btn-outline" id="btn-se-trade">休赛期交易</button>' +
+        '<button class="btn btn-outline" id="se-hub">返回经理室</button>');
+  const btnNS = $("#btn-newseason");
+  if (btnNS) btnNS.onclick = () => {
     newSeason(save);
     initDraftPicks(save);  /* 生成新赛季选秀权 */
     writeSave(save);
@@ -3857,9 +3878,13 @@ RENDERERS.seasonend = function () {
       RENDERERS.hub(); state.stack = []; activate("hub");
     }
   };
-  $("#se-hub").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  const seHubBtn = $("#se-hub");
+  if (seHubBtn) seHubBtn.onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
   const seTrade = $("#btn-se-trade");
   if (seTrade) seTrade.onclick = () => go("trade");
+  /* 被解雇：返回主菜单（该存档标记 fired，主菜单仍可查看但生涯已结束） */
+  const firedBtn = $("#btn-fired-menu");
+  if (firedBtn) firedBtn.onclick = () => { RENDERERS.start(); state.stack = []; activate("start"); };
 };
 
 /* ===== 荣誉室 ===== */

@@ -1545,3 +1545,16 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .pom-h-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; background: var(--card); border-radius: 8px; padding: 7px 10px; flex-wrap: wrap; }
 .pom-h-month { font-weight: 800; color: var(--gold); min-width: 38px; }
 .pom-h-conf { font-size: 10px; font-weight: 800; color: var(--muted); }
+
+/* ===== 财务账单 / 解雇 ===== */
+.finance-card.loss { border-color: rgba(224,76,76,.45); }
+.fin-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.05); }
+.fin-row span { color: var(--muted); }
+.fin-row b { font-variant-numeric: tabular-nums; }
+.fin-row b.neg { color: #e04c4c; }
+.fin-row b.pos { color: #3fbf7f; }
+.fin-row.total { border-top: 1px solid rgba(255,255,255,.18); border-bottom: none; margin-top: 4px; padding-top: 10px; font-size: 14.5px; }
+.fin-warn { margin-top: 10px; font-size: 12px; color: #ffa94d; background: rgba(255,169,77,.1); border-radius: 8px; padding: 8px 10px; }
+.fired-card { border: 1px solid rgba(224,76,76,.5); background: linear-gradient(135deg, rgba(224,76,76,.12), rgba(224,76,76,.03)); text-align: center; }
+.fired-card h3 { color: #e04c4c; }
+.neg-num { color: #e04c4c !important; }

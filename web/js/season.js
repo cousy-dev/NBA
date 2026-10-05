@@ -517,6 +517,72 @@ function checkMonthlyAwards(save) {
   });
 }
 
+/* ===== 财务系统：赛季收入 / 工资支出 / 阶梯奢侈税 / 老板现金 ===== */
+
+/* 奢侈税阶梯账单（2026 CBA 近似，单位百万美元）：
+   超税线每 $5M 一档，税率 1.50 / 1.75 / 2.50 / 3.25，之后每档 +0.50 */
+function luxuryTaxBill(payroll) {
+  const taxLine = typeof TAX_LINE !== "undefined" ? TAX_LINE : 200.4;
+  let over = payroll - taxLine;
+  if (over <= 0) return 0;
+  const rates = [1.50, 1.75, 2.50, 3.25];
+  let bill = 0, band = 0;
+  while (over > 0.0001) {
+    const rate = band < 4 ? rates[band] : 3.25 + (band - 3) * 0.5;
+    const amount = Math.min(5, over);
+    bill += amount * rate;
+    over -= 5; band++;
+  }
+  return Math.round(bill * 10) / 10;
+}
+
+/* 赛季收入（百万）：市场基础收入 + 战绩奖励
+   基础 145 + 市场档(0.35~1.0)×75 ≈ 171~220；胜场 +0.4；
+   进季后赛 +8，分区决赛 +5，总决赛 +10，夺冠 +25 */
+function seasonIncome(save) {
+  const my = myAbbr(save);
+  const st = save.standings[my] || { w: 0 };
+  let income = 145 + (typeof marketTier === "function" ? marketTier(my) : 0.5) * 75;
+  income += (st.w || 0) * 0.4;
+  const ps = save.playoffs;
+  if (ps && ps.userResult && ps.userResult !== "未进季后赛") {
+    income += 8;
+    if (/决赛/.test(ps.userResult)) income += 5;          /* 分区决赛 */
+    if (/总决赛|冠军|亚军/.test(ps.userResult)) income += 10;
+    if (ps.champion === my) income += 25;
+  }
+  return Math.round(income * 10) / 10;
+}
+
+/* 当季工资总支出：阵容薪资 + 买断/延伸条款分摊（save.buyoutCharges） */
+function currentPayroll(save) {
+  const rosterSal = (save.roster || []).reduce((s, r) => s + (r.salary || 0), 0);
+  const buyoutSal = (save.buyoutCharges || []).reduce((s, c) => s + (c.amount || 0), 0);
+  return Math.round((rosterSal + buyoutSal) * 10) / 10;
+}
+
+/* 赛季财务结算（幂等：同赛季重复调用不重复入账）。
+   返回 { rec, fired }：fired=true 表示连续亏损耗尽老板现金，触发电雇。 */
+function settleSeasonFinance(save) {
+  save.finances = save.finances || { cash: 60, history: [], deficitStreak: 0 };
+  const fin = save.finances;
+  if (fin.history.some(h => h.season === save.seasonNo)) {
+    return { rec: fin.history.find(h => h.season === save.seasonNo), fired: !!save.fired };
+  }
+  const payroll = currentPayroll(save);
+  const tax = luxuryTaxBill(payroll);
+  const income = seasonIncome(save);
+  const net = Math.round((income - payroll - tax) * 10) / 10;
+  fin.cash = Math.round((fin.cash + net) * 10) / 10;
+  if (net < 0) fin.deficitStreak = (fin.deficitStreak || 0) + 1; else fin.deficitStreak = 0;
+  const rec = { season: save.seasonNo, income, payroll, tax, net, cash: fin.cash };
+  fin.history.push(rec);
+  /* 解雇条件：连续 2 个赛季亏损且现金储备耗尽（<0） */
+  const fired = fin.deficitStreak >= 2 && fin.cash < 0;
+  if (fired) save.fired = true;
+  return { rec, fired };
+}
+
 /* ===== 奖项：MVP / DPOY（联盟榜 + 用户真实数据覆盖） ===== */
 function seasonAwards(save) {
   const real = save.playerStats || {};
