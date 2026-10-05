@@ -571,9 +571,10 @@ function signRookie(save, rookie) {
   /* 薪资按真实新秀工资标尺（顺位）定；无顺位信息时退回能力值估算 */
   const sal = rookie.pick ? rookieScaleSalary(rookie.pick) : estimateSalary(rookie.ovr, rookie.id);
   const years = rookieContractYears(rookie.potential || 75);
-  /* 新秀合同：birdYears 从 0 开始，isRookieScale=true（到期后享受 RFA 资格） */
+  /* 新秀合同：birdYears 从 0 开始，isRookieScale=true（到期后享受 RFA 资格）
+     首轮新秀标尺合同逐年 8% 递增，次轮 5% */
   save.roster.push({
-    id: rookie.id, salary: sal, years,
+    id: rookie.id, salary: sal, years, raise: rookie.pick && rookie.pick <= 30 ? 0.08 : 0.05,
     birdYears: 0,
     optionType: null, optionYear: 0, optionSalary: 0,
     isRookieScale: true, signedVia: "draft"

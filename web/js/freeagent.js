@@ -391,9 +391,13 @@ function decrementContracts(save) {
   const myAbbr = (function(){ try { return save.team.abbr || "CUS"; } catch(e){ return "CUS"; } })();
   save.roster = save.roster.filter(r => {
     if (r.years <= 0) { expired.push(r); return false; }
-    /* 执行了选项的球员跳过 years-1（选项年已被 processOptions 标记保留） */
+    /* 执行了选项的球员跳过 years-1（选项年已被 processOptions 标记保留，
+       工资已跳到 optionSalary，不再重复按涨幅递增） */
     if (!r._skipDecYears) {
       r.years = (r.years || 1) - 1;
+      /* 薪资逐年递增：进入新合同年按合同涨幅加薪（鸟权续约 8% / 自由签约 5%；
+         旧档合同无 raise 字段则保持不变） */
+      if (r.years > 0 && r.raise) r.salary = Math.round(r.salary * (1 + r.raise) * 10) / 10;
     }
     r._skipDecYears = false; /* 清除临时标记 */
     if (r.years <= 0) { expired.push(r); return false; }
@@ -474,7 +478,7 @@ function reSignPlayer(save, playerId, years, salary) {
   if (newTotal > cap + 0.01) { toast("超过薪资安全阀 " + fmtM(cap) + "（" + birdLabel(level) + "）"); return false; }
   /* 续约成功 */
   const entry = {
-    id: playerId, salary, years,
+    id: playerId, salary, years, raise: 0.08,  /* 鸟权续约逐年 8% 递增 */
     birdYears: faItem.birdYears, /* 续约后保留鸟权累计 */
     optionType: null, optionYear: 0, optionSalary: 0,
     isRookieScale: false, signedVia: "bird"
@@ -566,9 +570,10 @@ function extendContract(save, playerId, newYears, newSalary) {
   const total = save.roster.reduce((s, r) => s + r.salary, 0) - entry.salary + newSalary;
   const cap = birdCapAbsolute(level);
   if (total > cap + 0.01) { toast("超过薪资安全阀 " + fmtM(cap) + "（" + birdLabel(level) + "）"); return false; }
-  /* 续约成功：替换原合同，保留鸟权累计，重置选项 */
+  /* 续约成功：替换原合同，保留鸟权累计，重置选项；鸟权续约逐年 8% 递增 */
   entry.salary = newSalary;
   entry.years = newYears;
+  entry.raise = 0.08;
   entry.optionType = null;
   entry.optionYear = 0;
   entry.optionSalary = 0;
@@ -652,7 +657,7 @@ function signFreeAgent(save, playerId, years, salary, exception) {
 
   /* 5. 入队 */
   const entry = {
-    id: playerId, salary, years,
+    id: playerId, salary, years, raise: 0.05,  /* 自由球员签约逐年 5% 递增 */
     birdYears: 0,
     optionType: null, optionYear: 0, optionSalary: 0,
     isRookieScale: false,
@@ -662,7 +667,7 @@ function signFreeAgent(save, playerId, years, salary, exception) {
   save.roster.push(entry);
   save.faPool = save.faPool.filter(f => f.id !== playerId);
   writeSave(save);
-  let toastMsg = "✅ 签约成功！" + years + " 年 " + fmtM(salary) + "/年";
+  let toastMsg = "✅ 签约成功！" + years + " 年 " + fmtM(salary) + "/年（逐年+5%）";
   if (usingException === "MLE") {
     toastMsg += " ⚠ 触发硬帽（空间中产特例），本季总薪资不可超 " + fmtM(FIRST_APRON || 209.0);
   } else if (usingException === "BAE") {
@@ -699,7 +704,7 @@ function offerRFA(save, playerId, years, salary) {
   }
   /* 母队不匹配 → 球员归用户 */
   const entry = {
-    id: playerId, salary, years,
+    id: playerId, salary, years, raise: 0.05,  /* RFA 挖角合同逐年 5% 递增 */
     birdYears: 0,
     optionType: null, optionYear: 0, optionSalary: 0,
     isRookieScale: false, signedVia: "fa"
@@ -882,7 +887,7 @@ RENDERERS.freeagent = function () {
     const [minY, maxY] = birdYearsRange(lv);
     /* 鸟权续约可超工资帽：仅提示是否会触发奢侈税（不阻止） */
     const warnHint = taxWarning(total + maxSal);
-    const renewHint = warnHint || "鸟权可超帽续约";
+    const renewHint = (warnHint ? warnHint + " · " : "") + "鸟权可超帽 · 薪资逐年+8%";
     return '<div class="fa-row renew-row" data-id="' + f.id + '">' +
       '  <div class="renew-head">' +
       '    <span class="aw-rank">' + (i + 1) + "</span>" +
