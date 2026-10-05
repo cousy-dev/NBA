@@ -1575,6 +1575,9 @@ RENDERERS.hub = function () {
   }
   /* 赛季中：确保下一届新秀池已生成（球探功能依赖） */
   ensureUpcomingClass(save);
+  /* 消费待展示的月最佳通知（进入经理室时展示一次后清空） */
+  const pendingPOMs = (save.pendingPOMs || []).slice();
+  save.pendingPOMs = [];
   const mine = loadMyPlayers(save);
   const top8 = mine.slice().sort((a, b) => b.p.ovr - a.p.ovr).slice(0, 8);
   const ovr = (top8.reduce((s, x) => s + x.p.ovr, 0) / top8.length).toFixed(1);
@@ -1772,9 +1775,32 @@ RENDERERS.hub = function () {
     }).join("") +
     "</div>";
 
+  /* 月最佳球员：新产生的通知横幅（金色高亮我方球员获奖） */
+  const pomWinnerLine = (confName, w) =>
+    '<div class="pom-winner' + (w.mine ? " mine" : "") + '"><span class="pom-conf">' + confName + '</span>' +
+    esc(w.name) + '<span class="pom-team">' + esc(teamName(w.teamAbbr)) + "</span>" +
+    (w.mine ? '<span class="pom-yours">你的球员！</span>' : "") + "</div>";
+  const pomBannerHtml = pendingPOMs.length
+    ? pendingPOMs.map(r =>
+        '<div class="pom-banner"><div class="pom-title">🏅 ' + r.year + " 年 " + r.month + ' 月最佳球员</div>' +
+        pomWinnerLine("东部", r.east) + pomWinnerLine("西部", r.west) + "</div>"
+      ).join("")
+    : "";
+  /* 本赛季月最佳历史 */
+  const seasonPOMs = (save.monthlyAwards || []).filter(r => r.season === save.seasonNo);
+  const pomHistoryHtml = seasonPOMs.length
+    ? '<h3 class="section-h">月最佳球员</h3><div class="pom-history">' +
+      seasonPOMs.map(r =>
+        '<div class="pom-h-row"><span class="pom-h-month">' + r.month + "月</span>" +
+        '<span class="pom-h-conf">东</span>' + esc(r.east.name) + (r.east.mine ? ' <span class="pom-yours">★</span>' : "") +
+        '<span class="pom-h-conf">西</span>' + esc(r.west.name) + (r.west.mine ? ' <span class="pom-yours">★</span>' : "") +
+        "</div>"
+      ).join("") + "</div>"
+    : "";
+
   /* 主内容区：根据 hubTab 决定显示哪个面板 */
-  const overviewHtml = gameHtml + bracketHtml +
-    '<h3 class="section-h">队内数据王</h3>' + leadersHtml;
+  const overviewHtml = pomBannerHtml + gameHtml + bracketHtml +
+    '<h3 class="section-h">队内数据王</h3>' + leadersHtml + pomHistoryHtml;
   const rosterTabHtml = '<h3 class="section-h">球队阵容（' + mine.length + '人）</h3>' + rosterHtml;
   const historyTabHtml = '<h3 class="section-h">历史赛季</h3>' + histHtml;
   const tabContent = hubTab === "roster" ? rosterTabHtml
@@ -2396,6 +2422,8 @@ function completeGame(sim, win) {
       toast("🚫 交易截止日已过，本赛季不再允许交易");
     }
     simLeagueRound(save);
+    /* 月最佳球员：跨月时评选上月东西部最佳 */
+    checkMonthlyAwards(save);
     /* 全明星周末：第 42 场打完后触发（赛季中旬，对应 7 天 gap） */
     if (save.gameNo === ALL_STAR_TRIGGER_GAME && (!save.allStar || !save.allStar.done || save.allStar.seasonNo !== save.seasonNo)) {
       state._allStarPending = true;

@@ -462,6 +462,61 @@ function liveAwardRanks(save) {
   return { mvpTop, dpoyTop, sixthTop, scoringTop, assistTop, reboundTop, stealTop, blockTop, mipTop, coyTop, rookieTop, gp };
 }
 
+/* ===== 月最佳球员（POM）：跨月时评选刚结束月份的东西部最佳 =====
+   - 10 月比赛不足 4 场，按现实惯例并入 11 月（直接跳过不评）
+   - 综合分用 liveAwardRanks 的 mvp 分 + 月度随机状态波动（让结果有月度变化）
+   - 结果存 save.monthlyAwards（历史）+ save.pendingPOMs（待 hub 展示） */
+function checkMonthlyAwards(save) {
+  if (!save.seasonDates || !save.seasonDates[save.seasonNo]) return;
+  const dates = save.seasonDates[save.seasonNo];
+  save.monthlyAwards = save.monthlyAwards || [];
+  save.pomDoneMonth = save.pomDoneMonth || {};
+  const done = save.pomDoneMonth[save.seasonNo] || (save.pomDoneMonth[save.seasonNo] = {});
+  save.pendingPOMs = save.pendingPOMs || [];
+  const lastIdx = save.gameNo - 1;
+  if (lastIdx < 0) return;
+  const d = parseSeasonDate(dates[lastIdx]);
+  if (!d || done[d.month]) return;
+  /* 该月结束条件：下一场跨月，或常规赛已打完 */
+  const nextDate = dates[save.gameNo] ? parseSeasonDate(dates[save.gameNo]) : null;
+  if (nextDate && nextDate.month === d.month) return;
+  /* 统计该月已赛场次 */
+  let monthGames = 0;
+  for (let i = 0; i <= lastIdx; i++) {
+    const dd = parseSeasonDate(dates[i]);
+    if (dd && dd.month === d.month) monthGames++;
+  }
+  done[d.month] = true;  /* 无论评不评都标记，避免每月重复判定 */
+  if (monthGames < 4) return;  /* 10 月只有 2-3 场，并入 11 月 */
+  const ranks = liveAwardRanks(save);
+  const salt = save.seasonNo * 10 + d.month;
+  const pickConf = conf => {
+    let best = null, bestScore = -1e9;
+    ranks.mvpTop.forEach(c => {
+      if (confOf(c.teamAbbr) !== conf) return;
+      const score = c.mvp + (hash01(c.p.id, salt) * 5 - 2.5);  /* 月度状态波动 ±2.5 */
+      if (score > bestScore) { bestScore = score; best = c; }
+    });
+    return best;
+  };
+  const east = pickConf("E");
+  const west = pickConf("W");
+  if (!east || !west) return;
+  const mk = c => ({ id: c.p.id, name: c.p.nameCn, teamAbbr: c.teamAbbr, mine: !!c.mine });
+  const rec = {
+    season: save.seasonNo, month: d.month, year: seasonYearForMonth(save, d.month),
+    east: mk(east), west: mk(west)
+  };
+  save.monthlyAwards.push(rec);
+  save.pendingPOMs.push(rec);
+  /* 累计球员荣誉（月最佳次数） */
+  save.playerAccolades = save.playerAccolades || {};
+  [east, west].forEach(c => {
+    const a = save.playerAccolades[c.p.id] || (save.playerAccolades[c.p.id] = {});
+    a.pom = (a.pom || 0) + 1;
+  });
+}
+
 /* ===== 奖项：MVP / DPOY（联盟榜 + 用户真实数据覆盖） ===== */
 function seasonAwards(save) {
   const real = save.playerStats || {};
