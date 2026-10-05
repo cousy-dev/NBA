@@ -4509,8 +4509,117 @@ RENDERERS["trade-search"] = function () {
       o.aiOut.map(itemRow).join("") + pickRows + "</div>" +
       "  </div>" +
       '  <div class="ts2-reason">✓ 薪资已配平 · 双方阵容齐整 · ' + esc(o.reason) + "</div>" +
-      '  <button class="btn ts2-accept' + (confirming ? " confirm" : " btn-primary") + '" data-team="' + o.aiTeam + '">' +
+      '  <div class="ts2-btns">' +
+      '    <button class="btn ts2-accept' + (confirming ? " confirm" : " btn-primary") + '" data-team="' + o.aiTeam + '">' +
       (confirming ? "⚠ 再点一次确认成交" : "接受这笔交易") + "</button>" +
+      '    <button class="btn ts2-nego" data-team="' + o.aiTeam + '">🤝 协商</button>' +
+      "  </div>" +
+      "</div>";
+  };
+
+  /* ---- 协商模式：在搜索报价基础上增删球员/签位，AI 重新评估 ---- */
+  const negoHtml = () => {
+    const n = ts.nego;
+    const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
+    const fin = aiTeamFinances(save, n.aiTeam);
+    const status = teamStatus(save, n.aiTeam);
+    const untOvr = untouchableOvr(status);
+    const myPayroll = save.roster.reduce((s, r) => s + (r.salary || 0), 0);
+    const myOutSal = n.myOut.reduce((s, x) => s + x.sal, 0);
+    const aiOutSal = n.aiOut.reduce((s, x) => s + x.sal, 0);
+    const uOk = salaryMatchOk(myOutSal, aiOutSal, myPayroll - myOutSal, cap).ok;
+    const aOk = salaryMatchOk(aiOutSal, myOutSal, fin.payroll - aiOutSal, cap).ok;
+    const myCnt = save.roster.length - n.myOut.length + n.aiOut.length;
+    const aiCnt = fin.ids.length - n.aiOut.length + n.myOut.length;
+    const cntOk = myCnt >= 8 && myCnt <= 21 && aiCnt >= 9 && aiCnt <= 21;
+    const deco = pk => pk.pick != null ? pk : Object.assign({}, pk,
+      { pick: (typeof estimatePickPosition === "function" ? estimatePickPosition(save, pk) : (pk.round === 1 ? 15 : 45)) });
+    const pv = arr => packagedValue(arr.map(x => ({
+      _v: tradeValue(x.p, x.sal, { years: x.years, morale: moraleOf(save, x.p.id) })
+    })), []);
+    const myVal = Math.round(pv(n.myOut));
+    const aiVal = Math.round(pv(n.aiOut) + (n.pick ? pickValue(n.pick) : 0));
+
+    /* 可添加项：我方其余球员 / 对方可交易球员（非卖品除外）/ 对方其余签位 */
+    const myAvail = mine.filter(x => !n.myOut.find(y => y.p.id === x.p.id) && !isInjured(save, x.p.id));
+    const aiAvail = fin.players
+      .filter(x => x.p.ovr < untOvr && !isInjured(save, x.p.id) && !n.aiOut.find(y => y.p.id === x.p.id))
+      .map(x => ({ p: x.p, sal: x.sal, years: realYearsForId(x.p.id) || 2 }));
+    const samePick = (a, b) => a && b && a.round === b.round && a.season === b.season && a.originalTeam === b.originalTeam;
+    const pickAvail = getTeamPicks(save, n.aiTeam).map(deco).filter(pk => !samePick(n.pick, pk));
+
+    const dealRow = (x, side) =>
+      '<div class="ts2-p"><div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
+      '<div class="ts2-p-main"><div class="ts2-p-name">' + esc(x.p.nameCn) + "</div>" +
+      '<div class="ts2-p-meta">' + esc(posLabel({ pos: x.p.pos })) + " · " + fmtM(x.sal) + "</div></div>" +
+      '<button class="ts2-del" data-side="' + side + '" data-id="' + x.p.id + '" title="移除">✕</button></div>';
+    const pickerRows = (arr, side) => arr.length
+      ? arr.map(x =>
+        '<div class="ts2-pick-row" data-side="' + side + '" data-id="' + x.p.id + '">' +
+        '<div class="ovr-badge ' + ovrClass(x.p.ovr) + '">' + x.p.ovr + "</div>" +
+        '<div class="ts2-p-main"><div class="ts2-p-name">' + esc(x.p.nameCn) + "</div>" +
+        '<div class="ts2-p-meta">' + esc(posLabel({ pos: x.p.pos })) + " · " + fmtM(x.sal) + "</div></div>" +
+        '<span class="ts2-plus">＋</span></div>').join("")
+      : '<div class="ts2-picker-empty">没有可添加的球员</div>';
+
+    /* 实时校验 */
+    const checks = (uOk && aOk
+      ? '<span class="ts2-ck ok">✓ 薪资配平（' + fmtM(myOutSal) + " ↔ " + fmtM(aiOutSal) + "）</span>"
+      : '<span class="ts2-ck bad">⚠ 薪资未配平（' + fmtM(myOutSal) + " ↔ " + fmtM(aiOutSal) + "）</span>") +
+      (cntOk
+        ? '<span class="ts2-ck ok">✓ 人数 ' + myCnt + "/" + aiCnt + "</span>"
+        : '<span class="ts2-ck bad">⚠ 人数越界（你 ' + myCnt + " / 对方 " + aiCnt + "）</span>");
+
+    /* AI 评估结果横幅 */
+    let banner = "";
+    if (n.result) {
+      const r = n.result;
+      if (r.accept) {
+        banner = '<div class="ts2-banner ok">🎉 对方同意这笔交易！</div>' +
+          '<button class="btn btn-primary ts2-close" id="ts2-close">✅ 确认成交</button>';
+      } else if (r.counter) {
+        banner = '<div class="ts2-banner warn">' + esc(r.reason) + "</div>" +
+          '<button class="btn ts2-counter" id="ts2-counter">接受还价（换成 ' + esc(r.counter.in.p.nameCn) + "）</button>";
+      } else {
+        banner = '<div class="ts2-banner bad">❌ ' + esc(r.reason) + "</div>";
+      }
+    }
+
+    return '<button class="ts2-back" id="ts2-back-offers">‹ 返回报价列表</button>' +
+      '<div class="ts2-card ts2-nego-card">' +
+      '  <div class="ts2-card-head">' +
+      '    <span class="br-logo">' + teamLogoHtml(n.aiTeam) + "</span>" +
+      "    <b>" + esc(teamName(n.aiTeam)) + "</b>" +
+      '    <span class="ts2-status">' + STATUS_LABELS[status] + "</span>" +
+      '    <span class="ts2-nego-tip">调整筹码后提出报价，对方会重新评估</span>' +
+      "  </div>" +
+      '  <div class="ts2-cols">' +
+      '    <div class="ts2-col ts2-out"><div class="ts2-col-h">你送出 <em>' + fmtM(myOutSal) + "</em></div>" +
+      n.myOut.map(x => dealRow(x, "my")).join("") +
+      '      <button class="ts2-add" id="ts2-add-my">＋ 添加添头</button>' +
+      (n.showMyPicker ? '<div class="ts2-picker">' + pickerRows(myAvail, "my") + "</div>" : "") +
+      "    </div>" +
+      '    <div class="ts2-swap">⇄</div>' +
+      '    <div class="ts2-col ts2-in"><div class="ts2-col-h">你收到 <em>' + fmtM(aiOutSal) + "</em></div>" +
+      n.aiOut.map(x => dealRow(x, "ai")).join("") +
+      (n.pick ? '<div class="ts2-p ts2-pick"><span class="ts2-pick-ico">🎯</span>' +
+        '<div class="ts2-p-main"><div class="ts2-p-name">' + esc(pickLabel(n.pick)) + "</div>" +
+        '<div class="ts2-p-meta">原属 ' + esc(teamName(n.pick.originalTeam)) + "</div></div>" +
+        '<button class="ts2-del" data-side="pick" title="移除签位">✕</button></div>' : "") +
+      '      <button class="ts2-add" id="ts2-add-ai">＋ 索要球员</button>' +
+      (n.showAiPicker ? '<div class="ts2-picker">' + pickerRows(aiAvail, "ai") + "</div>" : "") +
+      (pickAvail.length ? '<button class="ts2-add" id="ts2-add-pick">＋ 索要签位</button>' +
+        (n.showPickPicker ? '<div class="ts2-picker">' + pickAvail.map(pk =>
+          '<div class="ts2-pick-row" data-side="pick" data-r="' + pk.round + '" data-s="' + pk.season + '" data-o="' + pk.originalTeam + '">' +
+          '<span class="ts2-pick-ico">🎯</span><div class="ts2-p-main"><div class="ts2-p-name">' + esc(pickLabel(pk)) + "</div>" +
+          '<div class="ts2-p-meta">原属 ' + esc(teamName(pk.originalTeam)) + "</div></div><span class=\"ts2-plus\">＋</span></div>").join("") + "</div>" : "") : "") +
+      "    </div>" +
+      "  </div>" +
+      '  <div class="ts2-checks">' + checks +
+      '    <span class="ts2-valbar">打包价值：你 <b>' + myVal + "</b> ↔ 对方 <b>" + aiVal + "</b>" +
+      (aiVal - myVal >= 0 ? "（你方偏亏 " + (aiVal - myVal) + "）" : "（你方占优 " + (myVal - aiVal) + "）") + "</span></div>" +
+      '  <button class="btn btn-primary ts2-propose" id="ts2-propose">📨 提出报价</button>' +
+      banner +
       "</div>";
   };
 
@@ -4518,7 +4627,9 @@ RENDERERS["trade-search"] = function () {
     '<h2 class="screen-title">交易搜索</h2>' +
     '<p class="screen-sub">选择一名球员作为交易主体，系统扫描全联盟 29 队，列出双方都能接受的报价（自动配平薪资、考虑阵容需求与选秀权补偿）</p>' +
     (subj
-      ? '<button class="ts2-back" id="ts2-reselect">‹ 重新选择球员</button>' +
+      ? (ts.nego
+        ? negoHtml()
+        : '<button class="ts2-back" id="ts2-reselect">‹ 重新选择球员</button>' +
         '<div class="ts2-subject-card">' +
         '  <div class="ovr-badge ' + ovrClass(subj.p.ovr) + '">' + subj.p.ovr + "</div>" +
         '  <div class="ts2-subj-main"><div class="ts2-subj-name">' + esc(subj.p.nameCn) + "</div>" +
@@ -4528,7 +4639,7 @@ RENDERERS["trade-search"] = function () {
         "</div>" +
         (offers.length
           ? '<div class="ts2-list">' + offers.map(offerCard).join("") + "</div>"
-          : '<div class="empty-stats">全联盟暂时没有球队能为 <b>' + esc(subj.p.nameCn) + "</b> 提供双方都满意的报价<br>（薪资、阵容需求或价值无法对齐），换名球员试试吧</div>")
+          : '<div class="empty-stats">全联盟暂时没有球队能为 <b>' + esc(subj.p.nameCn) + "</b> 提供双方都满意的报价<br>（薪资、阵容需求或价值无法对齐），换名球员试试吧</div>"))
       : '<div class="roster-table">' + mine.map(subjectRow).join("") + "</div>");
 
   /* 选择主体 */
@@ -4577,6 +4688,126 @@ RENDERERS["trade-search"] = function () {
       RENDERERS.hub(); activate("hub");
     };
   });
+  /* 进入协商：从报价快照构建可编辑包裹 */
+  $$("#screen-trade-search .ts2-nego").forEach(btn => {
+    btn.onclick = () => {
+      const o = offers.find(x => x.aiTeam === btn.dataset.team);
+      if (!o) return;
+      const fin = aiTeamFinances(save, o.aiTeam);
+      const loadMine = id => {
+        const x = mine.find(y => y.p.id === id);
+        const r = save.roster.find(r => r.id === id);
+        return x && r ? { p: x.p, sal: r.salary, years: r.years } : null;
+      };
+      const loadAi = id => {
+        const e = fin.players.find(y => y.p.id === id);
+        return e ? { p: e.p, sal: e.sal, years: realYearsForId(e.p.id) || 2 } : null;
+      };
+      ts.nego = {
+        aiTeam: o.aiTeam,
+        myOut: o.myOut.map(x => loadMine(x.id)).filter(Boolean),
+        aiOut: o.aiOut.map(x => loadAi(x.id)).filter(Boolean),
+        pick: o.aiPicks.length
+          ? getTeamPicks(save, o.aiTeam).find(pk =>
+            pk.round === o.aiPicks[0].round && pk.season === o.aiPicks[0].season &&
+            pk.originalTeam === o.aiPicks[0].originalTeam) || null
+          : null,
+        result: null, showMyPicker: false, showAiPicker: false, showPickPicker: false
+      };
+      RENDERERS["trade-search"]();
+    };
+  });
+  if (!ts.nego) return;
+  const n = ts.nego;
+  const reNego = () => RENDERERS["trade-search"]();
+  const btnBackOffers = $("#ts2-back-offers");
+  if (btnBackOffers) btnBackOffers.onclick = () => { ts.nego = null; ts.confirmTeam = null; reNego(); };
+  /* 移除球员 / 签位 */
+  $$("#screen-trade-search .ts2-del").forEach(btn => {
+    btn.onclick = ev => {
+      ev.stopPropagation();
+      const side = btn.dataset.side;
+      if (side === "pick") n.pick = null;
+      else {
+        const id = Number(btn.dataset.id);
+        if (side === "my") n.myOut = n.myOut.filter(x => x.p.id !== id);
+        else n.aiOut = n.aiOut.filter(x => x.p.id !== id);
+      }
+      n.result = null;
+      reNego();
+    };
+  });
+  /* 展开/收起添加面板 */
+  const bindAdd = (sel, key) => {
+    const b = $(sel);
+    if (b) b.onclick = () => { n[key] = !n[key]; reNego(); };
+  };
+  bindAdd("#ts2-add-my", "showMyPicker");
+  bindAdd("#ts2-add-ai", "showAiPicker");
+  bindAdd("#ts2-add-pick", "showPickPicker");
+  /* 添加球员（my/ai 侧） */
+  $$("#screen-trade-search .ts2-pick-row").forEach(row => {
+    row.onclick = () => {
+      const side = row.dataset.side;
+      if (side === "pick") {
+        n.pick = getTeamPicks(save, n.aiTeam).find(pk =>
+          pk.round === Number(row.dataset.r) && pk.season === Number(row.dataset.s) &&
+          pk.originalTeam === row.dataset.o) || null;
+        n.showPickPicker = false;
+      } else {
+        const id = Number(row.dataset.id);
+        if (side === "my") {
+          const x = mine.find(y => y.p.id === id);
+          const r = save.roster.find(r => r.id === id);
+          if (x && r) n.myOut.push({ p: x.p, sal: r.salary, years: r.years });
+          n.showMyPicker = false;
+        } else {
+          const fin = aiTeamFinances(save, n.aiTeam);
+          const e = fin.players.find(y => y.p.id === id);
+          if (e) n.aiOut.push({ p: e.p, sal: e.sal, years: realYearsForId(e.p.id) || 2 });
+          n.showAiPicker = false;
+        }
+      }
+      n.result = null;
+      reNego();
+    };
+  });
+  /* 提出报价 → AI 重新评估 */
+  const propose = () => {
+    const myOffer = n.myOut.map(x => ({ p: x.p, sal: x.sal, ctx: { years: x.years, morale: moraleOf(save, x.p.id) } }));
+    const aiOffer = n.aiOut.map(x => ({ p: x.p, sal: x.sal, ctx: { years: x.years, morale: moraleOf(save, x.p.id) } }));
+    n.result = aiEvaluateTrade(save, n.aiTeam, myOffer, aiOffer, [], n.pick ? [n.pick] : []);
+    reNego();
+  };
+  const btnPropose = $("#ts2-propose");
+  if (btnPropose) btnPropose.onclick = propose;
+  /* 接受还价：替换对方球员后自动重新评估 */
+  const btnCounter = $("#ts2-counter");
+  if (btnCounter) btnCounter.onclick = () => {
+    const c = n.result && n.result.counter;
+    if (!c) return;
+    n.aiOut = n.aiOut.map(x => x.p.id === c.out.p.id
+      ? { p: c.in.p, sal: c.in.sal, years: realYearsForId(c.in.p.id) || 2 } : x);
+    n.result = null;
+    propose();
+  };
+  /* 确认成交（AI 已接受） */
+  const btnClose = $("#ts2-close");
+  if (btnClose) btnClose.onclick = () => {
+    const realPick = n.pick
+      ? (getTeamPicks(save, n.aiTeam).find(pk =>
+        pk.round === n.pick.round && pk.season === n.pick.season &&
+        pk.originalTeam === n.pick.originalTeam) || null)
+      : null;
+    const names = n.aiOut.map(x => x.p.nameCn).join("、");
+    const ok = executeTrade(save, myAbbr(save),
+      n.myOut.map(x => x.p.id), n.aiOut.map(x => x.p.id), n.aiTeam, [], realPick ? [realPick] : []);
+    if (ok === false) return;
+    ts.nego = null; ts.subjId = null; ts.confirmTeam = null; ts.offersCache = {};
+    toast("🤝 交易达成：" + names);
+    state.stack = [];
+    RENDERERS.hub(); activate("hub");
+  };
 };
 
 /* ===== 教练：轮换 + 战术 ===== */
