@@ -438,41 +438,38 @@ RENDERERS["team-select"] = function () {
 RENDERERS["create-info"] = function () {
   state.mode = "custom";
   const c = state.custom;
+  /* 不提供手动输入（安全合规：避免用户输入不当词汇），名称/城市/球馆全部随机生成，骰子可重掷 */
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  if (!c.name) c.name = pick(NAME_POOL);
+  if (!c.city) c.city = pick(CITY_POOL);
+  if (!c.arena) c.arena = pick(ARENA_POOL);
   $("#screen-create-info").innerHTML =
     '<h2 class="screen-title">建立你的球队</h2>' +
     '<p class="screen-sub">从零开始，打造属于你的王朝</p>' +
     '<div class="form">' +
     '  <label class="field"><span>球队名称</span><div class="field-row">' +
-    '    <input id="in-name" maxlength="8" placeholder="如：烈焰" value="' + esc(c.name) + '">' +
+    '    <div class="field-value" id="in-name">' + esc(c.name) + '</div>' +
     '    <button class="dice" data-for="name" type="button">🎲</button></div></label>' +
     '  <label class="field"><span>所在城市</span><div class="field-row">' +
-    '    <input id="in-city" maxlength="6" placeholder="如：上海" value="' + esc(c.city) + '">' +
+    '    <div class="field-value" id="in-city">' + esc(c.city) + '</div>' +
     '    <button class="dice" data-for="city" type="button">🎲</button></div></label>' +
     '  <label class="field"><span>主场球馆</span><div class="field-row">' +
-    '    <input id="in-arena" maxlength="12" placeholder="如：星穹球馆" value="' + esc(c.arena) + '">' +
+    '    <div class="field-value" id="in-arena">' + esc(c.arena) + '</div>' +
     '    <button class="dice" data-for="arena" type="button">🎲</button></div></label>' +
     "</div>" +
+    '<p class="screen-sub" style="color:#64748b">名称与城市由系统随机生成，点击 🎲 可重新生成</p>' +
     '<button class="btn btn-primary" id="btn-to-budget" style="margin-top:24px">下一步 · 扩张选秀</button>';
 
   $$("#screen-create-info .dice").forEach(btn => {
     btn.onclick = () => {
       const forWhat = btn.dataset.for;
-      const pick = arr => arr[Math.floor(Math.random() * arr.length)];
       const val = forWhat === "name" ? pick(NAME_POOL) : forWhat === "city" ? pick(CITY_POOL) : pick(ARENA_POOL);
       state.custom[forWhat] = val;
-      $("#in-" + forWhat).value = val;
+      $("#in-" + forWhat).textContent = val;
+      if (forWhat === "city") toast("所在城市：" + val);
     };
   });
-  ["name", "city", "arena"].forEach(k => {
-    $("#in-" + k).oninput = e => { state.custom[k] = e.target.value.trim(); };
-  });
   $("#btn-to-budget").onclick = () => {
-    if (!state.custom.name) {
-      state.custom.name = NAME_POOL[Math.floor(Math.random() * NAME_POOL.length)];
-      toast("已随机命名：" + state.custom.name);
-    }
-    if (!state.custom.city) state.custom.city = CITY_POOL[Math.floor(Math.random() * CITY_POOL.length)];
-    if (!state.custom.arena) state.custom.arena = state.custom.city + "中心球馆";
     /* 自建球队：作为第 31 队加入联盟，通过扩张选秀组队 */
     go("expand");
   };
