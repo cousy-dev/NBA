@@ -242,7 +242,7 @@ function teamStrength(abbr) {
 }
 function stars(strength) { return strength >= 88 ? 5 : strength >= 84 ? 4 : strength >= 79 ? 3 : 2; }
 function teamLogoHtml(abbr) {
-  return '<img src="https://res.nba.cn/media/img/teams/logos/' + abbr + '_logo.png" alt="" loading="lazy" ' +
+  return '<img src="img/logos/' + abbr + '_logo.png" alt="" loading="lazy" ' +
     'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
     '<div class="logo-fb" style="display:none">' + esc(abbr) + '</div>';
 }
