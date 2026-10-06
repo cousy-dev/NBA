@@ -168,13 +168,15 @@ function aiStrengthOf(save, abbr) {
     PLAYERS_RATED.players.forEach(p => { if (!_AI_STR_CACHE.has(p.id)) _AI_STR_CACHE.set(p.id, p); });
     _AI_STR_CACHE_KEY = cacheKey;
   }
-  /* 计算每个球员当前 OVR（含老化 + 士气），取 top8 */
+  /* 计算每个球员当前 OVR（含老化 + 士气），取 top8。
+     士气对模拟战力只取一半权重（±2 封顶）：满血±4 的正反馈会让赢队越来越强、
+     输队越来越弱，战绩过度分化（9-70、75-4 这类脱离战力的极端战绩） */
   const ovrs = [];
   for (const id of ids) {
     const p0 = _AI_STR_CACHE.get(id);
     if (!p0) continue;
     const ovrAdj = (save.ovrAdj && save.ovrAdj[id]) || 0;
-    const mDelta = moraleOvrDelta(moraleOf(save, id));
+    const mDelta = moraleOvrDelta(moraleOf(save, id)) * 0.5;
     ovrs.push((p0.ovr || 70) + ovrAdj + mDelta);
   }
   if (!ovrs.length) return 70;
@@ -1694,10 +1696,11 @@ function updateAIMorale(save, abbr, won) {
     return p0 ? { id, ovr: (p0.ovr || 70) + ((save.ovrAdj && save.ovrAdj[id]) || 0) } : null;
   }).filter(Boolean).sort((a, b) => b.ovr - a.ovr).slice(0, 8);
   const streak = (save.standings[abbr] || {}).streak || 0;
-  /* 连胜/连败影响收敛，避免弱队一旦连败就士气崩盘、战力 -4 形成死循环，
-     导致全联盟弱队集体沉底、摆烂队扎堆 */
-  const streakFactor = Math.max(-0.8, Math.min(0.8, 0.15 * streak));
-  const winFactor = won ? 0.25 : -0.25;
+  /* 连胜/连败影响进一步收敛：单场胜负 ±0.15、连胜系数 0.10/场封顶 ±0.5。
+     原 ±0.25 + 0.15/场(±0.8) 几场就把士气推到 0/100，经 aiStrengthOf 放大成
+     战力 ±4 的正反馈，导致弱队集体崩盘、强队碾压（战绩与实力脱节） */
+  const streakFactor = Math.max(-0.5, Math.min(0.5, 0.10 * streak));
+  const winFactor = won ? 0.15 : -0.15;
   top.forEach(p => setMorale(save, p.id, moraleOf(save, p.id) + winFactor + streakFactor));
 }
 

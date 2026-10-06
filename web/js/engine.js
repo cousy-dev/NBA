@@ -193,6 +193,12 @@ class GameSim {
       targetMin: rot.targetMin,
       box: new Map(), energy: new Map(), form: new Map(),
       playedSec: new Map(),
+      /* 扩张球队化学反应惩罚：全新阵容第一个赛季 0.96（约 -3 属性等效）、
+         第二个赛季 0.98（约 -1.5），第三季起阵容磨合成型恢复正常。
+         扩张选秀捡到的多是各队第 9 人（top8 均值可达 77+），不加惩罚会组出
+         中游战绩，不符合真实扩张队前两年联盟垫底的规律 */
+      chem: (info.expansion && (info.seasonNo || 1) === 1) ? 0.96
+          : (info.expansion && (info.seasonNo || 1) === 2) ? 0.98 : 1.0,
       timeouts: 4, lastResult: ""
     };
     all.forEach(p => {
@@ -215,7 +221,7 @@ class GameSim {
     const base = this._p(side, id).attrs[key];
     const e = side.energy.get(id);
     const f = side.form ? side.form.get(id) || 1 : 1;
-    return base * f * (e > 60 ? 1 : 0.72 + e * 0.0045);
+    return base * f * (e > 60 ? 1 : 0.72 + e * 0.0045) * (side.chem || 1);
   }
   _avgCourt(side, key) {
     return side.court.reduce((s, id) => s + this._attr(side, id, key), 0) / 5;
