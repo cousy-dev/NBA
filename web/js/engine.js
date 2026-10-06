@@ -309,7 +309,7 @@ class GameSim {
 
     /* 失误 */
     const homeAdv = this.off === this.homeSide ? -0.012 : 0;  /* 主场失误更少 */
-    let toP = 0.115 + (dAvg - 76) * 0.002 + (76 - this._attr(offT, handler.id, "org")) * 0.0025 + homeAdv;
+    let toP = 0.115 + (dAvg - 76) * 0.002 + (76 - this._attr(offT, handler.id, "org")) * 0.003 + homeAdv;
     if (tac.pace === "fast") toP += 0.02;
     if (defTac.def === "press") toP += 0.05;
     if (Math.random() < toP) {
@@ -351,20 +351,25 @@ class GameSim {
     const homeFgBoost = this.off === this.homeSide ? 0.015 : 0;  /* 主场命中率小幅加成 */
     let fgP;
     if (isThree) {
-      /* 锚点：out 75 → 33%，out 92 → 39%，out 51(约60总评) → 25% */
-      fgP = 0.33 + (this._attr(offT, shooter.id, "out") - 75) * 0.0035 - (dAvg - 76) * 0.0022 + momOff + catchUp + homeFgBoost;
+      /* 锚点：out 75 → 33%，out 92 → 41%，out 51(约60总评) → 23%。
+         斜率加大(0.0035→0.0045)、防守系数加大(0.0022→0.003)、下限降低(0.22→0.20)：
+         拉开能力差距，低能力球员即使大量出场也效率低下（全替补阵容应被打爆） */
+      fgP = 0.33 + (this._attr(offT, shooter.id, "out") - 75) * 0.0045 - (dAvg - 76) * 0.003 + momOff + catchUp + homeFgBoost;
       if (defTac.def === "double" && shooter.ovr >= 88) fgP -= 0.04;
-      fgP = Math.max(0.22, Math.min(0.46, fgP));
+      fgP = Math.max(0.20, Math.min(0.46, fgP));
     } else if (isRim) {
-      /* 锚点：ins 70 → 50%，ins 90 → 69%，ins 51(约60总评) → 32% */
-      fgP = 0.50 + (this._attr(offT, shooter.id, "ins") - 70) * 0.0095 - (dAvg - 76) * 0.0026 + momOff + catchUp + homeFgBoost;
+      /* 锚点：ins 70 → 50%，ins 90 → 71%，ins 51(约60总评) → 27%。
+         斜率加大(0.0095→0.013)、防守系数加大(0.0026→0.004)、下限降低(0.30→0.27)：
+         弱队篮下终结力大幅下降，强队对弱队内线予取予求 */
+      fgP = 0.50 + (this._attr(offT, shooter.id, "ins") - 70) * 0.013 - (dAvg - 76) * 0.004 + momOff + catchUp + homeFgBoost;
       if (defTac.def === "zone") fgP -= 0.03;
       if (defTac.def === "double" && shooter.ovr >= 88) fgP -= 0.035;
-      fgP = Math.max(0.30, Math.min(0.72, fgP));
+      fgP = Math.max(0.27, Math.min(0.72, fgP));
     } else {
-      /* 中距离：out 72 → 36%，out 51(约60总评) → 24% */
-      fgP = 0.36 + (this._attr(offT, shooter.id, "out") - 72) * 0.0055 - (dAvg - 76) * 0.002 + momOff + catchUp + homeFgBoost;
-      fgP = Math.max(0.22, Math.min(0.55, fgP));
+      /* 中距离：out 72 → 36%，out 51(约60总评) → 21%。
+         斜率加大(0.0055→0.007)、防守系数加大(0.002→0.003)、下限降低(0.22→0.19) */
+      fgP = 0.36 + (this._attr(offT, shooter.id, "out") - 72) * 0.007 - (dAvg - 76) * 0.003 + momOff + catchUp + homeFgBoost;
+      fgP = Math.max(0.19, Math.min(0.55, fgP));
     }
 
     const boxS = offT.box.get(shooter.id);

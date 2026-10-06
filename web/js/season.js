@@ -173,6 +173,9 @@ function aiStrengthOf(save, abbr) {
      输队越来越弱，战绩过度分化（9-70、75-4 这类脱离战力的极端战绩） */
   const ovrs = [];
   for (const id of ids) {
+    /* 伤兵不计入战力：模拟战绩应反映实际可出战球员，
+       否则核心受伤的球队仍按满员战力被高估 */
+    if (isInjured(save, id)) continue;
     const p0 = _AI_STR_CACHE.get(id);
     if (!p0) continue;
     const ovrAdj = (save.ovrAdj && save.ovrAdj[id]) || 0;
@@ -181,14 +184,15 @@ function aiStrengthOf(save, abbr) {
   }
   if (!ovrs.length) return 70;
   ovrs.sort((a, b) => b - a);
-  const top8 = ovrs.slice(0, 8);
-  return top8.reduce((s, v) => s + v, 0) / top8.length;
+  /* 至少取 5 人（避免伤兵满营时数组太短），最多 8 人 */
+  const top = ovrs.slice(0, Math.max(5, Math.min(8, ovrs.length)));
+  return top.reduce((s, v) => s + v, 0) / top.length;
 }
 function strengthOf(save, abbr) {
   if (abbr === myAbbr(save)) {
-    const mine = loadMyPlayers(save);
-    const top8 = mine.slice().sort((a, b) => b.p.ovr - a.p.ovr).slice(0, 8);
-    return top8.reduce((s, x) => s + x.p.ovr, 0) / Math.max(1, top8.length);
+    const mine = loadMyPlayers(save).filter(x => !isInjured(save, x.p.id));
+    const sorted = mine.slice().sort((a, b) => b.p.ovr - a.p.ovr).slice(0, 8);
+    return sorted.reduce((s, x) => s + (x.p.ovr || 70), 0) / Math.max(1, sorted.length);
   }
   return aiStrengthOf(save, abbr);
 }
