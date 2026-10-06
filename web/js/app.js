@@ -892,29 +892,72 @@ function filteredPool() {
 }
 function renderMore() {
   const pool = filteredPool();
-  const frag = [];
   const end = Math.min(state.renderedCount + 60, pool.length);
-  for (let i = state.renderedCount; i < end; i++) frag.push(playerCardHtml(pool[i]));
-  $("#player-list").insertAdjacentHTML("beforeend", frag.join(""));
+  /* 使用 DocumentFragment + DOM API 构建卡片，避免字符串拼接 HTML 被注入 */
+  const frag = document.createDocumentFragment();
+  for (let i = state.renderedCount; i < end; i++) frag.appendChild(playerCardEl(pool[i]));
+  $("#player-list").appendChild(frag);
   state.renderedCount = end;
   bindCards();
   updateCardStates();
 }
-function playerCardHtml(p) {
+function playerCardEl(p) {
   const sal = estimateSalary(p.ovr, p.id);
-  return (
-    '<div class="player-card" data-id="' + p.id + '" data-sal="' + sal + '">' +
-    '  <div class="ovr-badge ' + ovrClass(p.ovr) + '">' + p.ovr + "</div>" +
-    '  <img class="p-avatar" src="' + esc(p.avatar || "") + '" loading="lazy" onerror="this.style.visibility=\'hidden\'">' +
-    '  <div class="p-info">' +
-    '    <div class="p-name">' + esc(p.nameCn) + "</div>" +
-    '    <div class="p-meta"><span class="pos-chip ' + posClass(p.pos) + '">' + esc(posLabel(p)) + "</span>" +
-    (p.age || "-") + "岁 · " + (p.heightCm || "-") + 'cm · ' + esc(p.team) + "</div>" +
-    "  </div>" +
-    '  <div class="p-right"><div class="p-salary">' + fmtM(sal) + '</div><div class="p-state">点击选择</div></div>' +
-    '  <button class="p-info-btn" type="button" title="详情">ⓘ</button>' +
-    "</div>"
-  );
+  const card = document.createElement("div");
+  card.className = "player-card";
+  card.dataset.id = p.id;
+  card.dataset.sal = sal;
+
+  const ovrBadge = document.createElement("div");
+  ovrBadge.className = "ovr-badge " + ovrClass(p.ovr);
+  ovrBadge.textContent = p.ovr;
+  card.appendChild(ovrBadge);
+
+  const av = document.createElement("img");
+  av.className = "p-avatar";
+  av.src = p.avatar || "";
+  av.loading = "lazy";
+  av.onerror = function () { this.style.visibility = "hidden"; };
+  card.appendChild(av);
+
+  const info = document.createElement("div");
+  info.className = "p-info";
+
+  const name = document.createElement("div");
+  name.className = "p-name";
+  name.textContent = p.nameCn;
+  info.appendChild(name);
+
+  const meta = document.createElement("div");
+  meta.className = "p-meta";
+  const chip = document.createElement("span");
+  chip.className = "pos-chip " + posClass(p.pos);
+  chip.textContent = posLabel(p);
+  meta.appendChild(chip);
+  meta.appendChild(document.createTextNode((p.age || "-") + "岁 · " + (p.heightCm || "-") + "cm · " + p.team));
+  info.appendChild(meta);
+  card.appendChild(info);
+
+  const right = document.createElement("div");
+  right.className = "p-right";
+  const salEl = document.createElement("div");
+  salEl.className = "p-salary";
+  salEl.textContent = fmtM(sal);
+  right.appendChild(salEl);
+  const stateEl = document.createElement("div");
+  stateEl.className = "p-state";
+  stateEl.textContent = "点击选择";
+  right.appendChild(stateEl);
+  card.appendChild(right);
+
+  const btn = document.createElement("button");
+  btn.className = "p-info-btn";
+  btn.type = "button";
+  btn.title = "详情";
+  btn.textContent = "\u24d8";
+  card.appendChild(btn);
+
+  return card;
 }
 function bindCards() {
   $$("#player-list .player-card").forEach(card => {
@@ -953,14 +996,29 @@ function refreshRosterUI() {
 
   /* 已选 chips */
   const chips = $("#chips");
+  chips.textContent = "";
   if (state.roster.size === 0) {
-    chips.innerHTML = '<span class="chip-empty">从下方列表点选 13-15 名球员</span>';
+    const empty = document.createElement("span");
+    empty.className = "chip-empty";
+    empty.textContent = "从下方列表点选 13-15 名球员";
+    chips.appendChild(empty);
   } else {
-    chips.innerHTML = Array.from(state.roster.values()).map(p =>
-      '<div class="chip" data-id="' + p.id + '"><img src="' + esc(p.avatar || "") + '" onerror="this.style.visibility=\'hidden\'">' +
-      esc(p.nameCn) + '<span class="x">✕</span></div>'
-    ).join("");
-    $$("#chips .chip").forEach(chip => { chip.onclick = () => togglePlayer(Number(chip.dataset.id)); });
+    for (const p of state.roster.values()) {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.dataset.id = p.id;
+      const av = document.createElement("img");
+      av.src = p.avatar || "";
+      av.onerror = function () { this.style.visibility = "hidden"; };
+      chip.appendChild(av);
+      chip.appendChild(document.createTextNode(p.nameCn));
+      const x = document.createElement("span");
+      x.className = "x";
+      x.textContent = "\u2715";
+      chip.appendChild(x);
+      chip.onclick = () => togglePlayer(Number(chip.dataset.id));
+      chips.appendChild(chip);
+    }
   }
   updateCardStates();
 }
@@ -2817,12 +2875,24 @@ function pushFeed(ev, board) {
   if (!feed) return;
   const cls = ev.t === "score" || ev.t === "ft" ? "good" : ev.t === "period" || ev.t === "final" ? "sep" : ev.t === "to" || ev.t === "blk" ? "warn" : "dim";
   const mine = ev.side === 0;
-  const scoreHtml = board && ev.score ? '<span class="f-score">' + ev.score[0] + "-" + ev.score[1] + "</span>"
-    : board && (ev.t === "score" || ev.t === "ft") ? '<span class="f-score">' + state.match.sim.score()[0] + "-" + state.match.sim.score()[1] + "</span>" : "";
-  feed.insertAdjacentHTML("afterbegin",
-    '<div class="feed-item ' + cls + (ev.t === "score" && mine ? " mine" : "") + '">' +
-    '<span class="f-icon">' + (FEED_ICONS[ev.t] || "·") + "</span>" +
-    '<span class="f-text">' + esc(ev.text) + "</span>" + scoreHtml + "</div>");
+  const item = document.createElement("div");
+  item.className = "feed-item " + cls + (ev.t === "score" && mine ? " mine" : "");
+  const icon = document.createElement("span");
+  icon.className = "f-icon";
+  icon.textContent = FEED_ICONS[ev.t] || "\u00b7";
+  item.appendChild(icon);
+  const text = document.createElement("span");
+  text.className = "f-text";
+  text.textContent = ev.text;
+  item.appendChild(text);
+  if (board && (ev.score || ev.t === "score" || ev.t === "ft")) {
+    const sc = document.createElement("span");
+    sc.className = "f-score";
+    const s = ev.score || state.match.sim.score();
+    sc.textContent = s[0] + "-" + s[1];
+    item.appendChild(sc);
+  }
+  feed.insertBefore(item, feed.firstChild);
   while (feed.children.length > 90) feed.removeChild(feed.lastChild);
   if (board) renderMatchBoard();
 }
