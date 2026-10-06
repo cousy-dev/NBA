@@ -889,7 +889,12 @@ function getTeamPicks(save, abbr) {
   if (!save.draftPicks || !save.draftPicks.some(p => p.season === season)) {
     initDraftPicks(save, season);
   }
-  return (save.draftPicks || []).filter(p => p.team === abbr && p.season === season);
+  /* 未举行的签没有顺位号：原地补预估顺位（不可用副本——executeTrade 依赖对象引用改 team）。
+     否则 pickValue 对裸签恒为 0，交易评估/搜索会把签当成无价值资产 */
+  return (save.draftPicks || []).filter(p => p.team === abbr && p.season === season).map(pk => {
+    if (pk.pick == null) pk.pick = estimatePickPosition(save, pk);
+    return pk;
+  });
 }
 
 /* 获取选秀权显示文本 */

@@ -292,9 +292,12 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   const fin = aiTeamFinances(save, aiTeam);
   const aiPayrollAfter = fin.payroll - outSalFromAi;
 
-  /* ---- 硬性规则 2：薪资配平（双方都必须合规）---- */
+  /* ---- 硬性规则 2：薪资配平（双方都必须合规）----
+     例外：AI 只送选秀权不出球员时（球员换签），豁免 AI 侧配平——
+     现实中此类交易经交易特例/帽下空间完成，游戏内由价值门槛约束平衡 */
+  const aiPickOnly = !aiOffer.length && aiPicks.length > 0;
   const aiMatch = salaryMatchOk(outSalFromAi, inSalToAi, aiPayrollAfter, cap);
-  if (!aiMatch.ok) {
+  if (!aiMatch.ok && !aiPickOnly) {
     const gap = inSalToAi - aiMatch.max;
     return {
       accept: false,
@@ -380,12 +383,16 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   /* ---- 球星头牌硬门槛 + 球队状态偏好（随争冠/补强/摆烂变化）---- */
   const bestOut = aiOffer.reduce((m, x) => Math.max(m, x.p.ovr), 0);
   const bestIn = myOffer.reduce((m, x) => Math.max(m, x.p.ovr), 0);
-  const bestOutName = (aiOffer.find(x => x.p.ovr === bestOut) || aiOffer[0]).p.nameCn;
+  /* 纯选秀权交易（对方只出签不出人）时 aiOffer 为空，此处不能崩 */
+  const bestOutName = aiOffer.length ? ((aiOffer.find(x => x.p.ovr === bestOut) || aiOffer[0]).p.nameCn) : "";
   const firstRounders = myPicks.filter(pk => pk.round === 1).length;
   const lottoPick = myPicks.some(pk => (typeof estimatePickPosition === "function") &&
     estimatePickPosition(save, pk) <= 8);
   const avgAgeIn = myOffer.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, myOffer.length);
-  const avgAgeOut = aiOffer.reduce((s, x) => s + (x.p.age || 24), 0) / Math.max(1, aiOffer.length);
+  /* 对方只送签不出人时无"对方年龄"概念，取与我方相同避免年龄偏好误判 */
+  const avgAgeOut = aiOffer.length
+    ? aiOffer.reduce((s, x) => s + (x.p.age || 24), 0) / aiOffer.length
+    : avgAgeIn;
 
   /* 状态前缀 + 年龄偏好：摆烂队要年轻资产（加分）/嫌老将（打折）；争冠队要即战力 */
   const statusPrefix = aiStatus === STATUS_TANKING ? "摆烂队"
@@ -455,6 +462,10 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
     }
   }
 
+  /* AI 只送选秀权（球员换签）：签是不确定资产，按身价对等即可成交，
+     不套用球员交易的溢价门槛与年龄偏好——平衡由调用方净值保护约束 */
+  if (aiPickOnly) { threshold = 1.0; statusBonus = 1.0; }
+
   const effectiveRatio = ratio * statusBonus;
 
   /* 头牌门槛为硬性拒绝，不看打包总值 */
@@ -472,7 +483,7 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
   const hasPickNotOffered = firstAvail.some(pk =>
     !myPicks.find(d => d.originalTeam === pk.originalTeam && d.round === pk.round));
   if (hasPickNotOffered) hint = "追加一个首轮签可能促成交易。";
-  if (effectiveRatio >= 0.85) {
+  if (effectiveRatio >= 0.85 && aiOffer.length) {
     /* 接近：尝试生成换人还价（AI 降一档要价，用 p 替换 aiOffer[0]） */
     const replacedOutIds = aiOutIds.filter(id => id !== aiOffer[0].p.id);
     const allAi = fin.players
@@ -806,6 +817,113 @@ function buildSubjectTradeOffers(save, subjId) {
   const rank = { steal: 0, good: 1, fair: 2 };
   offers.sort((a, b) => (rank[a.rating] - rank[b.rating]) || (b.net - a.net));
   return offers.slice(0, 8);
+}
+
+/* ===== 以选秀权为目标的交易搜索 =====
+   选定对方持有的一枚签 targetPk（持有者为对方），AI 反向构造我方包裹：
+   单球员 / 两球员打包 / 球员+我方签位，全部复用 aiEvaluateTrade 判定可成交性，
+   且要求我方净值（签价值-送出价值）≥ -3 不吃大亏。返回最多 6 个报价。 */
+function buildPickTradeOffers(save, targetPkRaw) {
+  const my = myAbbr(save);
+  /* 未举行的签没有 pick 顺位号，pickValue 会按 0 计算导致所有报价被净值过滤——
+     用预估顺位装饰副本（成交时仍按 round/season/originalTeam 匹配真实签对象） */
+  const decoPick = pk => pk.pick != null ? pk : Object.assign({}, pk,
+    { pick: (typeof estimatePickPosition === "function" ? estimatePickPosition(save, pk) : (pk.round === 1 ? 15 : 45)) });
+  const targetPk = decoPick(targetPkRaw);
+  const holder = targetPk.team;
+  const fin = aiTeamFinances(save, holder);
+  if (!fin || fin.ids.length < 9) return [];
+  const status = teamStatus(save, holder);
+  const pkV = pickValue(targetPk);
+  const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));
+  const byId = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+  const loadP = id => {
+    const p0 = customById.get(id) || byId.get(id);
+    return p0 ? applyAdj(p0, save) : null;
+  };
+  /* 我的健康球员，按价值与签价值的接近度排序 */
+  const mine = save.roster
+    .filter(r => !isInjured(save, r.id))
+    .map(r => {
+      const p = loadP(r.id);
+      if (!p) return null;
+      const x = { p, sal: r.salary, years: r.years };
+      x.v = tradeValue(p, r.salary, { years: r.years, morale: moraleOf(save, r.id) });
+      return x;
+    })
+    .filter(Boolean)
+    .sort((a, b) => Math.abs(a.v - pkV) - Math.abs(b.v - pkV));
+  const myPicks = getTeamPicks(save, my).map(decoPick).sort((a, b) => pickValue(b) - pickValue(a));
+  const aiPosBefore = positionCountsAfter(fin.players, [], []);
+
+  const results = [];
+  const tried = new Set();
+  const attempt = (out, picks) => {
+    if (!out.length && !picks.length) return;
+    const key = out.map(x => x.p.id).sort((a, b) => a - b).join(",") + "|" +
+      picks.map(p => p.round + "-" + p.season + "-" + p.originalTeam).sort().join(",");
+    if (tried.has(key)) return;
+    tried.add(key);
+    if (save.roster.length - out.length < 8) return;          /* 我方人数下限 */
+    if (fin.ids.length + out.length > 21) return;             /* 对方人数上限 */
+    if (positionHole(aiPosBefore, positionCountsAfter(fin.players, [], out.map(x => ({ p: x.p }))))) return;
+    const myOffer = out.map(x => ({ p: x.p, sal: x.sal, ctx: { years: x.years, morale: moraleOf(save, x.p.id) } }));
+    const res = aiEvaluateTrade(save, holder, myOffer, [], picks, [targetPk]);
+    if (!res.accept) return;
+    const outV = packagedValue(out.map(x => ({ _v: x.v })), picks);
+    const net = Math.round(pkV - outV);
+    if (net < -3) return;                                     /* 用户不吃大亏 */
+    let rating, ratingLabel;
+    if (net >= 4) { rating = "steal"; ratingLabel = "超值"; }
+    else if (net >= -3) { rating = "good"; ratingLabel = "公道"; }
+    else { rating = "fair"; ratingLabel = "可接受"; }
+    const why = [];
+    why.push(status === STATUS_TANKING ? "对方处于重建期，愿意用签位换即战力"
+      : status === STATUS_CONTENDING ? "对方正在争冠，愿意交易未来签位"
+      : "对方愿意用签位换取即战力");
+    if (picks.length) why.push("附上我方签位平衡顺位差");
+    if (out.length > 1) why.push("打包球员凑足签位价值");
+    results.push({
+      aiTeam: holder, status,
+      targetPick: {
+        round: targetPk.round,
+        pick: targetPk.pick != null ? targetPk.pick
+          : (typeof estimatePickPosition === "function" ? estimatePickPosition(save, targetPk) : (targetPk.round === 1 ? 15 : 45)),
+        season: targetPk.season, originalTeam: targetPk.originalTeam, label: pickLabel(targetPk)
+      },
+      myOut: out.map(x => ({ id: x.p.id, ovr: x.p.ovr, name: x.p.nameCn, pos: x.p.pos, sal: round1(x.sal) })),
+      myPicksSnap: picks.map(pk => ({
+        round: pk.round, pick: pk.pick != null ? pk.pick : null,
+        season: pk.season, originalTeam: pk.originalTeam, label: pickLabel(pk)
+      })),
+      mySal: round1(out.reduce((s, x) => s + x.sal, 0)),
+      rating, ratingLabel, net, reason: why.join("；")
+    });
+  };
+  /* 候选1：单球员（价值最接近签价值的前 6 人） */
+  mine.slice(0, 6).forEach(x => attempt([x], []));
+  /* 候选2：两球员打包凑签位价值 */
+  if (results.length < 4) {
+    for (const a of mine.slice(0, 8)) {
+      const b = mine.find(x => x.p.id !== a.p.id &&
+        a.v + x.v >= pkV * 0.85 && a.v + x.v <= pkV * 1.25);
+      if (b) attempt([a, b], []);
+      if (results.length >= 6) break;
+    }
+  }
+  /* 候选3：球员 + 我方签位 */
+  if (results.length < 6 && myPicks.length) {
+    for (const x of mine.slice(0, 5)) {
+      for (const mp of myPicks.slice(0, 4)) {
+        attempt([x], [mp]);
+        if (results.length >= 6) break;
+      }
+      if (results.length >= 6) break;
+    }
+  }
+  const rank = { steal: 0, good: 1, fair: 2 };
+  results.sort((a, b) => (rank[a.rating] - rank[b.rating]) || (b.net - a.net));
+  return results.slice(0, 6);
 }
 
 function round1(v) { return Math.round(v * 10) / 10; }
