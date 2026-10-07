@@ -6,34 +6,129 @@
 const SAVE_SLOT_COUNT = 3;
 const SAVE_KEY_LEGACY = "nba_gm_save_v1";
 function slotKey(s) { return "nba_gm_save_slot_" + s; }
-/* 存储降级：部分环境（微信内置浏览器打开本地 file:// 页面）localStorage 配额为 0，
-   写入会抛 QuotaExceededError。此时降级为内存存档——本次会话可正常游玩，
-   刷新后丢失，通过"导出存档"功能可把存档保存为文件。_memStore 模拟 localStorage 行为。 */
+
+/* ===== 三级持久化存储（解决虎扑/微信等 App 内置浏览器 localStorage 配额为 0） =====
+   优先级：localStorage（同步、最通用）→ IndexedDB（配额大、内置 webview 多支持，
+   在 localStorage 被禁/隐私模式时仍可持久化）→ 纯内存（仅本次会话）。
+   _memStore 是所有存档键的【同步内存镜像】：启动时从可用后端一次性载入，
+   游戏内 readSlot/writeSlot 只读写镜像（保持同步 API），写操作再落到实际后端，
+   因此即使走 IndexedDB（异步），游戏逻辑也无需 await。 */
 const _memStore = {};
-let _storageWarned = false;
-function _lsGet(k) {
-  try { const v = localStorage.getItem(k); return v === null ? (_memStore[k] !== undefined ? _memStore[k] : null) : v; }
-  catch (e) { return _memStore[k] !== undefined ? _memStore[k] : null; }
+let _storeMode = "unknown"; // ls | idb | mem
+let _idb = null, _idbSwitching = false, _memWarned = false;
+
+function _lsRead(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function _lsWrite(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+function _lsRemove(k) { try { localStorage.removeItem(k); } catch (e) {} }
+/* 探测 localStorage 是否真能写入：隐私模式/被禁 webview 下 getItem 正常但 setItem 抛 QuotaExceededError */
+function _probeLS() {
+  try { const k = "__nba_probe__"; localStorage.setItem(k, "1"); localStorage.removeItem(k); return true; }
+  catch (e) { return false; }
 }
-function _lsSet(k, v) {
-  try { localStorage.setItem(k, v); }
-  catch (e) {
-    _memStore[k] = v;
-    if (!_storageWarned) { _storageWarned = true; setTimeout(() => { try { toast("⚠ 当前环境无法持久保存，请用「导出存档」备份"); } catch (_) {} }, 300); }
+
+/* ---- IndexedDB 极简键值封装（单库单 store，键为字符串） ---- */
+const _IDB_NAME = "nba_gm_db", _IDB_STORE = "kv", _IDB_VER = 1;
+function _idbOpen() {
+  return new Promise(resolve => {
+    try {
+      if (!window.indexedDB) { resolve(null); return; }
+      let done = false;
+      const finish = db => { if (!done) { done = true; resolve(db); } };
+      const req = indexedDB.open(_IDB_NAME, _IDB_VER);
+      req.onupgradeneeded = () => { try { req.result.createObjectStore(_IDB_STORE); } catch (e) {} };
+      req.onsuccess = () => finish(req.result);
+      req.onerror = () => finish(null);
+      setTimeout(() => finish(null), 2000); /* 部分 webview 不回调，兜底超时 */
+    } catch (e) { resolve(null); }
+  });
+}
+function _idbGet(db, k) {
+  return new Promise(resolve => {
+    try {
+      const rq = db.transaction(_IDB_STORE, "readonly").objectStore(_IDB_STORE).get(k);
+      rq.onsuccess = () => resolve(rq.result == null ? null : String(rq.result));
+      rq.onerror = () => resolve(null);
+    } catch (e) { resolve(null); }
+  });
+}
+function _idbSet(db, k, v) {
+  return new Promise(resolve => {
+    try {
+      const tx = db.transaction(_IDB_STORE, "readwrite");
+      tx.objectStore(_IDB_STORE).put(v, k);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    } catch (e) { resolve(false); }
+  });
+}
+function _idbDel(db, k) {
+  return new Promise(resolve => {
+    try {
+      const tx = db.transaction(_IDB_STORE, "readwrite");
+      tx.objectStore(_IDB_STORE).delete(k);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    } catch (e) { resolve(false); }
+  });
+}
+
+/* 通用键值操作：写镜像 + 落当前后端 */
+function _kvSet(k, v) {
+  _memStore[k] = v;
+  if (_storeMode === "ls") { if (!_lsWrite(k, v)) _switchToIdb(); /* 写入配额失败，动态降级 */ }
+  else if (_storeMode === "idb" && _idb) { _idbSet(_idb, k, v); }
+  else if (_storeMode === "mem") _warnMemOnce();
+}
+function _kvDel(k) {
+  delete _memStore[k];
+  if (_storeMode === "ls") _lsRemove(k);
+  else if (_storeMode === "idb" && _idb) _idbDel(_idb, k);
+}
+function _warnMemOnce() {
+  if (_memWarned) return; _memWarned = true;
+  setTimeout(() => { try { toast("⚠ 当前浏览器禁用了本地存储，进度刷新后会丢失，建议换浏览器打开"); } catch (e) {} }, 400);
+}
+/* localStorage 运行期写入失败时，动态切换到 IndexedDB，并把已有镜像整体迁移 */
+async function _switchToIdb() {
+  if (_storeMode === "idb" || _idbSwitching) return;
+  _idbSwitching = true;
+  const db = await _idbOpen();
+  if (db) {
+    _idb = db; _storeMode = "idb";
+    for (const k of Object.keys(_memStore)) await _idbSet(db, k, _memStore[k]);
+  } else {
+    _storeMode = "mem"; _warnMemOnce();
   }
+  _idbSwitching = false;
 }
-function _lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} delete _memStore[k]; }
-function readSlot(s) { try { return JSON.parse(_lsGet(slotKey(s)) || "null"); } catch (e) { return null; } }
-function writeSlot(s, save) { _lsSet(slotKey(s), JSON.stringify(save)); }
-function deleteSlot(s) { _lsDel(slotKey(s)); }
+
+/* 启动时调用：探测可用后端，把存档/旧档键载入内存镜像。完成后游戏即可同步读写。 */
+async function initStorage() {
+  const keys = [slotKey(1), slotKey(2), slotKey(3), SAVE_KEY_LEGACY];
+  if (_probeLS()) {
+    _storeMode = "ls";
+    keys.forEach(k => { const v = _lsRead(k); if (v != null) _memStore[k] = v; });
+  } else {
+    _idb = await _idbOpen();
+    if (_idb) {
+      _storeMode = "idb";
+      for (const k of keys) { const v = await _idbGet(_idb, k); if (v != null) _memStore[k] = v; }
+    } else { _storeMode = "mem"; }
+  }
+  return _storeMode;
+}
+
+function readSlot(s) { try { return JSON.parse(_memStore[slotKey(s)] || "null"); } catch (e) { return null; } }
+function writeSlot(s, save) { _kvSet(slotKey(s), JSON.stringify(save)); }
+function deleteSlot(s) { _kvDel(slotKey(s)); }
 function readAllSaves() { const arr = []; for (let s = 1; s <= SAVE_SLOT_COUNT; s++) arr.push({ slot: s, save: readSlot(s) }); return arr; }
 /* 返回第一个空槽位号；满则返回 0 */
 function firstFreeSlot() { for (let s = 1; s <= SAVE_SLOT_COUNT; s++) if (!readSlot(s)) return s; return 0; }
-/* 旧版单存档（v1）一次性迁移到槽位 1 */
+/* 旧版单存档（v1）一次性迁移到槽位 1（此时镜像已在 initStorage 中载入） */
 function migrateLegacySave() {
   try {
-    const old = _lsGet(SAVE_KEY_LEGACY);
-    if (old) { if (!readSlot(1)) _lsSet(slotKey(1), old); _lsDel(SAVE_KEY_LEGACY); }
+    const old = _memStore[SAVE_KEY_LEGACY];
+    if (old) { if (!readSlot(1)) _kvSet(slotKey(1), old); _kvDel(SAVE_KEY_LEGACY); }
   } catch (e) {}
 }
 const STANDARD_BUDGET = 115; // 接管现有球队时的标准工资空间（百万美元）
@@ -358,7 +453,6 @@ RENDERERS.start = function () {
       (save.teamOvr ? " · 总评 " + save.teamOvr : "") + "</div>" +
       '  <div class="ss-actions">' +
       '    <button class="btn btn-gold ss-continue" data-slot="' + slot + '">继续生涯</button>' +
-      '    <button class="btn btn-outline ss-export" data-slot="' + slot + '" style="padding:8px 12px;font-size:13px">导出</button>' +
       '    <button class="link-danger ss-delete" data-slot="' + slot + '">删除</button>' +
       "  </div>" +
       "</div>";
@@ -374,7 +468,6 @@ RENDERERS.start = function () {
     '  <button class="btn btn-primary" id="btn-existing">接管现有球队</button>' +
     '  <button class="btn btn-outline" id="btn-custom">创建扩张球队</button>' +
     "</div>" +
-    '<div style="text-align:center;margin-top:10px"><button class="btn btn-outline" id="btn-import" style="font-size:13px;padding:9px 16px">📥 导入存档文件</button></div>' +
     '<p class="foot-note">数据来源：NBA中国官方 · 能力值依据 2K27 官方榜单与 2025-26 赛季统计估算<br>赛季 ' + esc(PLAYERS_RATED.updatedAt || "") + "</p>";
 
   /* 开启新游戏：自动占用第一个空槽位，满则提示 */
@@ -409,62 +502,7 @@ RENDERERS.start = function () {
       RENDERERS.start(); activate("start");
     };
   });
-  /* 导出存档：把该槽位存档 JSON 下载为文件（微信等无法持久存储的环境的备份手段） */
-  $$("#screen-start .ss-export").forEach(btn => {
-    btn.onclick = () => {
-      const s = Number(btn.dataset.slot);
-      const save = readSlot(s);
-      if (!save) return;
-      exportSaveFile(save, s);
-    };
-  });
-  /* 导入存档：读取用户选择的 JSON 文件，写入第一个空槽位 */
-  $("#btn-import").onclick = () => {
-    const inp = document.createElement("input");
-    inp.type = "file";
-    inp.accept = ".json,application/json";
-    inp.onchange = () => {
-      const f = inp.files && inp.files[0];
-      if (!f) return;
-      const rd = new FileReader();
-      rd.onload = () => {
-        try {
-          const save = JSON.parse(rd.result);
-          const err = importSaveFile(save);
-          if (err) { toast("导入失败：" + err); return; }
-          toast("✓ 存档已导入槽位 " + save.slot);
-          RENDERERS.start(); activate("start");
-        } catch (e) { toast("导入失败：文件不是有效存档"); }
-      };
-      rd.readAsText(f);
-    };
-    inp.click();
-  };
 };
-/* 导出存档为 JSON 文件下载 */
-function exportSaveFile(save, slot) {
-  try {
-    const name = (save.team && save.team.displayName) || "存档";
-    const blob = new Blob([JSON.stringify(save)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "NBA经理_" + name + "_槽位" + slot + ".json";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-    toast("✓ 存档已导出，请在下载/文件中查看");
-  } catch (e) { toast("导出失败：" + e.message); }
-}
-/* 校验并写入导入的存档；返回 null 表示成功，否则返回错误信息 */
-function importSaveFile(save) {
-  if (!save || typeof save !== "object") return "数据格式错误";
-  if (!save.team || !save.roster) return "缺少球队或阵容数据";
-  const s = firstFreeSlot();
-  if (!s) return "存档槽位已满（" + SAVE_SLOT_COUNT + " 个），请先删除一个存档";
-  save.slot = s;
-  writeSlot(s, save);
-  return null;
-}
 
 /* ===== 球队选择（接管模式） ===== */
 RENDERERS["team-select"] = function () {
@@ -5924,12 +5962,14 @@ RENDERERS.extend = function () {
   });
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   $("#btn-back").onclick = back;
   if (!window.TEAMS || !window.PLAYERS_RATED || !PLAYERS_RATED.players) {
     document.body.innerHTML = '<div class="load-err">数据文件加载失败<br>请确认 web/data/ 目录完整后刷新页面</div>';
     return;
   }
+  /* 先初始化存储（localStorage 受限时异步载入 IndexedDB 存档），再渲染开始页 */
+  try { await initStorage(); } catch (e) { _storeMode = "mem"; }
   /* 快照原始球员列表，重置生涯时恢复 */
   window._originalPlayers = PLAYERS_RATED.players.slice();
   RENDERERS.start();
