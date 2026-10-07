@@ -6,17 +6,34 @@
 const SAVE_SLOT_COUNT = 3;
 const SAVE_KEY_LEGACY = "nba_gm_save_v1";
 function slotKey(s) { return "nba_gm_save_slot_" + s; }
-function readSlot(s) { try { return JSON.parse(localStorage.getItem(slotKey(s)) || "null"); } catch (e) { return null; } }
-function writeSlot(s, save) { localStorage.setItem(slotKey(s), JSON.stringify(save)); }
-function deleteSlot(s) { localStorage.removeItem(slotKey(s)); }
+/* 存储降级：部分环境（微信内置浏览器打开本地 file:// 页面）localStorage 配额为 0，
+   写入会抛 QuotaExceededError。此时降级为内存存档——本次会话可正常游玩，
+   刷新后丢失，通过"导出存档"功能可把存档保存为文件。_memStore 模拟 localStorage 行为。 */
+const _memStore = {};
+let _storageWarned = false;
+function _lsGet(k) {
+  try { const v = localStorage.getItem(k); return v === null ? (_memStore[k] !== undefined ? _memStore[k] : null) : v; }
+  catch (e) { return _memStore[k] !== undefined ? _memStore[k] : null; }
+}
+function _lsSet(k, v) {
+  try { localStorage.setItem(k, v); }
+  catch (e) {
+    _memStore[k] = v;
+    if (!_storageWarned) { _storageWarned = true; setTimeout(() => { try { toast("⚠ 当前环境无法持久保存，请用「导出存档」备份"); } catch (_) {} }, 300); }
+  }
+}
+function _lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} delete _memStore[k]; }
+function readSlot(s) { try { return JSON.parse(_lsGet(slotKey(s)) || "null"); } catch (e) { return null; } }
+function writeSlot(s, save) { _lsSet(slotKey(s), JSON.stringify(save)); }
+function deleteSlot(s) { _lsDel(slotKey(s)); }
 function readAllSaves() { const arr = []; for (let s = 1; s <= SAVE_SLOT_COUNT; s++) arr.push({ slot: s, save: readSlot(s) }); return arr; }
 /* 返回第一个空槽位号；满则返回 0 */
 function firstFreeSlot() { for (let s = 1; s <= SAVE_SLOT_COUNT; s++) if (!readSlot(s)) return s; return 0; }
 /* 旧版单存档（v1）一次性迁移到槽位 1 */
 function migrateLegacySave() {
   try {
-    const old = localStorage.getItem(SAVE_KEY_LEGACY);
-    if (old) { if (!readSlot(1)) localStorage.setItem(slotKey(1), old); localStorage.removeItem(SAVE_KEY_LEGACY); }
+    const old = _lsGet(SAVE_KEY_LEGACY);
+    if (old) { if (!readSlot(1)) _lsSet(slotKey(1), old); _lsDel(SAVE_KEY_LEGACY); }
   } catch (e) {}
 }
 const STANDARD_BUDGET = 115; // 接管现有球队时的标准工资空间（百万美元）
@@ -341,6 +358,7 @@ RENDERERS.start = function () {
       (save.teamOvr ? " · 总评 " + save.teamOvr : "") + "</div>" +
       '  <div class="ss-actions">' +
       '    <button class="btn btn-gold ss-continue" data-slot="' + slot + '">继续生涯</button>' +
+      '    <button class="btn btn-outline ss-export" data-slot="' + slot + '" style="padding:8px 12px;font-size:13px">导出</button>' +
       '    <button class="link-danger ss-delete" data-slot="' + slot + '">删除</button>' +
       "  </div>" +
       "</div>";
@@ -356,6 +374,7 @@ RENDERERS.start = function () {
     '  <button class="btn btn-primary" id="btn-existing">接管现有球队</button>' +
     '  <button class="btn btn-outline" id="btn-custom">创建扩张球队</button>' +
     "</div>" +
+    '<div style="text-align:center;margin-top:10px"><button class="btn btn-outline" id="btn-import" style="font-size:13px;padding:9px 16px">📥 导入存档文件</button></div>' +
     '<p class="foot-note">数据来源：NBA中国官方 · 能力值依据 2K27 官方榜单与 2025-26 赛季统计估算<br>赛季 ' + esc(PLAYERS_RATED.updatedAt || "") + "</p>";
 
   /* 开启新游戏：自动占用第一个空槽位，满则提示 */
@@ -390,7 +409,62 @@ RENDERERS.start = function () {
       RENDERERS.start(); activate("start");
     };
   });
+  /* 导出存档：把该槽位存档 JSON 下载为文件（微信等无法持久存储的环境的备份手段） */
+  $$("#screen-start .ss-export").forEach(btn => {
+    btn.onclick = () => {
+      const s = Number(btn.dataset.slot);
+      const save = readSlot(s);
+      if (!save) return;
+      exportSaveFile(save, s);
+    };
+  });
+  /* 导入存档：读取用户选择的 JSON 文件，写入第一个空槽位 */
+  $("#btn-import").onclick = () => {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = ".json,application/json";
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        try {
+          const save = JSON.parse(rd.result);
+          const err = importSaveFile(save);
+          if (err) { toast("导入失败：" + err); return; }
+          toast("✓ 存档已导入槽位 " + save.slot);
+          RENDERERS.start(); activate("start");
+        } catch (e) { toast("导入失败：文件不是有效存档"); }
+      };
+      rd.readAsText(f);
+    };
+    inp.click();
+  };
 };
+/* 导出存档为 JSON 文件下载 */
+function exportSaveFile(save, slot) {
+  try {
+    const name = (save.team && save.team.displayName) || "存档";
+    const blob = new Blob([JSON.stringify(save)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "NBA经理_" + name + "_槽位" + slot + ".json";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    toast("✓ 存档已导出，请在下载/文件中查看");
+  } catch (e) { toast("导出失败：" + e.message); }
+}
+/* 校验并写入导入的存档；返回 null 表示成功，否则返回错误信息 */
+function importSaveFile(save) {
+  if (!save || typeof save !== "object") return "数据格式错误";
+  if (!save.team || !save.roster) return "缺少球队或阵容数据";
+  const s = firstFreeSlot();
+  if (!s) return "存档槽位已满（" + SAVE_SLOT_COUNT + " 个），请先删除一个存档";
+  save.slot = s;
+  writeSlot(s, save);
+  return null;
+}
 
 /* ===== 球队选择（接管模式） ===== */
 RENDERERS["team-select"] = function () {
@@ -1174,18 +1248,15 @@ RENDERERS.summary = function () {
       save.fantasy = true;
       state._fantasyAiRosters = null;
     }
-    try {
-      writeSave(save);
-      toast("✓ 生涯已开启" + (isExpansion ? "（扩张选秀组队完成）" : ""));
-      const s2 = migrateSave(readSlot(save.slot));
-      state.save = s2;
-      state.saveSlot = save.slot;
-      RENDERERS.hub();
-      state.stack = [];
-      activate("hub");
-    } catch (e) {
-      toast("保存失败：" + e.message);
-    }
+    /* writeSave 内部已做存储降级（localStorage 写不进时落内存），这里不再因异常阻断进游戏 */
+    writeSave(save);
+    const s2 = migrateSave(readSlot(save.slot));
+    state.save = s2;
+    state.saveSlot = save.slot;
+    toast("✓ 生涯已开启" + (isExpansion ? "（扩张选秀组队完成）" : ""));
+    RENDERERS.hub();
+    state.stack = [];
+    activate("hub");
   };
   $("#btn-restart").onclick = () => { RENDERERS.start(); activate("start"); };
 };
