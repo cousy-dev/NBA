@@ -6,6 +6,21 @@
 <meta name="theme-color" content="#f5f5f7">
 <title>NBA 篮球经理</title>
 <link rel="stylesheet" href="css/style.css?v=90">
+<!-- 虎扑 Shaper 技能使用声明（平台门禁校验：声明与实际调用必须一一对应） -->
+<script type="application/json" id="colorbox-skill-usage">
+{
+  "skills": [
+    "colorbox-storage-set-value",
+    "colorbox-storage-get-value",
+    "colorbox-cloud-request"
+  ]
+}
+</script>
+<!-- CloudBase 排行榜配置（部署 act-cloudbase 后回写；留空时自动降级为本地模式） -->
+<script>
+window.ACTIVITY_API_BASE = "";  // 部署后填: https://<域名>/api
+window.ACTIVITY_ENV_ID = "";     // 部署后填: 腾讯云 EnvId
+</script>
 </head>
 <body>
 <div id="app">
@@ -66,7 +81,7 @@
 <script src="js/draft.js?v=36"></script>
 <!-- app.js 必须先于 freeagent.js 加载：freeagent.js 顶层有 RENDERERS.freeagent 赋值，依赖 app.js 定义的 RENDERERS 对象，否则整脚本加载即报错、rookieContractYears/decrementContracts 等函数全部未定义 -->
 <!-- hupu-cloud.js 自包含（虎扑 Shaper 云能力：活动数据存储+排行榜客户端），需在 app.js 前加载 -->
-<script src="js/hupu-cloud.js?v=1"></script>
+<script src="js/hupu-cloud.js?v=2"></script>
 <script src="js/app.js?v=133"></script>
 <script src="js/freeagent.js?v=25"></script>
 </body>
