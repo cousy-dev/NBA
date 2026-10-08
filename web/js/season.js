@@ -634,6 +634,87 @@ function settleSeasonFinance(save) {
   return { rec, fired };
 }
 
+/* ===== 训练点系统 ===== */
+/* 每赛季基础 1 点，总获取上限 10 点；根据奖项/季后赛赢轮数增加。
+   购买补足差额：5M/点，可买数 = 10 - earned - bought。
+   应用：1 点 = +1 选定属性，更新 trainAdj 与 ovrAdj。 */
+const TRAIN_COST_PER_PT = 5;     /* 每点 5M */
+const TRAIN_MAX_PER_SEASON = 10; /* 每赛季总上限 */
+const TRAIN_MAX_PER_PLAYER = 5;  /* 每球员总上限 */
+const TRAIN_MAX_PER_ATTR = 3;    /* 每属性上限 */
+
+/* 赛季初根据上赛季表现计算可获得的训练点 */
+function earnTrainPts(save) {
+  const prev = save.history && save.history.length > 0 ? save.history[save.history.length - 1] : null;
+  let earned = 1; /* 基础 1 点 */
+  if (prev) {
+    /* 季后赛成绩加成 */
+    const result = prev.result || "未进季后赛";
+    if (result !== "未进季后赛" && result !== "附加赛淘汰") {
+      earned += 1; /* 进季后赛 +1 */
+      if (/决赛/.test(result)) earned += 1;     /* 分区决赛 +1 */
+      if (/总决赛|冠军|亚军/.test(result)) earned += 1; /* 总决赛 +1 */
+      if (prev.champion === myAbbr(save)) earned += 2;  /* 夺冠 +2 */
+    }
+  }
+  earned = Math.min(TRAIN_MAX_PER_SEASON, earned);
+  save.trainPts = { season: save.seasonNo, earned: earned, bought: 0, spent: 0 };
+  save.trainAdj = save.trainAdj || {};
+  console.log("[trainPts] season", save.seasonNo, "earned", earned);
+}
+
+/* 当前可用训练点 */
+function trainPtsAvailable(save) {
+  const tp = save.trainPts;
+  if (!tp || tp.season !== save.seasonNo) return 0;
+  return (tp.earned || 0) + (tp.bought || 0) - (tp.spent || 0);
+}
+
+/* 可购买训练点数（补足到 10 上限） */
+function trainPtsBuyable(save) {
+  const tp = save.trainPts;
+  if (!tp || tp.season !== save.seasonNo) return 0;
+  return Math.max(0, TRAIN_MAX_PER_SEASON - (tp.earned || 0) - (tp.bought || 0));
+}
+
+/* 购买训练点：从 cash 扣除费用 */
+function buyTrainPts(save, count) {
+  save.finances = save.finances || { cash: 60, history: [], deficitStreak: 0 };
+  const buyable = trainPtsBuyable(save);
+  if (count > buyable) { toast("最多可购买 " + buyable + " 点"); return false; }
+  const cost = count * TRAIN_COST_PER_PT;
+  if (save.finances.cash < cost) { toast("现金不足，需 " + fmtM(cost) + "（当前 " + fmtM(save.finances.cash) + "）"); return false; }
+  save.finances.cash = Math.round((save.finances.cash - cost) * 10) / 10;
+  save.trainPts.bought = (save.trainPts.bought || 0) + count;
+  writeSave(save);
+  toast("✅ 购买 " + count + " 点训练点，花费 " + fmtM(cost) + "（剩余现金 " + fmtM(save.finances.cash) + "）");
+  return true;
+}
+
+/* 球员已训练总点数 */
+function trainTotalOf(save, playerId) {
+  const adj = save.trainAdj && save.trainAdj[playerId];
+  if (!adj) return 0;
+  return Object.values(adj).reduce((s, v) => s + v, 0);
+}
+
+/* 应用训练点：+1 到选定属性 */
+function applyTraining(save, playerId, attr) {
+  const avail = trainPtsAvailable(save);
+  if (avail <= 0) { toast("没有可用训练点"); return false; }
+  save.trainAdj = save.trainAdj || {};
+  const a = save.trainAdj[playerId] || (save.trainAdj[playerId] = { ins: 0, out: 0, org: 0, def: 0, reb: 0, ath: 0 });
+  if (a[attr] >= TRAIN_MAX_PER_ATTR) { toast("该属性已训练到上限 (" + TRAIN_MAX_PER_ATTR + " 点)"); return false; }
+  if (trainTotalOf(save, playerId) >= TRAIN_MAX_PER_PLAYER) { toast("该球员已训练到上限 (" + TRAIN_MAX_PER_PLAYER + " 点)"); return false; }
+  a[attr] += 1;
+  /* 同步更新 ovrAdj：每点训练 +0.5 OVR（防止训练直接拉爆 OVR） */
+  save.ovrAdj = save.ovrAdj || {};
+  save.ovrAdj[playerId] = Math.max(-20, Math.min(22, (save.ovrAdj[playerId] || 0) + 0.5));
+  save.trainPts.spent = (save.trainPts.spent || 0) + 1;
+  writeSave(save);
+  return true;
+}
+
 /* ===== 奖项：MVP / DPOY（联盟榜 + 用户真实数据覆盖） ===== */
 function seasonAwards(save) {
   const real = save.playerStats || {};
@@ -1390,6 +1471,8 @@ function newSeason(save) {
   save.buyoutMarket = [];  /* 清空买断市场（新赛季重新生成） */
   save.injuries = {};  /* 新赛季伤病清零 */
   save.injuryLog = [];
+  /* 训练点：新赛季重置，根据上赛季表现计算可获得点数 */
+  earnTrainPts(save);
   /* 新赛季重置工资帽硬帽状态：硬帽触发、特例使用全部清零（每季独立结算） */
   if (save.capStatus) {
     const prevBAESeason = save.capStatus.lastBAESeason || 0;  /* 双年特例需保留上赛季记录用于两年间隔判定 */

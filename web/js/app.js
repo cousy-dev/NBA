@@ -1688,10 +1688,15 @@ function applyAdj(p0, save) {
   const aa = (save.ageAdj && save.ageAdj[p0.id]) || 0;
   const ma = moraleOvrDelta(moraleOf(save, p0.id));
   const totalAdj = oa + ma;
-  if (!totalAdj && !aa) return p0;
+  const ta = (save.trainAdj && save.trainAdj[p0.id]) || null;
+  if (!totalAdj && !aa && !ta) return p0;
   const k = p0.ovr ? (p0.ovr + totalAdj) / p0.ovr : 1;
   const attrs = {}, mgr = {};
-  Object.keys(p0.attrs).forEach(key => { attrs[key] = Math.max(20, Math.round(p0.attrs[key] * k)); });
+  Object.keys(p0.attrs).forEach(key => {
+    let v = Math.max(20, Math.round(p0.attrs[key] * k));
+    if (ta && ta[key]) v = Math.max(20, Math.min(99, v + ta[key]));  /* 训练点直接叠加 */
+    attrs[key] = v;
+  });
   Object.keys(p0.mgr).forEach(key => { mgr[key] = Math.max(20, Math.round(p0.mgr[key] * k)); });
   return Object.assign({}, p0, { ovr: p0.ovr + totalAdj, age: (p0.age || 24) + aa, attrs, mgr });
 }
@@ -2236,6 +2241,7 @@ RENDERERS.hub = function () {
     '<button class="mc-btn" id="btn-extend"><span class="hn-ico">✍️</span><span>提前续约</span></button>' +
     '<button class="mc-btn" id="btn-coach"><span class="hn-ico">🎯</span><span>教练战术</span></button>' +
     '<button class="mc-btn" id="btn-scout"><span class="hn-ico">🔭</span><span>球探中心</span></button>' +
+    '<button class="mc-btn" id="btn-train"><span class="hn-ico">💪</span><span>训练室</span></button>' +
     '<button class="mc-btn" id="btn-awards"><span class="hn-ico">🏅</span><span>奖项追踪</span></button>' +
     '<button class="mc-btn" id="btn-retired"><span class="hn-ico">🎖️</span><span>退役球员</span></button>' +
     '<button class="mc-btn" id="btn-hof"><span class="hn-ico">🏛️</span><span>名人堂</span></button>' +
@@ -2321,6 +2327,8 @@ RENDERERS.hub = function () {
   if (bco) bco.onclick = () => go("coach");
   const bscout = $("#btn-scout");
   if (bscout) bscout.onclick = () => go("scout");
+  const btrain = $("#btn-train");
+  if (btrain) btrain.onclick = () => go("train");
   const br = $("#btn-retired");
   if (br) br.onclick = () => go("retired");
   const bh = $("#btn-hof");
@@ -4840,6 +4848,7 @@ RENDERERS.trade = function () {
       state.trade.aiPicks = [];
       state.trade.myDraftPicks = [];
       state.trade.aiDraftPicks = [];
+      state.trade.cashAdd = 0;
       state.trade.result = null;
       go("trade-deal");
     };
@@ -4900,7 +4909,8 @@ RENDERERS["trade-deal"] = function () {
   const myPickPool = getTeamPicks(save, myAbbr(save));
   const aiPickPool = getTeamPicks(save, aiTeam);
   /* 包裹总价值（边际递减）：头牌足额、添头大幅折价，与 AI 评估口径一致 */
-  const myVal = Math.round(packagedValue(myPicks, myDPicks, x => tradeValue(x.p, x.sal, x.ctx)));
+  const cashAdd = state.trade.cashAdd || 0;
+  const myVal = Math.round(packagedValue(myPicks, myDPicks, x => tradeValue(x.p, x.sal, x.ctx)) + (cashAdd > 0 ? cashAdd * 0.5 : 0));
   const aiVal = Math.round(packagedValue(aiPicks, aiDPicks, x => tradeValue(x.p, x.sal, x.ctx)));
   const result = state.trade.result;
   const mySal = myPicks.reduce((s, x) => s + x.sal, 0);
@@ -4956,7 +4966,13 @@ RENDERERS["trade-deal"] = function () {
       (result.accept ? '<button class="btn btn-primary" id="btn-confirm">确认交易</button>' : "") +
       "</div>" : "") +
     '<div class="trade-cols">' +
-    '  <div class="trade-col"><h3 class="tc-h">你方出让</h3>' + pickList(myPicks, "my") + draftPickList(myDPicks, "my") + (hasOffer ? "" : '<div class="trade-empty">选择球员或选秀权</div>') + "</div>" +
+    '  <div class="trade-col"><h3 class="tc-h">你方出让</h3>' + pickList(myPicks, "my") + draftPickList(myDPicks, "my") +
+    '    <div class="trade-cash-add">' +
+    '      <label>💰 现金添头 (M)</label>' +
+    '      <input type="number" id="trade-cash-input" value="' + cashAdd + '" step="1" min="0" max="' + Math.min(50, (save.finances && save.finances.cash) || 60) + '" placeholder="0">' +
+    '      <small>1M = ~0.5 交易价值 · 从现金扣除</small>' +
+    '    </div>' +
+    (hasOffer ? "" : '<div class="trade-empty">选择球员或选秀权</div>') + "</div>" +
     '  <div class="trade-col"><h3 class="tc-h">对方出让</h3>' + pickList(aiPicks, "ai") + draftPickList(aiDPicks, "ai") + "</div>" +
     "</div>" +
     '<div class="trade-actions">' +
@@ -5061,7 +5077,8 @@ RENDERERS["trade-deal"] = function () {
   });
   const bp = $("#btn-propose");
   if (bp) bp.onclick = () => {
-    const res = aiEvaluateTrade(save, aiTeam, myPicks, aiPicks, myDPicks, aiDPicks);
+    state.trade.cashAdd = Math.max(0, Number($("#trade-cash-input").value) || 0);
+    const res = aiEvaluateTrade(save, aiTeam, myPicks, aiPicks, myDPicks, aiDPicks, state.trade.cashAdd);
     state.trade.result = res;
     RENDERERS["trade-deal"]();
   };
@@ -5073,7 +5090,8 @@ RENDERERS["trade-deal"] = function () {
       if (idx >= 0) aiPicks.splice(idx, 1, c.in);
       else aiPicks.push(c.in);
       state.trade.result = null;
-      const res = aiEvaluateTrade(save, aiTeam, myPicks, aiPicks, myDPicks, aiDPicks);
+      state.trade.cashAdd = Math.max(0, Number($("#trade-cash-input").value) || 0);
+      const res = aiEvaluateTrade(save, aiTeam, myPicks, aiPicks, myDPicks, aiDPicks, state.trade.cashAdd);
       state.trade.result = res;
       RENDERERS["trade-deal"]();
     }
@@ -5082,8 +5100,14 @@ RENDERERS["trade-deal"] = function () {
   if (br) br.onclick = () => { state.trade.result = null; RENDERERS["trade-deal"](); };
   const bconf = $("#btn-confirm");
   if (bconf) bconf.onclick = () => {
+    state.trade.cashAdd = Math.max(0, Number($("#trade-cash-input").value) || 0);
+    /* 扣除现金添头 */
+    if (state.trade.cashAdd > 0) {
+      save.finances = save.finances || { cash: 60, history: [], deficitStreak: 0 };
+      save.finances.cash = Math.round((save.finances.cash - state.trade.cashAdd) * 10) / 10;
+    }
     executeTrade(save, myAbbr(save), myPicks.map(x => x.p.id), aiPicks.map(x => x.p.id), aiTeam, myDPicks, aiDPicks);
-    toast("交易完成！");
+    toast("交易完成！" + (state.trade.cashAdd > 0 ? " · 现金添头 " + fmtM(state.trade.cashAdd) + " 已扣除" : ""));
     state.stack = [];
     RENDERERS.hub(); activate("hub");
   };
@@ -5716,7 +5740,29 @@ RENDERERS.coach = function () {
 
 /* ===== 球探系统 ===== */
 const SCOUT_CONCURRENT = 2;   /* 同时在外考察的球探人数 */
-const SCOUT_GAMES = 10;       /* 一份球探报告需要的比赛场次 */
+const SCOUT_GAMES = 10;       /* 一份球探报告需要的比赛场次（基础，球探等级降低此值） */
+
+/* 球探等级：1-5 级，升级费用 = 等级 × 10M */
+const SCOUT_GAMES_BY_LEVEL = [10, 8, 6, 5, 4];   /* 各等级所需比赛场次 */
+const SCOUT_RANGE_BY_LEVEL = [3, 2.5, 2, 1.5, 1]; /* 各等级 OVR 估算偏差 ± */
+const SCOUT_POT_RANGE_BY_LEVEL = [6, 5, 4, 3, 2]; /* 各等级潜力估算偏差 */
+
+function scoutLevel(save) { return save.scoutLevel || 1; }
+function scoutUpgradeCost(save) { return scoutLevel(save) * 10; }
+function scoutGamesNeeded(save) { return SCOUT_GAMES_BY_LEVEL[scoutLevel(save) - 1] || 10; }
+
+function upgradeScout(save) {
+  const lv = scoutLevel(save);
+  if (lv >= 5) { toast("球探部门已满级"); return false; }
+  const cost = lv * 10;
+  save.finances = save.finances || { cash: 60, history: [], deficitStreak: 0 };
+  if (save.finances.cash < cost) { toast("现金不足，升级需 " + fmtM(cost) + "（当前 " + fmtM(save.finances.cash) + "）"); return false; }
+  save.finances.cash = Math.round((save.finances.cash - cost) * 10) / 10;
+  save.scoutLevel = lv + 1;
+  writeSave(save);
+  toast("✅ 球探部门升至 " + (lv + 1) + " 级 · 花费 " + fmtM(cost) + " · 报告更准 · 考察更快");
+  return true;
+}
 
 /* 确保新赛季的待选新秀池存在（选秀后清空，下赛季重新生成） */
 function ensureUpcomingClass(save) {
@@ -5728,21 +5774,27 @@ function ensureUpcomingClass(save) {
   return save.upcomingDraft;
 }
 
-/* 球探报告：基于真实能力加噪声，确定性（同一名新秀报告稳定） */
-function genScoutReport(r) {
+/* 球探报告：基于真实能力加噪声，确定性（同一名新秀报告稳定）。
+   球探等级越高，偏差越小、揭示的强项越多。 */
+function genScoutReport(r, save) {
+  const lv = save ? scoutLevel(save) : 1;
+  const ovrRange = SCOUT_RANGE_BY_LEVEL[lv - 1] || 3;
+  const potRange = SCOUT_POT_RANGE_BY_LEVEL[lv - 1] || 6;
   const rnd1 = hash01(r.id, 707), rnd2 = hash01(r.id, 708);
-  const ovrEst = Math.round(r.ovr + (rnd1 - 0.5) * 8);
-  const potEst = Math.round((r.potential || r.ovr) + (rnd2 - 0.5) * 12);
+  const ovrEst = Math.round(r.ovr + (rnd1 - 0.5) * ovrRange * 2);
+  const potEst = Math.round((r.potential || r.ovr) + (rnd2 - 0.5) * potRange * 2);
   const grade = v => v >= 93 ? "S" : v >= 87 ? "A" : v >= 79 ? "B" : v >= 68 ? "C" : "D";
   const ATTR_CN = { ins: "内线终结", out: "外线投射", org: "组织策应", def: "防守", reb: "篮板", ath: "运动能力" };
   const a = r.attrs || {};
   const sorted = Object.keys(ATTR_CN).sort((x, y) => (a[y] || 0) - (a[x] || 0));
-  const strengths = sorted.slice(0, 2).map(k => ATTR_CN[k]);
+  /* 等级越高揭示的强项越多：Lv1-2 揭示2项，Lv3-4 揭示3项，Lv5 揭示全部 */
+  const numStr = lv >= 5 ? 6 : lv >= 3 ? 3 : 2;
+  const strengths = sorted.slice(0, numStr).map(k => ATTR_CN[k]);
   const weak = ATTR_CN[sorted[sorted.length - 1]];
   const slot = potEst >= 86 ? "乐透区" : potEst >= 76 ? "首轮行情" : potEst >= 66 ? "首轮末/次轮" : "次轮行情";
   return {
-    ovrLow: Math.max(50, ovrEst - 3), ovrHigh: ovrEst + 3,
-    potGrade: grade(potEst), strengths, weak, slot
+    ovrLow: Math.max(50, ovrEst - ovrRange), ovrHigh: ovrEst + ovrRange,
+    potGrade: grade(potEst), strengths, weak, slot, level: lv
   };
 }
 
@@ -5755,7 +5807,7 @@ function tickScouting(save) {
     job.gamesLeft -= 1;
     if (job.gamesLeft <= 0) {
       const r = save.upcomingDraft && save.upcomingDraft.find(x => x.id === job.id);
-      if (r) { sc.done[job.id] = genScoutReport(r); changed = true; }
+      if (r) { sc.done[job.id] = genScoutReport(r, save); changed = true; }
       return false;
     }
     changed = true;
@@ -5768,6 +5820,8 @@ RENDERERS.scout = function () {
   const save = state.save;
   const cls = ensureUpcomingClass(save);
   const sc = save.scouting;
+  const lv = scoutLevel(save);
+  const gamesNeeded = scoutGamesNeeded(save);
   const reportOf = id => sc.done[id] || null;
   const activeOf = id => sc.active.find(j => j.id === id);
 
@@ -5792,7 +5846,7 @@ RENDERERS.scout = function () {
     } else {
       status = '<button class="btn btn-outline srr-send" data-id="' + r.id + '"' +
         (sc.active.length >= SCOUT_CONCURRENT ? " disabled" : "") + ">" +
-        (sc.active.length >= SCOUT_CONCURRENT ? "球探已满" : "派球探考察（" + SCOUT_GAMES + "场）") + "</button>";
+        (sc.active.length >= SCOUT_CONCURRENT ? "球探已满" : "派球探考察（" + gamesNeeded + "场）") + "</button>";
     }
     return '<div class="scout-row' + (rep ? " reported" : "") + '">' +
       '  <div class="scout-head">' +
@@ -5809,13 +5863,22 @@ RENDERERS.scout = function () {
       "</div>";
   }).join("");
 
+  const lvCost = lv >= 5 ? 0 : lv * 10;
+  const cash = (save.finances && save.finances.cash) || 60;
+  const upgradeHtml = lv >= 5
+    ? '<div class="er-pill scout-lv-max">球探等级 MAX</div>'
+    : '<button class="er-pill scout-upgrade" id="btn-scout-upgrade"' + (cash < lvCost ? ' disabled' : '') + '>升级球探部门 → Lv' + (lv + 1) + ' · ' + fmtM(lvCost) + '</button>';
+
   $("#screen-scout").innerHTML =
     '<h2 class="screen-title">球探中心</h2>' +
     '<p class="screen-sub">下一届新秀正在大学/海外联赛征战 · 派球探实地考察可获得评分与潜力报告</p>' +
     '<div class="fan-round">' +
+    '  <div class="er-pill">球探等级 <b>Lv' + lv + '</b></div>' +
     '  <div class="er-pill">待选新秀 <b>' + cls.length + "</b> 人</div>" +
     '  <div class="er-pill">球探在外 <b>' + sc.active.length + "</b> / " + SCOUT_CONCURRENT + "</div>" +
     '  <div class="er-pill">已出报告 <b>' + Object.keys(sc.done).length + "</b> 份</div>" +
+    '  <div class="er-pill">现金 <b>' + fmtM(cash) + '</b></div>' +
+    upgradeHtml +
     "</div>" +
     '<div class="scout-list">' + rows + "</div>";
 
@@ -5823,10 +5886,101 @@ RENDERERS.scout = function () {
     btn.onclick = () => {
       const id = Number(btn.dataset.id);
       if (sc.active.length >= SCOUT_CONCURRENT || sc.active.some(j => j.id === id) || sc.done[id]) return;
-      sc.active.push({ id, gamesLeft: SCOUT_GAMES });
+      sc.active.push({ id, gamesLeft: gamesNeeded });
       writeSave(save);
-      toast("🔭 球探已出发，" + SCOUT_GAMES + " 场比赛后出报告");
+      toast("🔭 球探已出发，" + gamesNeeded + " 场比赛后出报告");
       RENDERERS.scout(); activate("scout", true);
+    };
+  });
+  const upBtn = $("#btn-scout-upgrade");
+  if (upBtn) upBtn.onclick = () => {
+    if (upgradeScout(save)) { RENDERERS.scout(); activate("scout", true); }
+  };
+};
+
+/* ===== 训练室 ===== */
+const ATTR_CN_MAP = { ins: "内线", out: "外线", org: "组织", def: "防守", reb: "篮板", ath: "运动" };
+
+RENDERERS.train = function () {
+  const save = state.save;
+  /* 确保训练点数据存在（旧档兼容） */
+  if (!save.trainPts || save.trainPts.season !== save.seasonNo) {
+    earnTrainPts(save);
+    writeSave(save);
+  }
+  const tp = save.trainPts;
+  const avail = trainPtsAvailable(save);
+  const buyable = trainPtsBuyable(save);
+  const cash = (save.finances && save.finances.cash) || 60;
+  const mine = loadMyPlayers(save).sort((a, b) => b.p.ovr - a.p.ovr);
+
+  const attrBar = (p, key) => {
+    const base = p.p.attrs[key] || 60;
+    const ta = (save.trainAdj && save.trainAdj[p.p.id] && save.trainAdj[p.p.id][key]) || 0;
+    const val = base + ta;
+    const pct = Math.min(100, val);
+    return '<div class="tr-attr-row" data-id="' + p.p.id + '" data-attr="' + key + '">' +
+      '<span class="tr-attr-name">' + ATTR_CN_MAP[key] + '</span>' +
+      '<div class="tr-attr-bar"><div class="tr-attr-fill" style="width:' + pct + '%"></div></div>' +
+      '<span class="tr-attr-val">' + val + (ta > 0 ? ' <i class="tr-bonus">+' + ta + '</i>' : '') + '</span>' +
+      '<button class="tr-attr-btn" data-id="' + p.p.id + '" data-attr="' + key + '"' +
+      (avail <= 0 || ta >= TRAIN_MAX_PER_ATTR || trainTotalOf(save, p.p.id) >= TRAIN_MAX_PER_PLAYER ? ' disabled' : '') +
+      '>+' + (ta < TRAIN_MAX_PER_ATTR ? '1' : 'MAX') + '</button>' +
+      '</div>';
+  };
+
+  const playerRows = mine.map(p => {
+    const total = trainTotalOf(save, p.p.id);
+    return '<div class="tr-player' + (total >= TRAIN_MAX_PER_PLAYER ? ' maxed' : '') + '">' +
+      '<div class="tr-pinfo">' +
+      '  <div class="ovr-badge ' + ovrClass(p.p.ovr) + '">' + p.p.ovr + '</div>' +
+      '  <div class="tr-pname">' + esc(p.p.nameCn) + '</div>' +
+      '  <span class="pos-chip ' + posClass(p.p.pos) + '">' + esc(posLabel(p.p)) + '</span>' +
+      '  <span class="tr-ptotal">训练 ' + total + '/' + TRAIN_MAX_PER_PLAYER + '</span>' +
+      '</div>' +
+      '<div class="tr-attrs">' +
+      Object.keys(ATTR_CN_MAP).map(k => attrBar(p, k)).join("") +
+      '</div>' +
+      '</div>';
+  }).join("");
+
+  $("#screen-train").innerHTML =
+    '<h2 class="screen-title">训练室</h2>' +
+    '<p class="screen-sub">用训练点提升球员属性 · 每点 +1 属性，每球员最多 ' + TRAIN_MAX_PER_PLAYER + ' 点</p>' +
+    '<div class="card-box tr-stats">' +
+    '  <div class="tr-stat-pill">可用训练点 <b>' + avail + '</b></div>' +
+    '  <div class="tr-stat-pill">本季已获 <b>' + tp.earned + '</b> 基础</div>' +
+    '  <div class="tr-stat-pill">已购买 <b>' + (tp.bought || 0) + '</b> 点</div>' +
+    '  <div class="tr-stat-pill">已使用 <b>' + (tp.spent || 0) + '</b> 点</div>' +
+    '  <div class="tr-stat-pill">现金 <b>' + fmtM(cash) + '</b></div>' +
+    '</div>' +
+    (buyable > 0 ?
+      '<div class="card-box tr-buy-box">' +
+      '  <h3 class="section-h">购买训练点</h3>' +
+      '  <div class="tr-buy-row">' +
+      '    <span>价格 ' + fmtM(TRAIN_COST_PER_PT) + '/点 · 可买 ' + buyable + ' 点</span>' +
+      '    <select id="tr-buy-count">' + Array.from({ length: buyable }, (_, i) => '<option value="' + (i + 1) + '">' + (i + 1) + ' 点 / ' + fmtM((i + 1) * TRAIN_COST_PER_PT) + '</option>').join("") + '</select>' +
+      '    <button class="btn btn-primary" id="btn-train-buy">购买</button>' +
+      '  </div>' +
+      '</div>'
+      : '<div class="card-box tr-buy-box"><p class="screen-sub">本季训练点已达上限 (' + TRAIN_MAX_PER_SEASON + ' 点)</p></div>') +
+    '<div class="tr-list">' + playerRows + '</div>';
+
+  const buyBtn = $("#btn-train-buy");
+  if (buyBtn) buyBtn.onclick = () => {
+    const cnt = Number($("#tr-buy-count").value);
+    if (buyTrainPts(save, cnt)) { RENDERERS.train(); activate("train", true); }
+  };
+  $$("#screen-train .tr-attr-btn").forEach(btn => {
+    btn.onclick = () => {
+      const id = Number(btn.dataset.id);
+      const attr = btn.dataset.attr;
+      if (applyTraining(save, id, attr)) {
+        const p = PLAYERS_RATED.players.find(x => x.id === id) || (save.customPlayers || []).find(x => x.id === id);
+        const name = p ? p.nameCn : "球员";
+        toast("✅ " + name + " · " + ATTR_CN_MAP[attr] + " +1");
+        RENDERERS.train(); activate("train", true);
+      }
     };
   });
 };

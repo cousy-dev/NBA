@@ -265,10 +265,11 @@ function untouchableOvr(status) {
 /* ===== AI 交易意愿 =====
    AI 必须"有利可图"才交易：薪资配平 + 阵容合理 + 收到的打包价值 ≥ 送出价值。
    返回 { accept, reason, counter? } */
-function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
+function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks, cashAdd) {
   const aiTeam = myAbbrCode;
   myPicks = myPicks || [];
   aiPicks = aiPicks || [];
+  cashAdd = Math.max(0, cashAdd || 0);
   const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
 
   /* 空报价拦截 */
@@ -368,7 +369,7 @@ function aiEvaluateTrade(save, myAbbrCode, myOffer, aiOffer, myPicks, aiPicks) {
     return { x, v, need: positionNeedBonus(save, aiTeam, x.p.pos) };
   }).sort((a, b) => b.v - a.v)
     .map((it, i) => ({ x: it.x, v: Math.round(it.v + it.need * (i === 0 ? 1 : 0.4)) }));
-  const incomingVal = packagedValue(incoming.map(i => ({ _v: i.v })), myPicks);
+  const incomingVal = packagedValue(incoming.map(i => ({ _v: i.v })), myPicks) + (cashAdd > 0 ? cashAdd * 0.5 : 0);
 
   /* AI 送出：冗余位置球员损失略小（×0.75 需求反向），但核心球员按全价计 */
   const outgoing = aiOffer.map(x => {

@@ -623,7 +623,8 @@ function extendContract(save, playerId, newYears, newSalary) {
 }
 
 /* ===== 签约自由球员（UFA，受工资帽约束 + 球员意愿） ===== */
-function signFreeAgent(save, playerId, years, salary, exception) {
+function signFreeAgent(save, playerId, years, salary, exception, bonus) {
+  bonus = Math.max(0, bonus || 0);
   const faItem = (save.faPool || []).find(f => f.id === playerId);
   if (!faItem) { toast("该球员已签约其他球队"); return false; }
   /* 已退役球员不允许签约（旧档僵尸球员防御） */
@@ -635,6 +636,14 @@ function signFreeAgent(save, playerId, years, salary, exception) {
   if (faCategory(faItem) === "RFA") {
     toast("受限制自由球员需走报价流程");
     return false;
+  }
+  /* 签约奖金校验：从 cash 扣除 */
+  if (bonus > 0) {
+    save.finances = save.finances || { cash: 60, history: [], deficitStreak: 0 };
+    if (save.finances.cash < bonus) {
+      toast("现金不足，签约奖金需 " + fmtM(bonus) + "（当前 " + fmtM(save.finances.cash) + "）");
+      return false;
+    }
   }
   const total = save.roster.reduce((s, r) => s + r.salary, 0);
   const cap = typeof SALARY_CAP !== "undefined" ? SALARY_CAP : 165.0;
@@ -670,9 +679,14 @@ function signFreeAgent(save, playerId, years, salary, exception) {
   const hardCapCheck = enforceHardCap(save, salary);
   if (!hardCapCheck.ok) { toast(hardCapCheck.message); return false; }
 
-  /* 3. 球员意愿检查 */
+  /* 3. 球员意愿检查（签约奖金提升接受概率） */
   const myAb = myAbbr(save);
-  const willingness = signingWillingness(faItem, save, myAb);
+  let willingness = signingWillingness(faItem, save, myAb);
+  if (bonus > 0) {
+    /* 奖金提升意愿：bonus/salary 的 30% 加成 */
+    const boost = Math.min(0.25, (bonus / Math.max(salary, 1)) * 0.3);
+    willingness = Math.min(0.98, willingness + boost);
+  }
   if (Math.random() > willingness) {
     const reason = teamAttractiveness(save, myAb);
     let reasonText = "";
@@ -696,7 +710,12 @@ function signFreeAgent(save, playerId, years, salary, exception) {
     /* TaxMLE 不触发硬帽，但需缴税 */
   }
 
-  /* 5. 入队 */
+  /* 5. 扣除签约奖金 */
+  if (bonus > 0) {
+    save.finances.cash = Math.round((save.finances.cash - bonus) * 10) / 10;
+  }
+
+  /* 6. 入队 */
   const entry = {
     id: playerId, salary, years, raise: 0.05,  /* 自由球员签约逐年 5% 递增 */
     birdYears: 0,
@@ -707,8 +726,14 @@ function signFreeAgent(save, playerId, years, salary, exception) {
   maybeAssignOption(entry, faItem.ovr, playerId);
   save.roster.push(entry);
   save.faPool = save.faPool.filter(f => f.id !== playerId);
+  /* 签约奖金提升初始士气 */
+  if (bonus > 0) {
+    save.morale = save.morale || {};
+    save.morale[playerId] = Math.min(100, (save.morale[playerId] || 60) + 5);
+  }
   writeSave(save);
   let toastMsg = "✅ 签约成功！" + years + " 年 " + fmtM(salary) + "/年（逐年+5%）";
+  if (bonus > 0) toastMsg += " · 签约奖金 " + fmtM(bonus) + "（士气 +5）";
   if (usingException === "MLE") {
     toastMsg += " ⚠ 触发硬帽（空间中产特例），本季总薪资不可超 " + fmtM(FIRST_APRON || 209.0);
   } else if (usingException === "BAE") {
@@ -1311,7 +1336,8 @@ RENDERERS.freeagent = function () {
             openExceptionModal(save, id, years, price);
             return;
           }
-          if (signFreeAgent(save, id, years, price)) RENDERERS.freeagent();
+          /* 普通签约：弹窗让用户设置签约奖金 */
+          openSignModal(save, id, years, price, null);
         } else {
           /* RFA 报价 */
           const years = 3;
@@ -1323,6 +1349,47 @@ RENDERERS.freeagent = function () {
     $$("#screen-freeagent .fa-row[data-id]").forEach(row => {
       row.onclick = () => openPlayer(Number(row.dataset.id));
     });
+  }
+
+  /* 签约弹窗：设置签约奖金后确认 */
+  function openSignModal(save, playerId, years, salary, exception) {
+    const f = save.faPool.find(x => x.id === playerId);
+    if (!f) return;
+    const p = (save.customPlayers || []).find(x => x.id === playerId) || PLAYERS_RATED.players.find(x => x.id === playerId);
+    if (!p) return;
+    const cash = (save.finances && save.finances.cash) || 60;
+    const will = signingWillingness(f, save, myAbbr(save));
+    const willPct = Math.round(will * 100);
+    const old = $("#sign-modal");
+    if (old) old.remove();
+    const m = document.createElement("div");
+    m.id = "sign-modal";
+    m.className = "modal-overlay";
+    m.innerHTML =
+      '<div class="modal-box">' +
+      '<h3>签约 ' + esc(p.nameCn) + '</h3>' +
+      '<p class="modal-sub">' + years + ' 年 · ' + fmtM(salary) + '/年 · 当前接受概率 ' + willPct + '%</p>' +
+      '<div class="sign-bonus-box">' +
+      '  <label class="renew-field"><span>签约奖金 (M)</span>' +
+      '    <input type="number" id="sign-bonus-input" value="0" step="0.5" min="0" max="' + Math.min(50, cash) + '" placeholder="0">' +
+      '  </label>' +
+      '  <div class="sign-bonus-hint">奖金从现金扣除，提升球员接受概率和初始士气（最高 ' + fmtM(Math.min(50, cash)) + '）</div>' +
+      '  <div class="sign-bonus-hint">当前现金 ' + fmtM(cash) + '</div>' +
+      '</div>' +
+      '<div class="modal-btns">' +
+      '  <button class="btn btn-primary" id="sign-confirm">确认签约</button>' +
+      '  <button class="btn btn-outline" id="sign-cancel">取消</button>' +
+      '</div>' +
+      '</div>';
+    $("#screen-freeagent").appendChild(m);
+    const close = () => m.remove();
+    $("#sign-cancel").onclick = close;
+    m.onclick = e => { if (e.target === m) close(); };
+    $("#sign-confirm").onclick = () => {
+      const bonus = Math.max(0, Number($("#sign-bonus-input").value) || 0);
+      close();
+      if (signFreeAgent(save, playerId, years, salary, exception, bonus)) RENDERERS.freeagent();
+    };
   }
 
   /* 裁员弹窗：Waivers（可能被认领=0成本 / 否则50%买断） vs 延伸条款（40%分摊2N+1年） */
@@ -1339,6 +1406,8 @@ RENDERERS.freeagent = function () {
     const sCost = Math.round(total * 0.4 * 10) / 10;   /* 延伸总额 */
     const sYears = years * 2 + 1;
     const sPer = Math.round(sCost / sYears * 10) / 10;
+    const dCost = Math.round(total * 0.7 * 10) / 10;   /* 直接买断 70% */
+    const cash = (save.finances && save.finances.cash) || 60;
     const m = document.createElement("div");
     m.id = "waive-modal";
     m.className = "modal-overlay";
@@ -1346,7 +1415,11 @@ RENDERERS.freeagent = function () {
       '<div class="modal-box">' +
       '<h3>裁员 / 买断</h3>' +
       '<p class="modal-sub">' + esc(p.nameCn) + " · 剩余 " + years + " 年合同 · 年薪 " + fmtM(entry.salary) +
-        (entry.raise ? " · 逐年+" + Math.round(entry.raise * 100) + "%" : "") + " · 剩余总额 " + fmtM(total) + "</p>" +
+        (entry.raise ? " · 逐年+" + Math.round(entry.raise * 100) + "%" : "") + " · 剩余总额 " + fmtM(total) + " · 现金 " + fmtM(cash) + "</p>" +
+      '<button class="waive-opt" id="waive-direct"' + (cash < dCost ? ' disabled' : '') + '>' +
+        '<span class="waive-title">💰 直接买断（7折立即释放）</span>' +
+        '<span class="waive-desc">从现金支付 <b class="neg-num">' + fmtM(dCost) + "</b>（剩余合同 70%），球员立即释放；不进工资帽，不影响奢侈税" + (cash < dCost ? '（现金不足）' : '') + "</span>" +
+      "</button>" +
       '<button class="waive-opt" id="waive-waiver">' +
         '<span class="waive-title">🏷 裁员（Waivers 澄清期）</span>' +
         '<span class="waive-desc">帽下球队可认领并接盘剩余合同 → 你 0 成本；<b>无人认领</b>则球员成自由身，你支付 <b class="neg-num">' + fmtM(wCost) + "</b>（剩余合同 50%）一次性计入本赛季工资帽</span>" +
@@ -1361,6 +1434,21 @@ RENDERERS.freeagent = function () {
     const close = () => m.remove();
     $("#waive-cancel").onclick = close;
     m.onclick = e => { if (e.target === m) close(); };
+    $("#waive-direct").onclick = () => {
+      if (cash < dCost) { toast("现金不足"); return; }
+      /* 直接买断：从cash扣70%，球员立即释放，不进工资帽 */
+      save.finances.cash = Math.round((cash - dCost) * 10) / 10;
+      save.roster = save.roster.filter(r => r.id !== playerId);
+      save.faPool = save.faPool || [];
+      save.faPool.push({
+        id: playerId, ovr: (PLAYERS_RATED.players.find(x => x.id === playerId) || p).ovr,
+        age: p.age, birdYears: 0, originTeam: myAbbr(save)
+      });
+      writeSave(save);
+      close();
+      toast("💰 直接买断 " + p.nameCn + " · 支付 " + fmtM(dCost) + "（从现金扣除，不进工资帽）");
+      RENDERERS.freeagent();
+    };
     $("#waive-waiver").onclick = () => {
       const res = waivePlayer(save, playerId, "waiver");
       close();
@@ -1410,13 +1498,20 @@ RENDERERS.freeagent = function () {
           (excs.bae.reason ? '<small class="exc-reason">' + excs.bae.reason + '</small>' : '') +
         '</button>' +
       '</div>' +
+      '<div class="sign-bonus-box">' +
+      '  <label class="renew-field"><span>签约奖金 (M)</span>' +
+      '    <input type="number" id="exc-bonus-input" value="0" step="0.5" min="0" max="' + Math.min(50, (save.finances && save.finances.cash) || 60) + '" placeholder="0">' +
+      '  </label>' +
+      '  <div class="sign-bonus-hint">奖金从现金扣除，提升接受概率和初始士气</div>' +
+      '</div>' +
       '<button class="btn exc-cancel">取消</button>' +
       '</div>';
     document.body.appendChild(m);
     $$("#exc-modal .exc-opt").forEach(b => {
       b.onclick = () => {
         const exc = b.dataset.exc;
-        if (signFreeAgent(save, playerId, years, salary, exc)) {
+        const bonus = Math.max(0, Number($("#exc-bonus-input").value) || 0);
+        if (signFreeAgent(save, playerId, years, salary, exc, bonus)) {
           m.remove();
           RENDERERS.freeagent();
         }

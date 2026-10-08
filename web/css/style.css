@@ -1538,6 +1538,50 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .sr-scouting { margin-top: 8px; font-size: 12.5px; color: var(--blue); font-weight: 700; }
 .scout-row .btn { margin-top: 8px; padding: 7px 12px; font-size: 12.5px; }
 
+/* ===== 训练室 ===== */
+.tr-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.tr-stat-pill { font-size: 12px; font-weight: 700; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; white-space: nowrap; }
+.tr-stat-pill b { color: var(--text); font-size: 14px; }
+.tr-buy-box { margin-bottom: 14px; }
+.tr-buy-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tr-buy-row span { font-size: 13px; color: var(--muted); font-weight: 700; flex: 1; min-width: 140px; }
+.tr-buy-row select { background: var(--card2); border: 1px solid var(--line); color: var(--text); border-radius: 9px; padding: 8px 10px; font-size: 14px; font-weight: 700; }
+.tr-list { display: flex; flex-direction: column; gap: 10px; }
+.tr-player { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.tr-player.maxed { border-color: var(--gold); background: rgba(168,31,46,.05); }
+.tr-pinfo { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.tr-pname { font-size: 14px; font-weight: 700; flex: 1; min-width: 0; }
+.tr-ptotal { font-size: 11px; font-weight: 700; color: var(--gold); background: rgba(168,31,46,.12); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+.tr-attrs { display: flex; flex-direction: column; gap: 4px; }
+.tr-attr-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.tr-attr-name { width: 40px; font-size: 12px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+.tr-attr-bar { flex: 1; height: 8px; background: var(--card2); border-radius: 4px; overflow: hidden; min-width: 60px; }
+.tr-attr-fill { height: 100%; background: linear-gradient(90deg, #3fbf7f, #4f8ef7); border-radius: 4px; }
+.tr-attr-val { width: 50px; font-size: 12px; font-weight: 700; text-align: right; flex-shrink: 0; }
+.tr-bonus { font-style: normal; color: var(--green); font-size: 11px; font-weight: 800; }
+.tr-attr-btn { border: 1px solid var(--gold); background: rgba(168,31,46,.1); color: var(--gold); font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+.tr-attr-btn:disabled { border-color: var(--line); background: var(--card2); color: var(--muted); cursor: not-allowed; opacity: .5; }
+.tr-attr-btn:not(:disabled):active { transform: scale(.95); }
+
+/* 签约奖金弹窗 */
+.sign-bonus-box { margin: 10px 0; padding: 10px; background: var(--card2); border-radius: 10px; border: 1px solid var(--line); }
+.sign-bonus-box .renew-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.sign-bonus-box input { background: var(--card); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: 16px; font-weight: 700; }
+.sign-bonus-hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+.modal-btns { display: flex; gap: 8px; margin-top: 14px; }
+.modal-btns .btn { flex: 1; }
+
+/* 球探升级按钮 */
+.scout-upgrade { cursor: pointer; border: 1px solid var(--gold); background: rgba(168,31,46,.1); color: var(--gold); }
+.scout-upgrade:disabled { border-color: var(--line); background: var(--card2); color: var(--muted); cursor: not-allowed; opacity: .5; }
+.scout-lv-max { border-color: var(--gold); color: var(--gold); }
+
+/* 交易现金添头 */
+.trade-cash-add { margin-top: 8px; padding: 8px 10px; background: var(--card2); border: 1px dashed var(--gold); border-radius: 8px; }
+.trade-cash-add label { font-size: 12px; font-weight: 700; color: var(--gold); display: block; margin-bottom: 4px; }
+.trade-cash-add input { background: var(--card); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 14px; font-weight: 700; width: 100%; box-sizing: border-box; }
+.trade-cash-add small { font-size: 10.5px; color: var(--muted); display: block; margin-top: 4px; }
+
 /* ===== 阵容卡片（最佳阵容 / 最佳防守 / 新秀阵容） ===== */
 .tm-group h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 /* 两行布局：第一行 位置+OVR+名字，第二行 球队+数据 */
