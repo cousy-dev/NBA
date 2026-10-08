@@ -2242,6 +2242,9 @@ RENDERERS.hub = function () {
     '<button class="mc-btn" id="btn-trophyroom"><span class="hn-ico">🏆</span><span>荣誉室</span></button>' +
     '<button class="mc-btn" id="btn-leaderboard"><span class="hn-ico">📈</span><span>排行榜</span></button>' +
     '<button class="mc-btn" id="btn-feedback"><span class="hn-ico">💬</span><span>反馈</span></button>' +
+    (window.HupuCloud && HupuCloud.hasAd && HupuCloud.hasAd()
+      ? '<button class="mc-btn ad-btn" id="btn-ad-reward"><span class="hn-ico">📺</span><span>看广告领奖励</span></button>'
+      : '') +
     "</div>" +
     '<div class="hub-tabs">' +
     '  <button class="hub-tab' + (hubTab === "overview" ? " active" : "") + '" data-tab="overview">概览</button>' +
@@ -2331,6 +2334,61 @@ RENDERERS.hub = function () {
     if (window.HupuCloud && HupuCloud.hasTrack) HupuCloud.track({ act: "click", blk: "BMC009", pos: "T1", label: "用户反馈" });
     showFeedbackModal();
   };
+  /* 激励广告：看视频领 +3M 资金（平台限制每日次数，禁止自行补发） */
+  const bad = $("#btn-ad-reward");
+  if (bad) {
+    /* 初始化时查询任务状态，决定按钮可用性 */
+    if (window.HupuCloud && HupuCloud.hasAd) {
+      HupuCloud.getAdTaskState().then(st => {
+        if (!st || !st.rewardTask) return;
+        if (st.rewardTask.status === "completed") {
+          bad.disabled = true;
+          bad.classList.add("ad-done");
+          const lbl = bad.querySelector("span:last-child");
+          if (lbl) lbl.textContent = "今日已领";
+        }
+      });
+    }
+    let adInFlight = false;
+    bad.onclick = async () => {
+      if (adInFlight || bad.disabled) return;
+      adInFlight = true;
+      bad.disabled = true;
+      const orig = bad.querySelector("span:last-child");
+      const origText = orig ? orig.textContent : "";
+      if (orig) orig.textContent = "播放中…";
+      if (window.HupuCloud && HupuCloud.hasTrack) {
+        HupuCloud.track({ act: "click", blk: "BMC010", pos: "T1", label: "看广告领奖励" });
+      }
+      try {
+        const res = await HupuCloud.completeRewardVideo();
+        if (res.ok) {
+          /* 发放游戏内奖励：+3M 现金 */
+          if (!save.finances) save.finances = { cash: 0, history: [], deficitStreak: 0 };
+          save.finances.cash = (save.finances.cash || 0) + 3;
+          writeSave(save);
+          toast("📺 广告奖励 +3M 资金已入账");
+          /* 刷新任务状态：本周期已完成则锁定按钮 */
+          const ns = await HupuCloud.getAdTaskState();
+          if (ns && ns.rewardTask && ns.rewardTask.status === "completed") {
+            bad.classList.add("ad-done");
+            if (orig) orig.textContent = "今日已领";
+          } else {
+            if (orig) orig.textContent = origText;
+          }
+        } else {
+          toast("⚠ " + (res.msg || "广告未完成"));
+          if (orig) orig.textContent = origText;
+        }
+      } catch (e) {
+        toast("⚠ 广告调用异常");
+        if (orig) orig.textContent = origText;
+      } finally {
+        adInFlight = false;
+        if (!bad.classList.contains("ad-done")) bad.disabled = false;
+      }
+    };
+  }
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
   /* 模拟剩余季后赛（用户已淘汰但季后赛未结束时手动触发） */

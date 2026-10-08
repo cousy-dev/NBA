@@ -453,6 +453,54 @@ const HupuCloud = (() => {
     }
   }
 
+  /* ===== 激励广告（colorbox-vatask） =====
+     window.ColorboxAI.vatask.completeRewardVideo() → 拉起视频，完播后服务端增加次数
+     window.ColorboxAI.vatask.getActivityTaskState() → 查询剩余次数和任务状态
+     约束：必须用户点击触发；禁止循环/轮询/自动重试；同时间只允许一个流程 */
+  function hasAd() {
+    return !!(window.ColorboxAI && window.ColorboxAI.vatask &&
+      typeof window.ColorboxAI.vatask.completeRewardVideo === "function" &&
+      typeof window.ColorboxAI.vatask.getActivityTaskState === "function");
+  }
+
+  /* 查询激励视频任务状态：返回 {available, rewardTask: {status, title}} 或 null
+     rewardTask.status === "pending" 表示可看广告；"completed" 表示本周期已完成 */
+  async function getAdTaskState() {
+    if (!hasAd()) return null;
+    try {
+      const res = await window.ColorboxAI.vatask.getActivityTaskState();
+      if (res.code !== 200 || !res.data) {
+        console.warn("[HupuCloud] 广告任务状态查询失败:", res.message);
+        return null;
+      }
+      const tasks = Array.isArray(res.data.tasks) ? res.data.tasks : [];
+      const rewardTask = tasks.find(t => t.taskCode === "reward") || null;
+      return {
+        available: typeof res.data.availableChanceCount === "number" ? res.data.availableChanceCount : 0,
+        rewardTask
+      };
+    } catch (e) {
+      console.warn("[HupuCloud] 广告任务状态查询异常:", e && e.message);
+      return null;
+    }
+  }
+
+  /* 拉起激励视频：返回 {ok, msg}
+     仅 code===200 且 data.rewarded===true 时 ok=true；禁止自行补发奖励 */
+  async function completeRewardVideo() {
+    if (!hasAd()) return { ok: false, msg: "当前环境不支持激励广告，请在虎扑 App 内打开" };
+    try {
+      const res = await window.ColorboxAI.vatask.completeRewardVideo();
+      if (res.code === 200 && res.data && res.data.rewarded === true) {
+        return { ok: true };
+      }
+      /* 常见失败原因：APP_REQUIRED(站外)/LOGIN_REQUIRED/UNAVAILABLE(已完成)/NOT_REWARDED(未完播) */
+      return { ok: false, msg: res.message || "广告未完成" };
+    } catch (e) {
+      return { ok: false, msg: "广告调用异常" };
+    }
+  }
+
   /* 兼容旧版 init 调用（无操作，SDK 就绪即用） */
   function init() { return getEnv(); }
 
@@ -480,6 +528,10 @@ const HupuCloud = (() => {
     hasBbsEditor,
     hasPosterPosting,
     postPoster,
+    /* 激励广告 */
+    hasAd,
+    getAdTaskState,
+    completeRewardVideo,
     /* 供调试 */
     _cloudSetValue: cloudSetValue,
     _cloudGetValue: cloudGetValue,

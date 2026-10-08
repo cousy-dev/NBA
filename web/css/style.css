@@ -1684,6 +1684,21 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .share-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
 .share-row .btn { flex: 1; min-width: 140px; }
 
+/* ===== 激励广告按钮 ===== */
+.ad-btn {
+  background: linear-gradient(135deg, #1a9e3f, #0d7a2d) !important;
+  color: #fff !important;
+  border: 1px solid #1a9e3f !important;
+  font-weight: 700;
+}
+.ad-btn:hover { filter: brightness(1.1); }
+.ad-btn:disabled, .ad-btn.ad-done {
+  background: var(--card) !important;
+  color: var(--muted) !important;
+  border-color: var(--line) !important;
+  cursor: not-allowed;
+  font-weight: 600;
+}
 
 .block-chip { font-size: 10.5px; font-weight: 800; color: #ffa94d; background: rgba(255,169,77,.14); border-radius: 5px; padding: 1px 6px; margin-left: 6px; }
 .tr-box { max-width: 480px; }
