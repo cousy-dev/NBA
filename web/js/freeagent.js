@@ -1368,12 +1368,12 @@ RENDERERS.freeagent = function () {
     m.innerHTML =
       '<div class="modal-box">' +
       '<h3>签约 ' + esc(p.nameCn) + '</h3>' +
-      '<p class="modal-sub">' + years + ' 年 · ' + fmtM(salary) + '/年 · 当前接受概率 ' + willPct + '%</p>' +
+      '<p class="modal-sub">' + years + ' 年 · ' + fmtM(salary) + '/年 · 接受概率 <b id="sign-will-pct">' + willPct + '%</b></p>' +
       '<div class="sign-bonus-box">' +
       '  <label class="renew-field"><span>签约奖金 (M)</span>' +
       '    <input type="number" id="sign-bonus-input" value="0" step="0.5" min="0" max="' + Math.min(50, cash) + '" placeholder="0">' +
       '  </label>' +
-      '  <div class="sign-bonus-hint">奖金从现金扣除，提升球员接受概率和初始士气（最高 ' + fmtM(Math.min(50, cash)) + '）</div>' +
+      '  <div class="sign-bonus-hint" id="sign-bonus-hint">奖金从现金扣除，提升球员接受概率和初始士气（最高 ' + fmtM(Math.min(50, cash)) + '）</div>' +
       '  <div class="sign-bonus-hint">当前现金 ' + fmtM(cash) + '</div>' +
       '</div>' +
       '<div class="modal-btns">' +
@@ -1385,8 +1385,37 @@ RENDERERS.freeagent = function () {
     const close = () => m.remove();
     $("#sign-cancel").onclick = close;
     m.onclick = e => { if (e.target === m) close(); };
+    /* 键盘支持：Enter 确认 / Esc 取消 */
+    m.onkeydown = e => {
+      if (e.key === "Enter") { e.preventDefault(); $("#sign-confirm").click(); }
+      else if (e.key === "Escape") { e.preventDefault(); close(); }
+    };
+    /* 奖金输入实时预览接受概率（与 signFreeAgent 公式一致：bonus/salary*0.3，上限0.25） */
+    const bonusInput = $("#sign-bonus-input");
+    bonusInput.oninput = () => {
+      const v = Math.max(0, Number(bonusInput.value) || 0);
+      const over = v > cash + 0.001;
+      bonusInput.classList.toggle("input-error", over);
+      const boost = Math.min(0.25, (v / Math.max(salary, 1)) * 0.3);
+      const pct = Math.round(Math.min(0.98, will + boost) * 100);
+      const pctEl = $("#sign-will-pct");
+      if (pctEl) {
+        pctEl.textContent = pct + "%";
+        pctEl.className = boost > 0 ? "sign-will-up" : "";
+      }
+      const hint = $("#sign-bonus-hint");
+      if (hint) {
+        hint.textContent = over
+          ? "⚠ 超出现金余额 " + fmtM(cash)
+          : "奖金从现金扣除，提升球员接受概率和初始士气" + (v > 0 ? "（+" + Math.round(boost * 100) + "% 概率，士气+5）" : "");
+        hint.classList.toggle("neg-num", over);
+      }
+      $("#sign-confirm").disabled = over;
+    };
+    bonusInput.focus();
     $("#sign-confirm").onclick = () => {
       const bonus = Math.max(0, Number($("#sign-bonus-input").value) || 0);
+      if (bonus > cash + 0.001) { toast("签约奖金超出现金余额"); return; }
       close();
       if (signFreeAgent(save, playerId, years, salary, exception, bonus)) RENDERERS.freeagent();
     };
@@ -1434,8 +1463,26 @@ RENDERERS.freeagent = function () {
     const close = () => m.remove();
     $("#waive-cancel").onclick = close;
     m.onclick = e => { if (e.target === m) close(); };
+    /* 键盘支持：Esc 取消 */
+    m.onkeydown = e => { if (e.key === "Escape") { e.preventDefault(); close(); } };
     $("#waive-direct").onclick = () => {
       if (cash < dCost) { toast("现金不足"); return; }
+      /* 二次确认防误触：首次点击变为确认态 */
+      const btn = $("#waive-direct");
+      if (!btn.dataset.armed) {
+        btn.dataset.armed = "1";
+        btn.classList.add("armed");
+        const t = btn.querySelector(".waive-title");
+        if (t) t.textContent = "⚠ 再次点击确认支付 " + fmtM(dCost) + " 买断";
+        setTimeout(() => {
+          if (btn.isConnected) {
+            btn.dataset.armed = "";
+            btn.classList.remove("armed");
+            if (t) t.textContent = "💰 直接买断（7折立即释放）";
+          }
+        }, 3000);
+        return;
+      }
       /* 直接买断：从cash扣70%，球员立即释放，不进工资帽 */
       save.finances.cash = Math.round((cash - dCost) * 10) / 10;
       save.roster = save.roster.filter(r => r.id !== playerId);
@@ -1507,10 +1554,12 @@ RENDERERS.freeagent = function () {
       '<button class="btn exc-cancel">取消</button>' +
       '</div>';
     document.body.appendChild(m);
+    const excCash = (save.finances && save.finances.cash) || 60;
     $$("#exc-modal .exc-opt").forEach(b => {
       b.onclick = () => {
         const exc = b.dataset.exc;
         const bonus = Math.max(0, Number($("#exc-bonus-input").value) || 0);
+        if (bonus > excCash + 0.001) { toast("签约奖金超出现金余额"); return; }
         if (signFreeAgent(save, playerId, years, salary, exc, bonus)) {
           m.remove();
           RENDERERS.freeagent();
@@ -1519,6 +1568,14 @@ RENDERERS.freeagent = function () {
     });
     $("#exc-modal .exc-cancel").onclick = () => m.remove();
     m.onclick = e => { if (e.target === m) m.remove(); };
+    /* 键盘支持：Esc 取消 */
+    m.onkeydown = e => { if (e.key === "Escape") { e.preventDefault(); m.remove(); } };
+    /* 奖金超现金红框提示 */
+    const excBonusInput = $("#exc-bonus-input");
+    if (excBonusInput) excBonusInput.oninput = () => {
+      const v = Math.max(0, Number(excBonusInput.value) || 0);
+      excBonusInput.classList.toggle("input-error", v > excCash + 0.001);
+    };
   }
 
   /* 续约按钮（用户自定义年限+薪资） */

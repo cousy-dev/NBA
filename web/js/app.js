@@ -4910,7 +4910,8 @@ RENDERERS["trade-deal"] = function () {
   const aiPickPool = getTeamPicks(save, aiTeam);
   /* 包裹总价值（边际递减）：头牌足额、添头大幅折价，与 AI 评估口径一致 */
   const cashAdd = state.trade.cashAdd || 0;
-  const myVal = Math.round(packagedValue(myPicks, myDPicks, x => tradeValue(x.p, x.sal, x.ctx)) + (cashAdd > 0 ? cashAdd * 0.5 : 0));
+  const baseMyVal = Math.round(packagedValue(myPicks, myDPicks, x => tradeValue(x.p, x.sal, x.ctx)));
+  const myVal = Math.round(baseMyVal + (cashAdd > 0 ? cashAdd * 0.5 : 0));
   const aiVal = Math.round(packagedValue(aiPicks, aiDPicks, x => tradeValue(x.p, x.sal, x.ctx)));
   const result = state.trade.result;
   const mySal = myPicks.reduce((s, x) => s + x.sal, 0);
@@ -4956,7 +4957,7 @@ RENDERERS["trade-deal"] = function () {
     '<h2 class="screen-title">交易谈判</h2>' +
     '<div class="trade-deal-header">' +
     '  <div class="td-side">' + teamLogoHtml(myAbbr(save)) + "<div><b>" + esc(save.team.displayName) + "</b><span>你方</span></div></div>" +
-    '  <div class="td-center"><div class="td-val">' + myVal + " vs " + aiVal + '<small>包裹价值 · 添头边际递减</small></div><div class="td-sal">' + fmtM(mySal) + " ↔ " + fmtM(aiSal) + "</div>" + matchHtml + "</div>" +
+    '  <div class="td-center"><div class="td-val" id="td-val-box"><span id="td-my-val">' + myVal + "</span> vs " + aiVal + '<small>包裹价值 · 添头边际递减</small></div><div class="td-sal">' + fmtM(mySal) + " ↔ " + fmtM(aiSal) + "</div>" + matchHtml + "</div>" +
     '  <div class="td-side">' + teamLogoHtml(aiTeam) + "<div><b>" + esc(aiT.nameCn) + "</b><span>对方 · " + (STATUS_LABELS[teamStatus(save, aiTeam)] || "") + "</span></div></div>" +
     "</div>" +
     (result ? '<div class="trade-result ' + (result.accept ? "accept" : "reject") + '">' +
@@ -4970,7 +4971,7 @@ RENDERERS["trade-deal"] = function () {
     '    <div class="trade-cash-add">' +
     '      <label>💰 现金添头 (M)</label>' +
     '      <input type="number" id="trade-cash-input" value="' + cashAdd + '" step="1" min="0" max="' + Math.min(50, (save.finances && save.finances.cash) || 60) + '" placeholder="0">' +
-    '      <small>1M = ~0.5 交易价值 · 从现金扣除</small>' +
+    '      <small id="trade-cash-hint">1M = ~0.5 交易价值 · 可用现金 ' + fmtM((save.finances && save.finances.cash) || 60) + '</small>' +
     '    </div>' +
     (hasOffer ? "" : '<div class="trade-empty">选择球员或选秀权</div>') + "</div>" +
     '  <div class="trade-col"><h3 class="tc-h">对方出让</h3>' + pickList(aiPicks, "ai") + draftPickList(aiDPicks, "ai") + "</div>" +
@@ -5075,9 +5076,41 @@ RENDERERS["trade-deal"] = function () {
       RENDERERS["trade-deal"]();
     };
   });
+  /* 现金添头实时反馈：输入即重算我方包裹价值；超现金红框并禁用发起报价 */
+  const cashInput = $("#trade-cash-input");
+  const availCash = (save.finances && save.finances.cash) || 60;
+  if (cashInput) {
+    cashInput.oninput = () => {
+      const v = Math.max(0, Number(cashInput.value) || 0);
+      const over = v > availCash + 0.001;
+      cashInput.classList.toggle("input-error", over);
+      const hint = $("#trade-cash-hint");
+      if (hint) {
+        hint.textContent = over
+          ? "⚠ 超出现金余额 " + fmtM(availCash)
+          : "1M = ~0.5 交易价值 · 可用现金 " + fmtM(availCash) + (v > 0 ? " · +" + (v * 0.5).toFixed(1) + " 价值" : "");
+        hint.classList.toggle("neg-num", over);
+      }
+      state.trade.cashAdd = over ? 0 : v;
+      /* 实时更新净值条 */
+      const myValEl = $("#td-my-val");
+      if (myValEl) {
+        const nv = Math.round(baseMyVal + (over ? 0 : v * 0.5));
+        if (myValEl.textContent !== String(nv)) {
+          myValEl.textContent = nv;
+          const box = $("#td-val-box");
+          if (box) { box.classList.remove("td-bump"); void box.offsetWidth; box.classList.add("td-bump"); }
+        }
+      }
+      /* 超现金时禁用发起报价 */
+      const bpBtn = $("#btn-propose");
+      if (bpBtn) bpBtn.disabled = over || !hasOffer;
+    };
+  }
   const bp = $("#btn-propose");
   if (bp) bp.onclick = () => {
     state.trade.cashAdd = Math.max(0, Number($("#trade-cash-input").value) || 0);
+    if (state.trade.cashAdd > availCash + 0.001) { toast("现金添头超出余额"); return; }
     const res = aiEvaluateTrade(save, aiTeam, myPicks, aiPicks, myDPicks, aiDPicks, state.trade.cashAdd);
     state.trade.result = res;
     RENDERERS["trade-deal"]();
@@ -5101,6 +5134,7 @@ RENDERERS["trade-deal"] = function () {
   const bconf = $("#btn-confirm");
   if (bconf) bconf.onclick = () => {
     state.trade.cashAdd = Math.max(0, Number($("#trade-cash-input").value) || 0);
+    if (state.trade.cashAdd > availCash + 0.001) { toast("现金添头超出余额，无法成交"); return; }
     /* 扣除现金添头 */
     if (state.trade.cashAdd > 0) {
       save.finances = save.finances || { cash: 60, history: [], deficitStreak: 0 };
@@ -5893,10 +5927,53 @@ RENDERERS.scout = function () {
     };
   });
   const upBtn = $("#btn-scout-upgrade");
-  if (upBtn) upBtn.onclick = () => {
+  if (upBtn) upBtn.onclick = () => showScoutUpgradeModal(save);
+};
+
+/* 球探升级确认弹窗：当前级别 vs 下一级效果对比 */
+function showScoutUpgradeModal(save) {
+  const lv = scoutLevel(save);
+  if (lv >= 5) return;
+  const cost = lv * 10;
+  const old = $("#scout-up-modal");
+  if (old) old.remove();
+  const strN = l => l >= 5 ? 6 : l >= 3 ? 3 : 2;  /* 各等级揭示强项数 */
+  const rowHtml = (label, cur, next) =>
+    '<div class="sup-row"><span class="sup-label">' + label + '</span>' +
+    '<span class="sup-cur">' + cur + '</span><span class="sup-arrow">→</span>' +
+    '<span class="sup-next">' + next + '</span></div>';
+  const m = document.createElement("div");
+  m.id = "scout-up-modal";
+  m.className = "modal-overlay";
+  m.innerHTML =
+    '<div class="modal-box">' +
+    '<h3>升级球探部门 → Lv' + (lv + 1) + '</h3>' +
+    '<p class="modal-sub">费用 ' + fmtM(cost) + ' · 当前现金 ' + fmtM((save.finances && save.finances.cash) || 60) + '</p>' +
+    '<div class="sup-table">' +
+    '  <div class="sup-row sup-head"><span class="sup-label">效果</span><span class="sup-cur">Lv' + lv + '</span><span class="sup-arrow"></span><span class="sup-next">Lv' + (lv + 1) + '</span></div>' +
+    rowHtml("考察场次", SCOUT_GAMES_BY_LEVEL[lv - 1] + " 场", SCOUT_GAMES_BY_LEVEL[lv] + " 场") +
+    rowHtml("评分偏差", "±" + SCOUT_RANGE_BY_LEVEL[lv - 1], "±" + SCOUT_RANGE_BY_LEVEL[lv]) +
+    rowHtml("潜力偏差", "±" + SCOUT_POT_RANGE_BY_LEVEL[lv - 1], "±" + SCOUT_POT_RANGE_BY_LEVEL[lv]) +
+    rowHtml("揭示强项", strN(lv) + " 项", strN(lv + 1) + " 项") +
+    '</div>' +
+    '<div class="modal-btns">' +
+    '  <button class="btn btn-primary" id="sup-confirm">确认升级</button>' +
+    '  <button class="btn btn-outline" id="sup-cancel">取消</button>' +
+    '</div>' +
+    '</div>';
+  document.body.appendChild(m);
+  const close = () => m.remove();
+  $("#sup-cancel").onclick = close;
+  m.onclick = e => { if (e.target === m) close(); };
+  m.onkeydown = e => {
+    if (e.key === "Enter") { e.preventDefault(); $("#sup-confirm").click(); }
+    else if (e.key === "Escape") { e.preventDefault(); close(); }
+  };
+  $("#sup-confirm").onclick = () => {
+    close();
     if (upgradeScout(save)) { RENDERERS.scout(); activate("scout", true); }
   };
-};
+}
 
 /* ===== 训练室 ===== */
 const ATTR_CN_MAP = { ins: "内线", out: "外线", org: "组织", def: "防守", reb: "篮板", ath: "运动" };
@@ -5919,24 +5996,30 @@ RENDERERS.train = function () {
     const ta = (save.trainAdj && save.trainAdj[p.p.id] && save.trainAdj[p.p.id][key]) || 0;
     const val = base + ta;
     const pct = Math.min(100, val);
+    const noPts = avail <= 0;
+    const capped = ta >= TRAIN_MAX_PER_ATTR || trainTotalOf(save, p.p.id) >= TRAIN_MAX_PER_PLAYER;
+    /* 无训练点时按钮变为"购"引导，点击滚动到购买区 */
+    const btnHtml = noPts && !capped
+      ? '<button class="tr-attr-btn tr-goto-buy" data-goto="1">购</button>'
+      : '<button class="tr-attr-btn" data-id="' + p.p.id + '" data-attr="' + key + '"' + (capped || noPts ? ' disabled' : '') + '>+' + (ta < TRAIN_MAX_PER_ATTR ? '1' : 'MAX') + '</button>';
     return '<div class="tr-attr-row" data-id="' + p.p.id + '" data-attr="' + key + '">' +
       '<span class="tr-attr-name">' + ATTR_CN_MAP[key] + '</span>' +
       '<div class="tr-attr-bar"><div class="tr-attr-fill" style="width:' + pct + '%"></div></div>' +
       '<span class="tr-attr-val">' + val + (ta > 0 ? ' <i class="tr-bonus">+' + ta + '</i>' : '') + '</span>' +
-      '<button class="tr-attr-btn" data-id="' + p.p.id + '" data-attr="' + key + '"' +
-      (avail <= 0 || ta >= TRAIN_MAX_PER_ATTR || trainTotalOf(save, p.p.id) >= TRAIN_MAX_PER_PLAYER ? ' disabled' : '') +
-      '>+' + (ta < TRAIN_MAX_PER_ATTR ? '1' : 'MAX') + '</button>' +
+      btnHtml +
       '</div>';
   };
 
   const playerRows = mine.map(p => {
     const total = trainTotalOf(save, p.p.id);
+    const prog = Math.round(total / TRAIN_MAX_PER_PLAYER * 100);
     return '<div class="tr-player' + (total >= TRAIN_MAX_PER_PLAYER ? ' maxed' : '') + '">' +
       '<div class="tr-pinfo">' +
       '  <div class="ovr-badge ' + ovrClass(p.p.ovr) + '">' + p.p.ovr + '</div>' +
       '  <div class="tr-pname">' + esc(p.p.nameCn) + '</div>' +
       '  <span class="pos-chip ' + posClass(p.p.pos) + '">' + esc(posLabel(p.p)) + '</span>' +
       '  <span class="tr-ptotal">训练 ' + total + '/' + TRAIN_MAX_PER_PLAYER + '</span>' +
+      '  <div class="tr-pbar"><div class="tr-pbar-fill" style="width:' + prog + '%"></div></div>' +
       '</div>' +
       '<div class="tr-attrs">' +
       Object.keys(ATTR_CN_MAP).map(k => attrBar(p, k)).join("") +
@@ -5955,12 +6038,12 @@ RENDERERS.train = function () {
     '  <div class="tr-stat-pill">现金 <b>' + fmtM(cash) + '</b></div>' +
     '</div>' +
     (buyable > 0 ?
-      '<div class="card-box tr-buy-box">' +
+      '<div class="card-box tr-buy-box" id="tr-buy-box">' +
       '  <h3 class="section-h">购买训练点</h3>' +
       '  <div class="tr-buy-row">' +
       '    <span>价格 ' + fmtM(TRAIN_COST_PER_PT) + '/点 · 可买 ' + buyable + ' 点</span>' +
       '    <select id="tr-buy-count">' + Array.from({ length: buyable }, (_, i) => '<option value="' + (i + 1) + '">' + (i + 1) + ' 点 / ' + fmtM((i + 1) * TRAIN_COST_PER_PT) + '</option>').join("") + '</select>' +
-      '    <button class="btn btn-primary" id="btn-train-buy">购买</button>' +
+      '    <button class="btn btn-primary" id="btn-train-buy"' + (cash < TRAIN_COST_PER_PT ? ' disabled' : '') + '>购买</button>' +
       '  </div>' +
       '</div>'
       : '<div class="card-box tr-buy-box"><p class="screen-sub">本季训练点已达上限 (' + TRAIN_MAX_PER_SEASON + ' 点)</p></div>') +
@@ -5969,21 +6052,52 @@ RENDERERS.train = function () {
   const buyBtn = $("#btn-train-buy");
   if (buyBtn) buyBtn.onclick = () => {
     const cnt = Number($("#tr-buy-count").value);
-    if (buyTrainPts(save, cnt)) { RENDERERS.train(); activate("train", true); }
+    state._trainFlash = { id: 0, attr: "" };  /* 仅恢复滚动，不闪烁特定行 */
+    if (buyTrainPts(save, cnt)) { rerenderTrain(); }
   };
   $$("#screen-train .tr-attr-btn").forEach(btn => {
     btn.onclick = () => {
+      /* "购"引导按钮：平滑滚动到购买区并高亮 */
+      if (btn.dataset.goto) {
+        const box = $("#tr-buy-box");
+        if (box) {
+          box.scrollIntoView({ block: "center", behavior: "smooth" });
+          box.classList.add("tr-flash");
+          setTimeout(() => box.classList.remove("tr-flash"), 900);
+        } else {
+          toast("本季训练点已达上限");
+        }
+        return;
+      }
       const id = Number(btn.dataset.id);
       const attr = btn.dataset.attr;
       if (applyTraining(save, id, attr)) {
         const p = PLAYERS_RATED.players.find(x => x.id === id) || (save.customPlayers || []).find(x => x.id === id);
         const name = p ? p.nameCn : "球员";
         toast("✅ " + name + " · " + ATTR_CN_MAP[attr] + " +1");
-        RENDERERS.train(); activate("train", true);
+        state._trainFlash = { id: id, attr: attr };
+        rerenderTrain();
       }
     };
   });
 };
+
+/* 重渲染训练室并保持滚动位置；对被训练属性行播放闪烁动画 */
+function rerenderTrain() {
+  const sc = $("#screens") ? $("#screens").scrollTop : 0;
+  const flash = state._trainFlash;
+  state._trainFlash = null;
+  RENDERERS.train(); activate("train", true);
+  if ($("#screens")) $("#screens").scrollTop = sc;
+  if (flash && flash.id) {
+    const row = document.querySelector('.tr-attr-row[data-id="' + flash.id + '"][data-attr="' + flash.attr + '"]');
+    if (row) {
+      row.classList.add("tr-flash");
+      row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      setTimeout(() => row.classList.remove("tr-flash"), 900);
+    }
+  }
+}
 
 /* ===== 乐透抽签动画展示 ===== */
 /* 展示 14 支乐透球队的抽签过程：从 14 顺位倒着揭示到 1 顺位 */

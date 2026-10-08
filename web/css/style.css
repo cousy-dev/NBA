@@ -1556,12 +1556,25 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .tr-attr-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
 .tr-attr-name { width: 40px; font-size: 12px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
 .tr-attr-bar { flex: 1; height: 8px; background: var(--card2); border-radius: 4px; overflow: hidden; min-width: 60px; }
-.tr-attr-fill { height: 100%; background: linear-gradient(90deg, #3fbf7f, #4f8ef7); border-radius: 4px; }
+.tr-attr-fill { height: 100%; background: linear-gradient(90deg, #3fbf7f, #4f8ef7); border-radius: 4px; transition: width .35s ease; }
 .tr-attr-val { width: 50px; font-size: 12px; font-weight: 700; text-align: right; flex-shrink: 0; }
 .tr-bonus { font-style: normal; color: var(--green); font-size: 11px; font-weight: 800; }
 .tr-attr-btn { border: 1px solid var(--gold); background: rgba(168,31,46,.1); color: var(--gold); font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 .tr-attr-btn:disabled { border-color: var(--line); background: var(--card2); color: var(--muted); cursor: not-allowed; opacity: .5; }
 .tr-attr-btn:not(:disabled):active { transform: scale(.95); }
+
+/* 训练成功闪烁动画（属性行/购买区通用） */
+@keyframes trFlash {
+  0% { background: rgba(63,191,127,.35); box-shadow: 0 0 0 2px rgba(63,191,127,.55); }
+  100% { background: transparent; box-shadow: 0 0 0 0 rgba(63,191,127,0); }
+}
+.tr-flash { animation: trFlash .9s ease-out; border-radius: 8px; }
+/* 训练点为0时的"购"引导按钮 */
+.tr-goto-buy { border-color: var(--green); background: rgba(63,191,127,.12); color: var(--green); animation: trPulse 1.6s ease-in-out infinite; }
+@keyframes trPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+/* 球员训练总进度条 */
+.tr-pbar { flex-basis: 100%; height: 4px; background: var(--card2); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+.tr-pbar-fill { height: 100%; background: linear-gradient(90deg, var(--gold), #d4a017); border-radius: 2px; transition: width .35s ease; }
 
 /* 签约奖金弹窗 */
 .sign-bonus-box { margin: 10px 0; padding: 10px; background: var(--card2); border-radius: 10px; border: 1px solid var(--line); }
@@ -1570,17 +1583,37 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .sign-bonus-hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
 .modal-btns { display: flex; gap: 8px; margin-top: 14px; }
 .modal-btns .btn { flex: 1; }
+/* 签约概率实时预览 */
+#sign-will-pct { transition: color .2s; }
+.sign-will-up { color: var(--green); }
+.modal-overlay input.input-error { border-color: var(--red); background: rgba(179,38,54,.08); }
+.sign-bonus-hint.neg-num { color: var(--red); font-weight: 700; }
 
 /* 球探升级按钮 */
 .scout-upgrade { cursor: pointer; border: 1px solid var(--gold); background: rgba(168,31,46,.1); color: var(--gold); }
 .scout-upgrade:disabled { border-color: var(--line); background: var(--card2); color: var(--muted); cursor: not-allowed; opacity: .5; }
 .scout-lv-max { border-color: var(--gold); color: var(--gold); }
 
+/* 球探升级确认弹窗：级别效果对比表 */
+.sup-table { margin: 10px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.sup-row { display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 13px; background: var(--card); }
+.sup-row:nth-child(even) { background: var(--card2); }
+.sup-head { font-weight: 800; color: var(--muted); font-size: 11.5px; }
+.sup-label { flex: 1; font-weight: 700; }
+.sup-cur { width: 52px; text-align: center; color: var(--muted); }
+.sup-arrow { width: 18px; text-align: center; color: var(--gold); font-weight: 800; }
+.sup-next { width: 52px; text-align: center; color: var(--green); font-weight: 800; }
+
 /* 交易现金添头 */
 .trade-cash-add { margin-top: 8px; padding: 8px 10px; background: var(--card2); border: 1px dashed var(--gold); border-radius: 8px; }
 .trade-cash-add label { font-size: 12px; font-weight: 700; color: var(--gold); display: block; margin-bottom: 4px; }
 .trade-cash-add input { background: var(--card); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 14px; font-weight: 700; width: 100%; box-sizing: border-box; }
 .trade-cash-add small { font-size: 10.5px; color: var(--muted); display: block; margin-top: 4px; }
+/* 现金添头校验/净值跳动 */
+.trade-cash-add input.input-error { border-color: var(--red, #d43d3d); background: rgba(212,61,61,.08); }
+.trade-cash-add small.neg-num { color: var(--red, #d43d3d); font-weight: 700; }
+@keyframes tdBump { 0% { transform: scale(1); } 40% { transform: scale(1.12); color: var(--gold); } 100% { transform: scale(1); } }
+.td-bump { animation: tdBump .35s ease; }
 
 /* ===== 阵容卡片（最佳阵容 / 最佳防守 / 新秀阵容） ===== */
 .tm-group h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -1691,6 +1724,9 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 /* ===== 裁员/买断弹窗 ===== */
 .waive-opt { display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; background: var(--card); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s, background .15s; }
 .waive-opt:hover { border-color: var(--gold); background: rgba(255,255,255,.05); }
+.waive-opt:disabled { opacity: .45; cursor: not-allowed; }
+.waive-opt.armed { border-color: var(--red); background: rgba(179,38,54,.15); animation: trPulse 1s ease-in-out infinite; }
+.waive-opt.armed .waive-title { color: var(--red); }
 .waive-title { font-weight: 800; font-size: 14px; }
 .waive-desc { font-size: 12px; line-height: 1.6; color: var(--muted); }
 
