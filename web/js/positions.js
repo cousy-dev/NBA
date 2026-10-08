@@ -153,14 +153,18 @@ function derivePos(p) {
     return h >= 194 ? { pos: "SG", pos2: null } : { pos: "PG", pos2: null };
   }
 
-  /* F：前锋 */
+  /* F：前锋 —— 身高优先（2K 属性中 ath/out 对锋线普遍虚高，
+     ins+reb 很难反超 out+ath，纯属性规则会把 206cm+ 的空间型/篮板型 PF 全判成 SF）
+     实测修正后联盟 PF 71 人 / SF 152 人，接近真实 NBA 位置分布 */
   if (rawPos === "F") {
     const inside = ins + reb;
     const outside = out + ath;
-    if (inside >= outside + 6) return { pos: "PF", pos2: null };
-    if (outside >= inside + 6) return { pos: "SF", pos2: null };
-    /* 平衡：高个偏大前，矮个偏小前 */
-    return h >= 203 ? { pos: "PF", pos2: null } : { pos: "SF", pos2: null };
+    /* 205cm+：现实里基本都是 PF/C 摇摆（著名 SF 例外已进覆盖表） */
+    if (h >= 205) return { pos: "PF", pos2: h >= 210 ? "C" : null };
+    /* 201cm-：明确侧翼 */
+    if (h <= 201) return { pos: "SF", pos2: null };
+    /* 202-204cm：属性分界，内线属性接近或领先才 PF */
+    return { pos: inside >= outside - 12 ? "PF" : "SF", pos2: null };
   }
 
   return { pos: "SF", pos2: null };

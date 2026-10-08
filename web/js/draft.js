@@ -65,8 +65,9 @@ function restoreRookieIdCounter(save) {
 }
 function genRookie(pickOvrSeed, save) {
   /* pickOvrSeed: 0-1, 0=状元 1=末轮 */
-  /* 位置分布：后卫/前锋多，中锋少，更贴近真实 NBA */
-  const posList = ["PG", "SG", "SG", "SF", "SF", "PF", "PF", "C"];
+  /* 位置分布：五位置均匀（各 20%）——旧版 8 槽只有 12.5% C（每届期望 8 个、首轮仅 3.9 个），
+     玩家靠后顺位经常选不到中锋；10 槽均匀后每届期望 C 约 12.6 个、首轮 6.2 个 */
+  const posList = ["PG", "PG", "SG", "SG", "SF", "SF", "PF", "PF", "C", "C"];
   const pos = posList[Math.floor(Math.random() * posList.length)];
   /* OVR: 状元 76-80, 前5 72-77, 乐透 68-74, 首轮中段 63-70, 首轮末 60-66, 二轮 55-62 */
   let ovr;
