@@ -1689,3 +1689,31 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .pi-seed b { color: var(--gold); min-width: 64px; font-size: 12px; }
 .pi-seed .br-logo { width: 22px; height: 22px; font-size: 14px; }
 .pi-tbd { color: var(--muted); font-size: 12px; }
+
+/* ===== 排行榜（虎扑云） ===== */
+.lb-cloud-tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 10px; font-size: 11px; vertical-align: middle; color: #ffd700; background: rgba(255,215,0,.12); border: 1px solid rgba(255,215,0,.3); }
+.lb-best { margin: 12px 0; padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, rgba(255,215,0,.10), rgba(255,215,0,.03)); border: 1px solid rgba(255,215,0,.28); }
+.lb-best-title { font-size: 13px; color: #ffd700; margin-bottom: 8px; }
+.lb-best-body { min-height: 22px; }
+.lb-best-main b { font-size: 30px; color: #fff; margin-right: 4px; }
+.lb-best-main span { font-size: 12px; color: var(--muted); }
+.lb-best-meta { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.lb-empty { font-size: 12px; color: var(--muted); }
+.lb-cur { margin: 12px 0; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+.lb-cur-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.lb-cur-body { display: flex; justify-content: space-between; font-size: 13px; }
+.lb-cur-body b { color: #ffd700; }
+.lb-board { margin: 12px 0; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+.lb-board-title { font-size: 13px; margin-bottom: 8px; }
+.lb-status { padding: 14px 0; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.lb-hint { padding: 0 0 10px; text-align: center; font-size: 11px; color: var(--muted); opacity: .75; }
+.lb-list { display: flex; flex-direction: column; }
+.lb-row { display: grid; grid-template-columns: 34px minmax(0,1fr) auto; align-items: center; gap: 8px; min-height: 44px; border-bottom: 1px solid var(--line); }
+.lb-row:last-child { border-bottom: none; }
+.lb-row.me { margin: 0 -8px; padding: 0 8px; background: rgba(79,142,247,.12); border-radius: 8px; }
+.lb-rank { text-align: center; font-size: 13px; color: var(--muted); }
+.lb-rank-1 { color: #ffd700; font-weight: 700; }
+.lb-rank-2 { color: #c0c8d4; font-weight: 700; }
+.lb-rank-3 { color: #d29a6b; font-weight: 700; }
+.lb-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-score { font-size: 14px; font-weight: 700; color: #fff; }

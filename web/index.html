@@ -47,6 +47,7 @@
     <section id="screen-retired" class="screen hidden"></section>
     <section id="screen-hof" class="screen hidden"></section>
     <section id="screen-trophyroom" class="screen hidden"></section>
+    <section id="screen-leaderboard" class="screen hidden"></section>
     <section id="screen-allstar-hub" class="screen hidden"></section>
     <section id="screen-allstar-game" class="screen hidden"></section>
     <section id="screen-threept" class="screen hidden"></section>
@@ -64,7 +65,9 @@
 <script src="js/trade.js?v=19"></script>
 <script src="js/draft.js?v=36"></script>
 <!-- app.js 必须先于 freeagent.js 加载：freeagent.js 顶层有 RENDERERS.freeagent 赋值，依赖 app.js 定义的 RENDERERS 对象，否则整脚本加载即报错、rookieContractYears/decrementContracts 等函数全部未定义 -->
-<script src="js/app.js?v=132"></script>
+<!-- hupu-cloud.js 自包含（虎扑 Shaper 云能力：活动数据存储+排行榜客户端），需在 app.js 前加载 -->
+<script src="js/hupu-cloud.js?v=1"></script>
+<script src="js/app.js?v=133"></script>
 <script src="js/freeagent.js?v=25"></script>
 </body>
 </html>

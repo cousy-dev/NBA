@@ -406,6 +406,7 @@ function currentStep() {
     case "retired": return ["退役球员", 1, 1];
     case "hof": return ["名人堂", 1, 1];
     case "trophyroom": return ["荣誉室", 1, 1];
+    case "leaderboard": return ["排行榜", 1, 1];
     case "freeagent": return ["自由市场", 1, 1];
     case "standings": return ["联盟排名", 1, 1];
     case "schedule": return ["赛程战报", 1, 1];
@@ -496,6 +497,7 @@ RENDERERS.start = function () {
       const s = Number(btn.dataset.slot);
       if (!confirm("确定删除槽位 " + s + " 的存档？此操作不可撤销。")) return;
       deleteSlot(s);
+      if (window.HupuCloud) HupuCloud.deleteSave(s);
       if (state.saveSlot === s) { state.save = null; state.saveSlot = null; }
       LEAGUE_EST = null;
       toast("槽位 " + s + " 存档已删除");
@@ -1669,6 +1671,8 @@ function writeSave(save) {
   const s = save.slot || state.saveSlot || 1;
   save.slot = s;
   writeSlot(s, save);
+  /* 虎扑云同步（活动数据存储）：去抖异步上报，失败静默不影响游戏 */
+  if (window.HupuCloud) HupuCloud.syncSave(s, save);
 }
 /* 应用老化修正（ovr/属性等比缩放 + 年龄） */
 function applyAdj(p0, save) {
@@ -2149,6 +2153,7 @@ RENDERERS.hub = function () {
     '<button class="mc-btn" id="btn-retired"><span class="hn-ico">🎖️</span><span>退役球员</span></button>' +
     '<button class="mc-btn" id="btn-hof"><span class="hn-ico">🏛️</span><span>名人堂</span></button>' +
     '<button class="mc-btn" id="btn-trophyroom"><span class="hn-ico">🏆</span><span>荣誉室</span></button>' +
+    '<button class="mc-btn" id="btn-leaderboard"><span class="hn-ico">📈</span><span>排行榜</span></button>' +
     "</div>" +
     '<div class="hub-tabs">' +
     '  <button class="hub-tab' + (hubTab === "overview" ? " active" : "") + '" data-tab="overview">概览</button>' +
@@ -2225,6 +2230,8 @@ RENDERERS.hub = function () {
   if (bh) bh.onclick = () => go("hof");
   const btroom = $("#btn-trophyroom");
   if (btroom) btroom.onclick = () => go("trophyroom");
+  const blb = $("#btn-leaderboard");
+  if (blb) blb.onclick = () => go("leaderboard");
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
   /* 模拟剩余季后赛（用户已淘汰但季后赛未结束时手动触发） */
@@ -4175,6 +4182,40 @@ RENDERERS["regular-end"] = function () {
   $("#re-hub").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
 };
 
+/* ===== 云端排行榜：赛季战绩积分 =====
+   常规赛每胜 +5；附加赛 +50；首轮 +200 / 半决赛 +300 / 分区决赛 +400 /
+   亚军 +600 / 总冠军 +1000（取最深到达轮次，不叠加） */
+function buildSeasonResult(save, iChamp) {
+  const my = myAbbr(save);
+  const st = save.standings[my] || { w: 0, l: 0 };
+  const ps = save.playoffs;
+  /* 最深到达阶段：0=未进季后赛 1=附加赛 2=首轮 3=半决赛 4=分区决赛 5=总决赛 6=总冠军 */
+  let stage = 0;
+  if (ps && ps.rounds) {
+    for (let ri = 0; ri <= ps.round && ri < 4; ri++) {
+      const rnd = ps.rounds[ri];
+      if (!rnd) continue;
+      const all = (rnd.E || []).concat(rnd.W || []);
+      if (all.some(s => s && (s.a === my || s.b === my))) stage = ri + 2;
+    }
+    if (!stage && ps.pi) stage = 1;
+    if (stage === 5 && iChamp) stage = 6;
+    if (ps.champion === my) stage = 6;
+  }
+  const STAGE_BONUS = [0, 50, 200, 300, 400, 600, 1000];
+  /* 总冠军数：荣誉室已含本赛季（saveSeasonHonors 先于此调用），直接统计 */
+  const titles = (save.honors || []).filter(h => h.type === "champion").length;
+  return {
+    score: (st.w || 0) * 5 + STAGE_BONUS[stage],
+    season: save.seasonNo,
+    w: st.w || 0, l: st.l || 0,
+    titles,
+    stage,
+    stageLabel: ["未进季后赛", "附加赛", "季后赛首轮", "半决赛", "分区决赛", "总决赛", "总冠军"][stage],
+    teamName: (save.team && save.team.displayName) || my
+  };
+}
+
 /* ===== 赛季总结 ===== */
 RENDERERS.seasonend = function () {
   const save = state.save;
@@ -4195,6 +4236,11 @@ RENDERERS.seasonend = function () {
   const fired = fin.fired;
   writeSave(save);
   const iChamp = ps && ps.champion === my;
+  /* 云端排行榜上报（幂等：每赛季一次） */
+  if (window.HupuCloud && save.lbReportedSeason !== save.seasonNo) {
+    save.lbReportedSeason = save.seasonNo;
+    HupuCloud.reportResult(buildSeasonResult(save, iChamp));
+  }
   /* 本赛季本队荣誉（从 save.honors 提取本赛季记录） */
   const seasonHonors = (save.honors || []).filter(h => h.season === save.seasonNo);
   /* 季后赛之旅：逐轮提取用户系列赛结果 */
@@ -4348,6 +4394,66 @@ RENDERERS.trophyroom = function () {
     seasonHtml +
     '<button class="btn btn-outline" id="tr-back">返回经理室</button>';
   $("#tr-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+};
+
+/* ===== 排行榜（虎扑云 + CloudBase） ===== */
+RENDERERS.leaderboard = function () {
+  const save = state.save;
+  const my = myAbbr(save);
+  const st = save.standings[my] || { w: 0, l: 0 };
+  const cloudTag = !window.HupuCloud ? "本地模式"
+    : HupuCloud.env === "none" ? "本地模式" : "已连接虎扑云";
+  const preview = buildSeasonResult(save, save.playoffs && save.playoffs.champion === my);
+  const rowHtml = (e, i) => {
+    const rCls = i === 0 ? "lb-rank-1" : i === 1 ? "lb-rank-2" : i === 2 ? "lb-rank-3" : "";
+    return '<div class="lb-row' + (e.isCurrent ? " me" : "") + '">' +
+      '<span class="lb-rank ' + rCls + '">' + (e.rank || i + 1) + '</span>' +
+      '<span class="lb-name">' + esc(e.displayName || "经理人") + '</span>' +
+      '<span class="lb-score">' + Number(e.score || 0) + '</span></div>';
+  };
+  $("#screen-leaderboard").innerHTML =
+    '<h2 class="screen-title">排行榜</h2>' +
+    '<p class="screen-sub">赛季战绩积分 · 每胜 +5 · 季后赛逐轮 +200~1000 <span class="lb-cloud-tag">' + cloudTag + '</span></p>' +
+    /* 我的最佳战绩 */
+    '<div class="lb-best" id="lb-best"><div class="lb-best-title">🏅 我的最佳战绩</div>' +
+    '<div class="lb-best-body" id="lb-best-body">加载中…</div></div>' +
+    /* 本赛季预估 */
+    '<div class="lb-cur"><div class="lb-cur-head"><span>本赛季</span><span>第 ' + save.seasonNo + ' 赛季</span></div>' +
+    '<div class="lb-cur-body"><span>' + st.w + " 胜 " + st.l + " 负</span><span>当前积分约 <b>" + preview.score + '</b></span></div></div>' +
+    /* 全服榜 */
+    '<div class="lb-board"><div class="lb-board-title">🌐 全服战绩榜</div>' +
+    '<div id="lb-board-body"><div class="lb-status">加载中…</div></div></div>' +
+    '<button class="btn btn-outline" id="lb-back">返回经理室</button>';
+  $("#lb-back").onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  /* 我的最佳（云端 KV 优先，本地兜底） */
+  const bestBody = $("#lb-best-body");
+  if (window.HupuCloud) {
+    HupuCloud.getMyBest().then(best => {
+      if (!bestBody) return;
+      if (!best) { bestBody.innerHTML = '<span class="lb-empty">暂无记录 · 完成一个赛季后自动上报</span>'; return; }
+      bestBody.innerHTML =
+        '<div class="lb-best-main"><b>' + Number(best.score) + '</b><span>分</span></div>' +
+        '<div class="lb-best-meta">第 ' + best.season + ' 赛季 · ' + (best.w || 0) + "-" + (best.l || 0) +
+        ' · ' + esc(best.stageLabel || "") + (best.titles ? ' · 🏆×' + best.titles : "") + '</div>';
+    });
+  } else {
+    bestBody.innerHTML = '<span class="lb-empty">暂无记录 · 完成一个赛季后自动上报</span>';
+  }
+  /* 全服榜 */
+  const boardBody = $("#lb-board-body");
+  if (window.HupuCloud && HupuCloud.cloudAvailable()) {
+    HupuCloud.fetchBoard().then(list => {
+      if (!boardBody) return;
+      if (!list) { boardBody.innerHTML = '<div class="lb-status">榜单暂时无法加载，请稍后再试</div>'; return; }
+      boardBody.innerHTML = list.length
+        ? '<div class="lb-list">' + list.map(rowHtml).join("") + "</div>"
+        : '<div class="lb-status">暂时还没有成绩</div>';
+    });
+  } else {
+    boardBody.innerHTML =
+      '<div class="lb-status">全服榜需要平台云端服务（CloudBase）支持，开通后自动展示</div>' +
+      '<div class="lb-hint">你的战绩已在每个赛季结束时记录，随时可查看个人最佳</div>';
+  }
 };
 
 /* ===== 交易中心 ===== */
@@ -5970,6 +6076,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   /* 先初始化存储（localStorage 受限时异步载入 IndexedDB 存档），再渲染开始页 */
   try { await initStorage(); } catch (e) { _storeMode = "mem"; }
+  /* 虎扑云端存档恢复（活动数据存储）：本地无档或云端更新时回填，最多等待 3.5s */
+  if (window.HupuCloud && HupuCloud.env !== "none") {
+    try {
+      const localSlots = {};
+      for (let s = 1; s <= SAVE_SLOT_COUNT; s++) { const sv = readSlot(s); if (sv) localSlots[s] = sv; }
+      const cloudSaves = await Promise.race([
+        HupuCloud.restoreSaves(localSlots),
+        new Promise(r => setTimeout(() => r({}), 3500))
+      ]);
+      Object.keys(cloudSaves).forEach(k => {
+        const s = Number(k);
+        if (!readSlot(s)) { _kvSet(slotKey(s), JSON.stringify(cloudSaves[s])); }
+        else { const cur = readSlot(s); if ((cloudSaves[s]._cloudT || 0) > (cur._cloudT || 0)) _kvSet(slotKey(s), JSON.stringify(cloudSaves[s])); }
+      });
+      if (Object.keys(cloudSaves).length) console.log("[HupuCloud] 已从云端恢复存档槽位:", Object.keys(cloudSaves).join(","));
+    } catch (e) {}
+  }
   /* 快照原始球员列表，重置生涯时恢复 */
   window._originalPlayers = PLAYERS_RATED.players.slice();
   RENDERERS.start();
