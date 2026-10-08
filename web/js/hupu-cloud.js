@@ -269,6 +269,190 @@ const HupuCloud = (() => {
     return resp.data || null;
   }
 
+  /* ===== 社交分享（colorbox-social-share） =====
+     window.ColorboxAI.social.share({title, link, text, imageUrl}) → Promise<void>
+     老版本可能挂在 ColorboxAI.bridge.device.share */
+  function hasSocialShare() {
+    if (!window.ColorboxAI) return false;
+    if (window.ColorboxAI.social && typeof window.ColorboxAI.social.share === "function") return true;
+    if (window.ColorboxAI.bridge && window.ColorboxAI.bridge.device &&
+        typeof window.ColorboxAI.bridge.device.share === "function") return true;
+    return false;
+  }
+
+  async function share(params) {
+    if (!hasSocialShare()) return false;
+    if (!params || typeof params.title !== "string" || !params.title ||
+        typeof params.link !== "string" || !/^https?:\/\//.test(params.link)) {
+      console.warn("[HupuCloud] share 参数非法：title 必填，link 必须为 http/https 完整链接");
+      return false;
+    }
+    const fn = (window.ColorboxAI.social && window.ColorboxAI.social.share) ||
+               (window.ColorboxAI.bridge && window.ColorboxAI.bridge.device &&
+                window.ColorboxAI.bridge.device.share);
+    if (!fn) return false;
+    try {
+      await fn({
+        title: params.title,
+        link: params.link,
+        text: params.text,
+        imageUrl: params.imageUrl
+      });
+      return true;
+    } catch (e) {
+      console.warn("[HupuCloud] 分享失败:", e && e.message);
+      return false;
+    }
+  }
+
+  /* ===== 数据埋点（colorbox-track-report） =====
+     window.ColorboxAI.track({act, blk, pos, label?, custom?}) → Promise<Response>
+     act ∈ click/exposure/videoact；blk 必须 BMC001-BMC999 */
+  function hasTrack() {
+    return !!(window.ColorboxAI && typeof window.ColorboxAI.track === "function");
+  }
+
+  function track(params) {
+    if (!hasTrack()) return false;
+    if (!params || typeof params !== "object") return false;
+    const act = params.act;
+    if (act !== "click" && act !== "exposure" && act !== "videoact") {
+      console.warn("[HupuCloud] track act 非法（必须 click/exposure/videoact）:", act);
+      return false;
+    }
+    const blk = params.blk;
+    if (!/^BMC[0-9]{3}$/.test(blk)) {
+      console.warn("[HupuCloud] track blk 必须为 BMC001-BMC999 格式:", blk);
+      return false;
+    }
+    try {
+      const payload = { act, blk, pos: params.pos || "T1" };
+      if (typeof params.label === "string" && params.label) payload.label = params.label;
+      if (params.custom && typeof params.custom === "object") payload.custom = params.custom;
+      return window.ColorboxAI.track(payload);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /* ===== 用户反馈（user-feedback） =====
+     使用固定公共反馈环境（与活动 CloudBase 解耦）
+     applicationId 来自技能包根目录 activity.json: app_a8c082a249 */
+  const FEEDBACK_API_BASE = "https://feedback-public-d8fnf79rd0e395c3-1252166086.ap-shanghai.app.tcloudbase.com/api";
+  const FEEDBACK_ENV_ID = "feedback-public-d8fnf79rd0e395c3";
+  const FEEDBACK_APP_ID = "app_a8c082a249";
+
+  function hasFeedback() {
+    return !!(window.ColorboxAI && window.ColorboxAI.cloud &&
+      typeof window.ColorboxAI.cloud.request === "function" &&
+      window.ColorboxAI.auth && typeof window.ColorboxAI.auth.getUserInfo === "function");
+  }
+
+  /* 提交反馈：返回 {ok, msg}；不记录正文/PUID/token */
+  async function submitFeedback(rawContent) {
+    if (!hasFeedback()) return { ok: false, msg: "当前环境不支持反馈" };
+    const content = (rawContent || "").trim();
+    const len = Array.from(content).length;
+    if (len < 1 || len > 2000) {
+      return { ok: false, msg: "请输入 1–2000 个字符的反馈内容" };
+    }
+    try {
+      const userInfo = await window.ColorboxAI.auth.getUserInfo();
+      if (!userInfo || userInfo.code !== 200 || !userInfo.data || userInfo.data.islogin !== 1) {
+        return { ok: false, msg: "请先登录后再提交反馈" };
+      }
+      const data = { applicationId: FEEDBACK_APP_ID, content };
+      const nickname = typeof userInfo.data.nickname === "string"
+        ? userInfo.data.nickname.trim() : "";
+      const avatarRaw =
+        (typeof userInfo.data.avatar === "string" && userInfo.data.avatar.trim()) ||
+        (typeof userInfo.data.userHeadUrl === "string" && userInfo.data.userHeadUrl.trim()) ||
+        "";
+      if (nickname) data.nickname = nickname;
+      if (avatarRaw.startsWith("https://")) data.avatarUrl = avatarRaw;
+
+      const response = await window.ColorboxAI.cloud.request({
+        url: FEEDBACK_API_BASE + "/feedback",
+        method: "POST",
+        data,
+        envId: FEEDBACK_ENV_ID,
+        auth: true
+      });
+
+      if (response.statusCode === 201 && response.code === 0) return { ok: true };
+      if (response.statusCode === 401) return { ok: false, msg: "登录状态已失效，请重新登录后提交" };
+      if (response.statusCode === 413) return { ok: false, msg: "反馈内容过长，请精简后提交" };
+      if (response.statusCode === 429) return { ok: false, msg: "提交过于频繁，请稍后再试" };
+      if (response.statusCode === 400) return { ok: false, msg: response.message || "反馈内容不符合要求" };
+      return { ok: false, msg: "提交结果暂不确定，请稍后在确认未成功后再试" };
+    } catch (e) {
+      return { ok: false, msg: "网络异常，请稍后再试" };
+    }
+  }
+
+  /* ===== 冠军海报发帖（colorbox-result-poster-posting 复合技能） =====
+     依赖：colorbox-oss-upload-file + colorbox-request-bbs-open-post-editor
+     流程：Canvas Blob → OSS 上传取 downloadUrl → 唤起 BBS 发帖编辑器 */
+  function hasOssUpload() {
+    return !!(window.ColorboxAI && window.ColorboxAI.oss &&
+      typeof window.ColorboxAI.oss.uploadFile === "function");
+  }
+  function hasBbsEditor() {
+    return !!(window.ColorboxAI && window.ColorboxAI.request &&
+      window.ColorboxAI.request.bbs && window.ColorboxAI.request.bbs.openPostEditor &&
+      typeof window.ColorboxAI.request.bbs.openPostEditor === "function");
+  }
+  function hasPosterPosting() { return hasOssUpload() && hasBbsEditor(); }
+
+  /* params: {blob, title, content, filename?}
+     blob: Canvas toBlob 产出的 image/png Blob
+     返回 {ok, stage, msg, imageUrl?} */
+  async function postPoster(params) {
+    if (!hasPosterPosting()) {
+      return { ok: false, stage: "init", msg: "当前环境不支持海报发帖" };
+    }
+    const blob = params && params.blob;
+    if (!blob || blob.size === 0) {
+      return { ok: false, stage: "render", msg: "海报内容为空，请重试" };
+    }
+    /* 上传 OSS */
+    let downloadUrl;
+    try {
+      const upRes = await window.ColorboxAI.oss.uploadFile({
+        file: blob,
+        filename: params.filename || ("nba_gm_" + Date.now() + ".png")
+      });
+      if (!upRes || !upRes.downloadUrl) {
+        return { ok: false, stage: "upload", msg: "海报上传失败，请稍后重试" };
+      }
+      downloadUrl = upRes.downloadUrl;
+    } catch (e) {
+      return { ok: false, stage: "upload", msg: "海报上传异常" };
+    }
+    /* 唤起 BBS 发帖编辑器（专区/话题仅在 bbsTagId 非空时传） */
+    try {
+      const bbsParams = {
+        title: params.title,
+        content: params.content,
+        imageUrl: downloadUrl
+      };
+      if (window.ColorboxAI.bbsConfig && typeof window.ColorboxAI.bbsConfig.get === "function") {
+        const bbs = await window.ColorboxAI.bbsConfig.get();
+        if (bbs && typeof bbs.bbsTagId === "string" && bbs.bbsTagId.trim() !== "") {
+          bbsParams.topicId = bbs.bbsTopicId;
+          bbsParams.tagId = bbs.bbsTagId;
+          bbsParams.topicName = bbs.bbsTopicName;
+          bbsParams.tagName = bbs.bbsTagName;
+        }
+      }
+      const res = await window.ColorboxAI.request.bbs.openPostEditor(bbsParams);
+      if (res && res.code === 200) return { ok: true, stage: "done", imageUrl: downloadUrl };
+      return { ok: false, stage: "open", msg: (res && res.message) || "发帖编辑器唤起失败" };
+    } catch (e) {
+      return { ok: false, stage: "open", msg: "发帖编辑器异常" };
+    }
+  }
+
   /* 兼容旧版 init 调用（无操作，SDK 就绪即用） */
   function init() { return getEnv(); }
 
@@ -285,6 +469,17 @@ const HupuCloud = (() => {
     getMyBest,
     fetchBoard,
     myRank,
+    /* 新增技能 */
+    hasSocialShare,
+    share,
+    hasTrack,
+    track,
+    hasFeedback,
+    submitFeedback,
+    hasOssUpload,
+    hasBbsEditor,
+    hasPosterPosting,
+    postPoster,
     /* 供调试 */
     _cloudSetValue: cloudSetValue,
     _cloudGetValue: cloudGetValue,

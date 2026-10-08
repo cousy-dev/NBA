@@ -1660,10 +1660,36 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .bm-sign { flex-shrink: 0; padding: 6px 14px; font-size: 12.5px; }
 .bm-empty { text-align: center; color: var(--muted); font-size: 13px; padding: 26px 0; }
 
-/* ===== 交易请求（球员不满） ===== */
+/* ===== 用户反馈弹窗（user-feedback 技能） ===== */
+.fb-box { max-width: 460px; padding: 18px; }
+.fb-form { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
+.fb-textarea {
+  width: 100%; min-height: 120px; padding: 10px 12px; border-radius: 10px;
+  background: var(--card); border: 1px solid var(--line); color: var(--fg);
+  font-family: inherit; font-size: 13.5px; line-height: 1.55; resize: vertical;
+  box-sizing: border-box;
+}
+.fb-textarea:focus { outline: none; border-color: var(--gold); }
+.fb-meta { font-size: 11.5px; color: var(--muted); text-align: right; }
+.fb-meta .over { color: #ff6b6b; font-weight: 700; }
+.fb-status { font-size: 12.5px; min-height: 18px; padding: 4px 0; }
+.fb-status.ok { color: #4caf50; font-weight: 700; }
+.fb-status.err { color: #ff6b6b; font-weight: 700; }
+.fb-actions { display: flex; gap: 10px; margin-top: 6px; }
+.fb-empty { text-align: center; color: var(--muted); font-size: 13px; padding: 26px 0; }
+
+/* ===== 赛季结算分享/海报卡片 ===== */
+.share-card { background: linear-gradient(135deg, rgba(212,175,55,.10), rgba(123,79,196,.06)); border: 1px solid rgba(212,175,55,.35); }
+.share-card h3 { color: var(--gold); }
+.share-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.share-row .btn { flex: 1; min-width: 140px; }
+
+
 .block-chip { font-size: 10.5px; font-weight: 800; color: #ffa94d; background: rgba(255,169,77,.14); border-radius: 5px; padding: 1px 6px; margin-left: 6px; }
 .tr-box { max-width: 480px; }
 .tr-box h3 { color: #ffa94d; }
+
+/* ===== 交易请求（球员不满） ===== */
 
 /* ===== 休赛期合同决策卡片（TO/QO） ===== */
 .opt-decisions { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }

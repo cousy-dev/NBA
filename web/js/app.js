@@ -436,6 +436,11 @@ RENDERERS.start = function () {
   resetPlayerTeams();   /* 还原梦幻选秀改写过的球队归属 */
   state.stack = [];
   migrateLegacySave(); /* 旧版单存档迁移到槽位 1 */
+  /* 主菜单曝光埋点（单次会话只上报一次） */
+  if (window.HupuCloud && HupuCloud.hasTrack && !window._nbaTrackedStart) {
+    window._nbaTrackedStart = true;
+    HupuCloud.track({ act: "exposure", blk: "BMC001", pos: "T1", label: "主菜单" });
+  }
   const slots = readAllSaves();
   const slotCard = ({ slot, save }) => {
     if (!save) {
@@ -478,6 +483,9 @@ RENDERERS.start = function () {
     state.saveSlot = s;
     purgeRuntimePlayers(); resetWizardState();
     state.saveSlot = s; /* resetWizardState 不清槽位，但保险重设 */
+    if (window.HupuCloud && HupuCloud.hasTrack) {
+      HupuCloud.track({ act: "click", blk: "BMC002", pos: "T1", label: "开始新游戏", custom: { mode } });
+    }
     go(mode === "custom" ? "create-info" : "team-select");
   };
   $("#btn-existing").onclick = () => startNew("existing");
@@ -1767,6 +1775,85 @@ function signBuyoutPlayer(save, id) {
   return { ok: true, salary: sal };
 }
 
+/* ===== 用户反馈弹窗（user-feedback 技能） ===== */
+function showFeedbackModal() {
+  const old = $("#feedback-modal");
+  if (old) old.remove();
+  const supported = !!(window.HupuCloud && HupuCloud.hasFeedback && HupuCloud.hasFeedback());
+  const m = document.createElement("div");
+  m.id = "feedback-modal";
+  m.className = "modal-overlay";
+  m.innerHTML =
+    '<div class="modal-box fb-box">' +
+    '<h3>💬 意见反馈</h3>' +
+    '<p class="modal-sub">对游戏有建议或发现问题？告诉我们，共同打磨体验。</p>' +
+    (supported
+      ? '<div class="fb-form">' +
+        '<textarea class="fb-textarea" id="fb-text" maxlength="2000" placeholder="请描述你的反馈（1–2000 字符）…" aria-label="反馈内容"></textarea>' +
+        '<div class="fb-meta"><span id="fb-count">0</span>/2000</div>' +
+        '<div class="fb-status" id="fb-status" aria-live="polite"></div>' +
+        '<div class="fb-actions">' +
+        '<button class="btn btn-primary" id="fb-submit">提交反馈</button>' +
+        '<button class="btn btn-outline" id="fb-close">关闭</button>' +
+        "</div>" +
+        "</div>"
+      : '<div class="fb-empty">当前环境不支持反馈提交，请在虎扑 App 内打开游戏后使用。</div>' +
+        '<button class="btn btn-outline" id="fb-close">关闭</button>') +
+    "</div>";
+  $("#screen-hub").appendChild(m);
+  const close = () => m.remove();
+  $("#fb-close").onclick = close;
+  m.onclick = e => { if (e.target === m) close(); };
+  if (!supported) return;
+  const ta = $("#fb-text");
+  const counter = $("#fb-count");
+  const status = $("#fb-status");
+  const submit = $("#fb-submit");
+  /* Unicode 字符计数 */
+  ta.oninput = () => {
+    const len = Array.from(ta.value.trim()).length;
+    counter.textContent = String(len);
+    counter.classList.toggle("over", len > 2000);
+    status.textContent = "";
+  };
+  /* 防重复点击 + 失败不自动重试 */
+  let inFlight = false;
+  submit.onclick = async () => {
+    if (inFlight) return;
+    const content = ta.value;
+    const len = Array.from(content.trim()).length;
+    if (len < 1 || len > 2000) {
+      status.textContent = "请输入 1–2000 个字符的反馈内容";
+      status.className = "fb-status err";
+      return;
+    }
+    inFlight = true;
+    submit.disabled = true;
+    submit.textContent = "提交中…";
+    status.textContent = "";
+    status.className = "fb-status";
+    try {
+      const res = await HupuCloud.submitFeedback(content);
+      if (res.ok) {
+        ta.value = "";
+        counter.textContent = "0";
+        status.textContent = "✅ 反馈已提交，感谢支持！";
+        status.className = "fb-status ok";
+      } else {
+        status.textContent = "⚠ " + (res.msg || "提交失败，请稍后再试");
+        status.className = "fb-status err";
+      }
+    } catch (e) {
+      status.textContent = "⚠ 网络异常，请稍后再试";
+      status.className = "fb-status err";
+    } finally {
+      inFlight = false;
+      submit.disabled = false;
+      submit.textContent = "提交反馈";
+    }
+  };
+}
+
 function showBuyoutMarketModal(save) {
   const old = $("#buyout-modal");
   if (old) old.remove();
@@ -2154,6 +2241,7 @@ RENDERERS.hub = function () {
     '<button class="mc-btn" id="btn-hof"><span class="hn-ico">🏛️</span><span>名人堂</span></button>' +
     '<button class="mc-btn" id="btn-trophyroom"><span class="hn-ico">🏆</span><span>荣誉室</span></button>' +
     '<button class="mc-btn" id="btn-leaderboard"><span class="hn-ico">📈</span><span>排行榜</span></button>' +
+    '<button class="mc-btn" id="btn-feedback"><span class="hn-ico">💬</span><span>反馈</span></button>' +
     "</div>" +
     '<div class="hub-tabs">' +
     '  <button class="hub-tab' + (hubTab === "overview" ? " active" : "") + '" data-tab="overview">概览</button>' +
@@ -2164,7 +2252,10 @@ RENDERERS.hub = function () {
     '<button class="link-danger" id="btn-quit">返回主菜单</button>';
   $$("#screen-hub .r-row[data-id]").forEach(row => { row.onclick = () => openPlayer(Number(row.dataset.id)); });
   const bp = $("#btn-play");
-  if (bp) bp.onclick = () => startMatch(false);
+  if (bp) bp.onclick = () => {
+    if (window.HupuCloud && HupuCloud.hasTrack) HupuCloud.track({ act: "click", blk: "BMC003", pos: "T1", label: "开始比赛" });
+    startMatch(false);
+  };
   const bq = $("#btn-quick");
   if (bq) bq.onclick = quickSimGame;
   const bqRest = $("#btn-quick-rest");
@@ -2211,7 +2302,10 @@ RENDERERS.hub = function () {
   const bs = $("#btn-standings");
   if (bs) bs.onclick = () => go("standings");
   const bt = $("#btn-trade");
-  if (bt) bt.onclick = () => go("trade");
+  if (bt) bt.onclick = () => {
+    if (window.HupuCloud && HupuCloud.hasTrack) HupuCloud.track({ act: "click", blk: "BMC004", pos: "T1", label: "交易中心" });
+    go("trade");
+  };
   const bts = $("#btn-trade-search");
   if (bts) bts.onclick = () => go("trade-search");
   const bbm = $("#btn-buyout-market");
@@ -2232,6 +2326,11 @@ RENDERERS.hub = function () {
   if (btroom) btroom.onclick = () => go("trophyroom");
   const blb = $("#btn-leaderboard");
   if (blb) blb.onclick = () => go("leaderboard");
+  const bfb = $("#btn-feedback");
+  if (bfb) bfb.onclick = () => {
+    if (window.HupuCloud && HupuCloud.hasTrack) HupuCloud.track({ act: "click", blk: "BMC009", pos: "T1", label: "用户反馈" });
+    showFeedbackModal();
+  };
   const bse = $("#btn-seasonend");
   if (bse) bse.onclick = () => go("seasonend");
   /* 模拟剩余季后赛（用户已淘汰但季后赛未结束时手动触发） */
@@ -4216,6 +4315,109 @@ function buildSeasonResult(save, iChamp) {
   };
 }
 
+/* ===== 冠军海报绘制（colorbox-result-poster-posting 复合技能） =====
+   绘制 750×1000 PNG 海报到 Canvas 并转 Blob，供 OSS 上传 + BBS 发帖使用
+   海报包含：奖杯 + 球队名 + 赛季号 + 战绩 + FMVP */
+function drawChampionPoster(save, awards, st) {
+  return new Promise(resolve => {
+    try {
+      const W = 750, H = 1000;
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      const ctx = c.getContext("2d");
+      if (!ctx) { resolve(null); return; }
+      /* 背景：深紫红渐变 */
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, "#1a0f2e");
+      grad.addColorStop(0.5, "#3d1a4e");
+      grad.addColorStop(1, "#0a0418");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+      /* 径向光晕 */
+      const rad = ctx.createRadialGradient(W / 2, 280, 30, W / 2, 280, 380);
+      rad.addColorStop(0, "rgba(255,215,0,0.35)");
+      rad.addColorStop(1, "rgba(255,215,0,0)");
+      ctx.fillStyle = rad;
+      ctx.fillRect(0, 0, W, 560);
+      /* 顶部金色横线 */
+      ctx.fillStyle = "#d4af37";
+      ctx.fillRect(60, 60, W - 120, 4);
+      /* 标题：CHAMPION */
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#d4af37";
+      ctx.font = "bold 70px sans-serif";
+      ctx.fillText("CHAMPION", W / 2, 160);
+      /* 奖杯 */
+      ctx.font = "180px sans-serif";
+      ctx.fillText("🏆", W / 2, 350);
+      /* 球队名 */
+      const teamName = (save.team && save.team.displayName) || "我的球队";
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 44px sans-serif";
+      ctx.fillText(teamName.length > 12 ? teamName.slice(0, 12) + "…" : teamName, W / 2, 470);
+      /* 赛季 */
+      ctx.fillStyle = "#d4af37";
+      ctx.font = "32px sans-serif";
+      ctx.fillText("第 " + save.seasonNo + " 赛季 · NBA 总冠军", W / 2, 525);
+      /* 战绩卡片 */
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      roundRect(ctx, 80, 580, W - 160, 90, 14);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 48px sans-serif";
+      ctx.fillText(st.w + " - " + st.l, W / 2, 645);
+      ctx.fillStyle = "#aaa";
+      ctx.font = "22px sans-serif";
+      ctx.fillText("常规赛战绩", W / 2, 670);
+      /* FMVP */
+      if (awards && awards.fmvp && awards.fmvp.p) {
+        const f = awards.fmvp;
+        ctx.fillStyle = "rgba(212,175,55,0.18)";
+        roundRect(ctx, 80, 720, W - 160, 140, 14);
+        ctx.fill();
+        ctx.fillStyle = "#d4af37";
+        ctx.font = "bold 28px sans-serif";
+        ctx.fillText("★ FMVP ★", W / 2, 760);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 40px sans-serif";
+        const fname = f.p.nameCn || f.p.name || "";
+        ctx.fillText(fname.length > 12 ? fname.slice(0, 12) + "…" : fname, W / 2, 810);
+        if (f.st) {
+          ctx.fillStyle = "#ddd";
+          ctx.font = "24px sans-serif";
+          ctx.fillText(
+            f.st.ppg.toFixed(1) + "分 " + f.st.rpg.toFixed(1) + "板 " + f.st.apg.toFixed(1) + "助",
+            W / 2, 845);
+        }
+      }
+      /* 底部品牌 */
+      ctx.fillStyle = "#888";
+      ctx.font = "20px sans-serif";
+      ctx.fillText("NBA 篮球经理 · 虎扑游戏", W / 2, H - 50);
+      /* 底部金色横线 */
+      ctx.fillStyle = "#d4af37";
+      ctx.fillRect(60, H - 70, W - 120, 4);
+      c.toBlob(blob => {
+        resolve(blob);
+      }, "image/png", 0.92);
+    } catch (e) {
+      console.warn("[drawChampionPoster] 海报绘制失败:", e && e.message);
+      resolve(null);
+    }
+  });
+}
+
+/* 圆角矩形辅助 */
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
 /* ===== 赛季总结 ===== */
 RENDERERS.seasonend = function () {
   const save = state.save;
@@ -4240,6 +4442,11 @@ RENDERERS.seasonend = function () {
   if (window.HupuCloud && save.lbReportedSeason !== save.seasonNo) {
     save.lbReportedSeason = save.seasonNo;
     HupuCloud.reportResult(buildSeasonResult(save, iChamp));
+    /* 夺冠埋点（仅夺冠时上报，幂等） */
+    if (iChamp && HupuCloud.hasTrack) {
+      HupuCloud.track({ act: "click", blk: "BMC006", pos: "T1", label: "夺冠",
+        custom: { season: save.seasonNo, wins: st.w, losses: st.l } });
+    }
   }
   /* 本赛季本队荣誉（从 save.honors 提取本赛季记录） */
   const seasonHonors = (save.honors || []).filter(h => h.season === save.seasonNo);
@@ -4312,6 +4519,16 @@ RENDERERS.seasonend = function () {
       '<div class="fin-row"><span>老板现金储备</span><b class="' + (finRec.cash < 0 ? "neg" : "") + '">' + fmtM(finRec.cash) + '</b></div>' +
       (finRec.tax > 0 ? '<div class="fin-warn">⚠ 本队缴纳奢侈税 ' + fmtM(finRec.tax) + '，连续亏损将耗尽老板现金储备</div>' : "") +
     '</div>' +
+    /* 夺冠分享/海报发帖（仅夺冠时显示） */
+    (iChamp
+      ? '<div class="se-card share-card"><h3>🎉 分享你的夺冠时刻</h3>' +
+        '<div class="share-row">' +
+        (window.HupuCloud && HupuCloud.hasSocialShare && HupuCloud.hasSocialShare()
+          ? '<button class="btn btn-outline" id="btn-se-share">📤 分享战绩</button>' : '') +
+        (window.HupuCloud && HupuCloud.hasPosterPosting && HupuCloud.hasPosterPosting()
+          ? '<button class="btn btn-gold" id="btn-se-poster">🖼️ 生成海报发帖</button>' : '') +
+        '</div></div>'
+      : '') +
     /* 解雇结局 */
     (fired
       ? '<div class="se-card fired-card"><h3>💼 你被解雇了</h3>' +
@@ -4354,6 +4571,75 @@ RENDERERS.seasonend = function () {
   if (seTrade) seTrade.onclick = () => go("trade");
   const seSearch = $("#btn-se-search");
   if (seSearch) seSearch.onclick = () => go("trade-search");
+  /* 分享夺冠战绩（colorbox-social-share） */
+  const seShare = $("#btn-se-share");
+  if (seShare) seShare.onclick = async () => {
+    if (!window.HupuCloud || !HupuCloud.hasSocialShare) return;
+    if (window.HupuCloud && HupuCloud.hasTrack) {
+      HupuCloud.track({ act: "click", blk: "BMC007", pos: "T1", label: "分享夺冠战绩" });
+    }
+    seShare.disabled = true;
+    const orig = seShare.textContent;
+    seShare.textContent = "唤起分享…";
+    const title = "我在 NBA 篮球经理带队夺冠了！第 " + save.seasonNo + " 赛季 · " +
+      (save.team.displayName || "我的球队") + " " + st.w + "胜" + st.l + "负";
+    const ok = await HupuCloud.share({
+      title,
+      link: window.location.href,
+      text: title + (awards.fmvp ? " · FMVP：" + awards.fmvp.p.nameCn : "")
+    });
+    seShare.disabled = false;
+    seShare.textContent = orig;
+    toast(ok ? "📤 已唤起分享面板" : "⚠ 当前环境无法分享，请在虎扑 App 内打开");
+  };
+  /* 生成冠军海报并唤起 BBS 发帖（colorbox-result-poster-posting 复合技能） */
+  const sePoster = $("#btn-se-poster");
+  if (sePoster) sePoster.onclick = async () => {
+    if (!window.HupuCloud || !HupuCloud.hasPosterPosting) return;
+    if (window.HupuCloud && HupuCloud.hasTrack) {
+      HupuCloud.track({ act: "click", blk: "BMC008", pos: "T1", label: "生成海报发帖" });
+    }
+    sePoster.disabled = true;
+    const orig = sePoster.textContent;
+    sePoster.textContent = "生成海报…";
+    let posterState = "rendering";
+    try {
+      /* 绘制 Canvas 海报 */
+      const blob = await drawChampionPoster(save, awards, st);
+      if (!blob) { toast("⚠ 海报生成失败，请重试"); sePoster.disabled = false; sePoster.textContent = orig; return; }
+      sePoster.textContent = "上传中…";
+      posterState = "uploading";
+      /* 上传 OSS + 唤起 BBS 发帖编辑器 */
+      const title = "【NBA篮球经理】第" + save.seasonNo + "赛季夺冠！" + (save.team.displayName || "");
+      const contentLines = [
+        "🏆 " + (save.team.displayName || "我的球队") + " 夺得第 " + save.seasonNo + " 赛季 NBA 总冠军！",
+        "",
+        "📊 常规赛战绩：" + st.w + " 胜 " + st.l + " 负",
+        awards.fmvp ? "⭐ FMVP：" + awards.fmvp.p.nameCn + "（" + awards.fmvp.st.ppg.toFixed(1) + "分/" + awards.fmvp.st.rpg.toFixed(1) + "板/" + awards.fmvp.st.apg.toFixed(1) + "助）" : "",
+        "",
+        "在 NBA 篮球经理游戏里实现你的王朝梦想，执教30支球队、参与选秀、交易、续约全套玩法！",
+        window.location.href
+      ].filter(s => s !== null);
+      sePoster.textContent = "唤起发帖…";
+      posterState = "opening";
+      const res = await HupuCloud.postPoster({
+        blob,
+        title,
+        content: contentLines.join("\n"),
+        filename: "nba_gm_champ_s" + save.seasonNo + "_" + Date.now() + ".png"
+      });
+      if (res.ok) {
+        toast("📤 海报已上传，发帖编辑器已唤起");
+      } else {
+        toast("⚠ " + (res.msg || "海报发帖失败，请稍后重试"));
+      }
+    } catch (e) {
+      toast("⚠ 海报发帖异常：" + (posterState === "rendering" ? "生成海报失败" : posterState === "uploading" ? "上传失败" : "唤起发帖失败"));
+    } finally {
+      sePoster.disabled = false;
+      sePoster.textContent = orig;
+    }
+  };
   /* 被解雇：返回主菜单（该存档标记 fired，主菜单仍可查看但生涯已结束） */
   const firedBtn = $("#btn-fired-menu");
   if (firedBtn) firedBtn.onclick = () => { RENDERERS.start(); state.stack = []; activate("start"); };
