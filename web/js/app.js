@@ -6172,6 +6172,7 @@ function renderLotteryReveal(save, d, my) {
       '</div>' +
       '<div class="lottery-actions">' +
         '<button class="btn btn-primary" id="btn-start-lottery">🎲 开始抽签</button>' +
+        '<button class="btn btn-outline" id="btn-skip-lottery-all">⏭ 跳过抽签（自动模拟）</button>' +
       '</div>' +
       '<div class="lottery-hint">从第 14 顺位开始依次揭示，最后公布状元</div>' +
       '</div>';
@@ -6181,6 +6182,11 @@ function renderLotteryReveal(save, d, my) {
       d.lotteryPhase = "revealing";
       d.revealedCount = 0;
       renderLotteryReveal(save, d, my);
+    };
+    const skipAllBtn = $("#btn-skip-lottery-all");
+    if (skipAllBtn) skipAllBtn.onclick = () => {
+      d.lotteryRevealed = true;
+      RENDERERS.draft();
     };
     return;
   }
@@ -6377,7 +6383,6 @@ RENDERERS.draft = function () {
     (isMyTurn
       ? '<div class="draft-hint">从下方新秀中选择一位 · 能力值和潜力将在选秀后揭晓</div>' +
         '<div class="draft-ai-actions">' +
-          '<button class="btn btn-outline" id="btn-ai-skip-all">⏭ 跳过剩余选秀（AI代选）</button>' +
           '<button class="btn btn-outline" id="btn-draft-trade">🔁 交易中心</button>' +
           '<button class="btn btn-outline" id="btn-draft-search">🔍 交易搜索</button>' +
         "</div>"
