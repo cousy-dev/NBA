@@ -996,13 +996,20 @@ function enforceAIRosterHardCap(save, abbr, max) {
   save.aiRosters[abbr] = kept;
 }
 
-/* ===== AI 球队休赛期自动交易模拟 =====
-   现实休赛期逻辑（依据上赛季最终战绩 save.lastStandings 分档）：
-   - 摆烂/重建队（胜率<45%）：送走当打老将与溢价长约，换回年轻球员 + 首轮签，腾名额给新秀
-   - 争冠/中游队（胜率≥45%）：用年轻边角料与选秀权补阵容缺口/升级轮换（争冠队保留核心）
+/* ===== AI 球队自动交易模拟（休赛期 + 赛季中通用） =====
+   opts = { inSeason, maxTrades }
+   休赛期（inSeason=false）：依据上赛季最终战绩 save.lastStandings 分档
+     - 摆烂/重建队（胜率<45%）：送走当打老将与溢价长约，换回年轻球员 + 首轮签，腾名额给新秀
+     - 争冠/中游队（胜率≥45%）：用年轻边角料与选秀权补阵容缺口/升级轮换（争冠队保留核心）
+   赛季中（inSeason=true）：依据当前赛季实时战绩 save.standings 分档，更保守
+     - 卖家仅限真正摆烂队（胜率<38% 且已打≥15场）：抛售 30+ 老将换首轮签/年轻人
+     - 买家仅限争冠队（胜率>55%）补缺口、或中游队有明显位置漏洞（needBonus≥3）
+     - 每队最多 1 笔，总笔数小（默认 3），截止日前冲刺可放宽
    全部复用玩家交易口径：tradeValue 打包估值（添头边际递减）、薪资配平、
    阵容 9~17 人、位置掏空检查。不涉及玩家球队。返回运作新闻数组。 */
-function simAITrades(save) {
+function simAITrades(save, opts) {
+  opts = opts || {};
+  const inSeason = !!opts.inSeason;
   const news = [];
   if (!save.aiRosters) return news;
   const my = myAbbr(save);
@@ -1029,24 +1036,31 @@ function simAITrades(save) {
   const _pickDesc = pk => (pk.round === 1 ? "首轮签" : "次轮签") + "(#" + (pk.pick || "?") + ")";
   const _pDesc = id => { const p = _load(id); return p ? p.nameCn + "(" + p.age + "岁/" + p.ovr + ")" : "球员"; };
 
-  /* 上赛季胜率（无快照的首季用阵容实力映射 0.2~0.8） */
-  const ls = save.lastStandings || {};
+  /* 战绩来源：赛季中用当前实时战绩，休赛期用上赛季最终快照 */
+  const ls = inSeason ? (save.standings || {}) : (save.lastStandings || {});
   const teams = TEAMS.filter(t => t.abbr !== my).map(t => {
     const s = ls[t.abbr];
     const gp = s ? s.w + s.l : 0;
     let wpct = gp > 0 ? s.w / gp : null;
     if (wpct == null) wpct = Math.max(0.2, Math.min(0.8, (teamStrength(t.abbr) - 66) / 30));
-    return { abbr: t.abbr, wpct };
+    return { abbr: t.abbr, wpct, gp };
   });
-  /* 卖家：摆烂+重建，越烂越先清；买家：争冠+中游，越强越先抢到老将 */
-  const sellers = teams.filter(x => x.wpct < 0.45).sort((a, b) => a.wpct - b.wpct).map(x => x.abbr);
-  const buyers = teams.filter(x => x.wpct >= 0.45).sort((a, b) => b.wpct - a.wpct).map(x => x.abbr);
+  /* 分档阈值：赛季中更极端（只有真摆烂才卖、只有真争冠/真缺人才买） */
+  const sellThresh = inSeason ? 0.38 : 0.45;
+  const buyThresh = inSeason ? 0.55 : 0.45;
+  const minGames = inSeason ? 15 : 0;  /* 赛季中至少打 15 场再判断摆烂，避免开局样本太小 */
+  /* 卖家：摆烂+重建，越烂越先清；赛季中要求已打够场次 */
+  const sellers = teams
+    .filter(x => x.wpct < sellThresh && x.gp >= minGames)
+    .sort((a, b) => a.wpct - b.wpct).map(x => x.abbr);
+  /* 买家：争冠+中游，越强越先抢到老将 */
+  const buyers = teams.filter(x => x.wpct >= buyThresh).sort((a, b) => b.wpct - a.wpct).map(x => x.abbr);
 
   const outUsed = {}, inUsed = {};
   teams.forEach(x => { outUsed[x.abbr] = 0; inUsed[x.abbr] = 0; });
   let tradeCount = 0;
-  const MAX_TRADES = 22;
-  const MAX_PER_TEAM = 2;
+  const MAX_TRADES = opts.maxTrades || (inSeason ? 3 : 22);
+  const MAX_PER_TEAM = inSeason ? 1 : 2;   /* 赛季中每队最多 1 笔 */
 
   /* 尝试：seller 把 assetId 卖给某个 buyer；成功则执行并返回 true */
   const tryDeal = (seller, assetId) => {
@@ -1066,13 +1080,16 @@ function simAITrades(save) {
       const bFin = aiTeamFinances(save, buyer);
       if (bFin.ids.includes(assetId)) continue;
 
-      /* 买方动机：补缺口位置，或升级第 8 人级别的轮换 */
+      /* 买方动机：补缺口位置，或升级第 8 人级别的轮换
+         赛季中更挑剔：必须真缺人（needBonus≥3）或真升级（≥第8人+4），避免无意义囤人 */
       const need = typeof positionNeedBonus === "function" ? positionNeedBonus(save, buyer, asset.pos) : 0;
       const sortedOvr = bFin.players.map(x => x.p.ovr).sort((a, b) => b - a);
       const benchOvr = sortedOvr[7] || 60;
-      const upgrade = asset.ovr >= benchOvr + 3 ? 4 : 0;
+      const upgradeOvr = inSeason ? benchOvr + 4 : benchOvr + 3;
+      const upgrade = asset.ovr >= upgradeOvr ? 4 : 0;
       const buyerPremium = Math.max(need, upgrade);
-      if (buyerPremium <= 0) continue;
+      const minPremium = inSeason ? 3 : 0;
+      if (buyerPremium <= minPremium) continue;
 
       /* 买方候选年轻人：≤23 岁(含 ageAdj)、非队中前三号、非 22 岁以下 90+ 潜力基石 */
       const top3 = new Set(bFin.players.slice().sort((a, b) => b.p.ovr - a.p.ovr).slice(0, 3).map(x => x.p.id));
@@ -1163,7 +1180,11 @@ function simAITrades(save) {
     return false;
   };
 
-  /* 逐卖家扫描资产：当打老将(29+，71~86) 与 32+ 高薪老将优先 */
+  /* 逐卖家扫描资产：当打老将 与 高薪老将优先
+     休赛期：29+（71~86）或 32+（68+）
+     赛季中：只卖 30+ 当打老将（73~86），赛季中不会卖 29 岁黄金期球员 */
+  const ageCut = inSeason ? 30 : 29;
+  const ovrLo = inSeason ? 73 : 71;
   for (const seller of sellers) {
     if (outUsed[seller] >= MAX_PER_TEAM || tradeCount >= MAX_TRADES) break;
     const fin = aiTeamFinances(save, seller);
@@ -1175,7 +1196,7 @@ function simAITrades(save) {
         return { id: x.p.id, age, ovr: x.p.ovr };
       })
       .filter(a => !_isRecentDraftPick(save, a.id, AI_ROOKIE_GUARANTEE_YEARS))
-      .filter(a => (a.age >= 29 && a.ovr >= 71 && a.ovr <= 86) || (a.age >= 32 && a.ovr >= 68))
+      .filter(a => (a.age >= ageCut && a.ovr >= ovrLo && a.ovr <= 86) || (a.age >= 32 && a.ovr >= 68))
       .sort((a, b) => b.ovr - a.ovr || b.age - a.age);
     for (const a of assets) {
       if (outUsed[seller] >= MAX_PER_TEAM || tradeCount >= MAX_TRADES) break;

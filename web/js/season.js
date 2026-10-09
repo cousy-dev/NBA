@@ -235,6 +235,27 @@ function simLeagueRound(save) {
   });
   /* 交易截止日后：生成/流转买断市场（赛季中老将与重建队协商买断） */
   if (save.tradeDeadlinePassed && save.gameNo <= 82) generateBuyoutMarket(save);
+  /* 赛季中 AI 间交易：截止日前、打够一定场次后，每隔约 6 轮小批量运作
+     （约每月一次，模拟现实中期交易窗口；截止日前最后一轮再冲刺一波） */
+  if (!save.tradeDeadlinePassed && save.gameNo >= 15 && typeof simAITrades === "function") {
+    save._aiTradeTick = (save._aiTradeTick || 0) + 1;
+    const isDeadlineRush = save.gameNo >= (typeof TRADE_DEADLINE_GAME !== "undefined" ? TRADE_DEADLINE_GAME : 53) - 2;
+    const tickEvery = 6;
+    if (isDeadlineRush || save._aiTradeTick % tickEvery === 0) {
+      const news = simAITrades(save, {
+        inSeason: true,
+        maxTrades: isDeadlineRush ? 6 : 3
+      });
+      if (news.length) {
+        /* 赛季中新闻追加到联盟运作动态头部，hub 概览展示最新 12 条 */
+        save.aiLeagueNews = save.aiLeagueNews || { season: save.seasonNo, items: [] };
+        save.aiLeagueNews.items = news.concat(save.aiLeagueNews.items || []).slice(0, 30);
+        save.aiLeagueNews.season = save.seasonNo;
+        /* 截止日冲刺后重置 tick，避免刚冲刺完又触发常规轮次 */
+        if (isDeadlineRush) save._aiTradeTick = 0;
+      }
+    }
+  }
 }
 
 /* ===== 买断市场：截止日后被 AI 队买断的老将进入池子，可被底薪签下 ===== */
