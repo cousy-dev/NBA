@@ -775,6 +775,8 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .se-card { background: var(--card); border: 1.5px solid var(--line); border-radius: 16px; padding: 15px 16px; margin: 12px 0; }
 .se-card h3 { margin: 0 0 12px; font-size: 15px; }
 .se-card.gold { border-color: var(--gold); }
+/* 常规赛结束页：操作按钮置顶容器 */
+.se-action-bar { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 14px; }
 
 /* 总冠军华丽横幅 */
 .champ-hero { text-align: center; padding: 36px 20px 30px; border-radius: 20px; margin-bottom: 16px; background: linear-gradient(135deg, #1a1a2e, #2d1b3d); color: #fff; position: relative; overflow: hidden; }

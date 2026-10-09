@@ -2222,8 +2222,8 @@ RENDERERS.hub = function () {
     : "";
 
   /* 主内容区：根据 hubTab 决定显示哪个面板 */
-  const overviewHtml = pomBannerHtml + gameHtml + bracketHtml +
-    '<h3 class="section-h">队内数据王</h3>' + leadersHtml + pomHistoryHtml + aiNewsHtml;
+  const overviewHtml = gameHtml + bracketHtml +
+    '<h3 class="section-h">队内数据王</h3>' + leadersHtml + aiNewsHtml;
   const rosterTabHtml = '<h3 class="section-h">球队阵容（' + mine.length + '人）</h3>' + rosterHtml;
   const historyTabHtml = '<h3 class="section-h">历史赛季</h3>' + histHtml;
   const tabContent = hubTab === "roster" ? rosterTabHtml
@@ -4312,6 +4312,15 @@ RENDERERS["regular-end"] = function () {
     '<div class="champ-line">' + (madePlayoffs ? "🏀 恭喜！你的球队进入季后赛！" : playInPending ? "⚡ 你的球队获得附加赛资格！" : "赛季结束，你的球队未进入季后赛") + "</div>" +
     '<div class="ng-meta">' + esc(confLabel(conf)) + "排名：第 " + (myRank ? myRank.seed : "?") + " 位 · 胜率 " + (st.w + st.l ? ((st.w / (st.w + st.l)) * 100).toFixed(1) : "0") + "%" +
     (playInPending ? " · 附加赛单场淘汰，赢球才能进季后赛" : "") + "</div></div>" +
+    /* 操作按钮置顶，避免拉到底部才点 */
+    '<div class="se-action-bar">' +
+    (madePlayoffs
+      ? '<button class="btn btn-primary" id="btn-to-playoffs">进入季后赛</button>'
+      : playInPending
+        ? '<button class="btn btn-primary" id="btn-to-playin">出战附加赛</button>'
+        : '<button class="btn btn-primary" id="btn-to-seasonend">查看赛季总结</button>') +
+    '<button class="btn btn-outline" id="re-hub">返回经理室</button>' +
+    "</div>" +
     '<div class="se-card"><h3>年度个人奖项</h3>' +
     awardRow("MVP", mvp, true) +
     awardRow("DPOY", dpoy, false, dpoyFmt) +
@@ -4334,13 +4343,7 @@ RENDERERS["regular-end"] = function () {
     teamCard("最佳防守 二阵", awards.allDef2) +
     '<h3 class="section-h">最佳新秀阵容</h3>' +
     teamCard("最佳新秀 一阵", awards.allRookie1) +
-    teamCard("最佳新秀 二阵", awards.allRookie2) +
-    (madePlayoffs
-      ? '<button class="btn btn-primary" id="btn-to-playoffs">进入季后赛</button>'
-      : playInPending
-        ? '<button class="btn btn-primary" id="btn-to-playin">出战附加赛</button>'
-        : '<button class="btn btn-primary" id="btn-to-seasonend">查看赛季总结</button>') +
-    '<button class="btn btn-outline" id="re-hub">返回经理室</button>';
+    teamCard("最佳新秀 二阵", awards.allRookie2);
   const btnPO = $("#btn-to-playoffs");
   if (btnPO) btnPO.onclick = () => {
     toast("季后赛开始！");
@@ -6374,6 +6377,7 @@ RENDERERS.draft = function () {
     (isMyTurn
       ? '<div class="draft-hint">从下方新秀中选择一位 · 能力值和潜力将在选秀后揭晓</div>' +
         '<div class="draft-ai-actions">' +
+          '<button class="btn btn-outline" id="btn-ai-skip-all">⏭ 跳过剩余选秀（AI代选）</button>' +
           '<button class="btn btn-outline" id="btn-draft-trade">🔁 交易中心</button>' +
           '<button class="btn btn-outline" id="btn-draft-search">🔍 交易搜索</button>' +
         "</div>"

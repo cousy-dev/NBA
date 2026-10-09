@@ -456,6 +456,10 @@ function decrementContracts(save) {
   });
   /* 4. 生成额外自由球员（联盟边缘球员 + 随机新秀）填充市场 */
   _genExtraFA(save);
+  /* 5. AI 队合同年清洗：释放到期球员进 FA 池。
+     必须在玩家查看自由市场页面之前完成，让带鸟权的老将以 RFA 身份供玩家竞价。
+     （simAIFreeAgency 里会再次调用本函数，幂等无副作用。） */
+  if (typeof _aiPhase0Release === "function") _aiPhase0Release(save);
   writeSave(save);
 }
 
@@ -484,9 +488,14 @@ function _genExtraFA(save) {
   });
 }
 
-/* ===== FA 分类：UFA / RFA ===== */
+/* ===== FA 分类：UFA / RFA =====
+   RFA 触发条件（满足任一）：
+   1. 新秀标尺合同到期且球队提供资质报价（isRookieScale + birdYears>=1）
+   2. 其他球队的早鸟权/完全鸟权球员（birdYears>=2）—— 母队可匹配报价，
+      避免好球员被直接挖走，增强签约博弈感 */
 function faCategory(faItem) {
   if (faItem.isRookieScale && faItem.birdYears >= 1) return "RFA";
+  if (faItem.birdYears >= 2) return "RFA";
   return "UFA";
 }
 
@@ -1206,6 +1215,69 @@ function simAITrades(save, opts) {
   return news;
 }
 
+/* ===== AI 队合同年清洗（Phase 0 释放到期球员） =====
+   被 simAIFreeAgency 和 decrementContracts 共同调用。
+   释放逻辑：近届新秀保障期绝不裁、OVR≥74 即战力与高潜年轻资产保留、
+   其余边缘人择优补到 12 人；被放弃球员进入 FA 池，
+   带鸟权的老将（26+/74 → 完全鸟权3，24-25/70 → 早鸟权2）以 RFA 身份供玩家竞价。
+   幂等：已在 FA 池的球员不会重复加入。news 可选，不传则不产生裁退新闻。 */
+function _aiPhase0Release(save, news) {
+  save.faPool = save.faPool || [];
+  const AI_KEEP_OVR = 74;
+  const AI_PROSPECT_AGE = 23;
+  const AI_PROSPECT_POT = 70;
+  TEAMS.forEach(t => {
+    if (t.abbr === myAbbr(save)) return;
+    const list = save.aiRosters[t.abbr] || [];
+    const guaranteed = [], core = [], rest = [];
+    list.forEach(id => {
+      if (_isRecentDraftPick(save, id, AI_ROOKIE_GUARANTEE_YEARS)) { guaranteed.push(id); return; }
+      const ovr = _aiCurOvr(save, id);
+      const age = _aiCurAge(save, id);
+      const raw = (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
+      const pot = raw ? (raw.potential || 0) : 0;
+      if (ovr >= AI_KEEP_OVR || (age <= AI_PROSPECT_AGE && pot >= AI_PROSPECT_POT)) core.push(id);
+      else rest.push(id);
+    });
+    const keptGuaranteed = guaranteed.sort((a, b) => _aiCurOvr(save, b) - _aiCurOvr(save, a)).slice(0, AI_ROSTER_FULL);
+    const baseSet = {};
+    keptGuaranteed.concat(core).forEach(id => { baseSet[id] = 1; });
+    let base = [...new Set(keptGuaranteed.concat(core))];
+    if (base.length > AI_ROSTER_FULL) {
+      const gSet = new Set(keptGuaranteed);
+      const overflow = base.filter(id => !gSet.has(id))
+        .sort((a, b) => _aiCurOvr(save, a) - _aiCurOvr(save, b));
+      const cutN = base.length - AI_ROSTER_FULL;
+      const cutSet = new Set(overflow.slice(0, cutN));
+      base = base.filter(id => !cutSet.has(id));
+    }
+    const fillN = Math.max(0, AI_ROSTER_PRE_FA - Math.min(base.length, AI_ROSTER_PRE_FA));
+    const keptRest = rest.sort((a, b) => _aiCurOvr(save, b) - _aiCurOvr(save, a))
+      .filter(id => !baseSet[id]).slice(0, fillN);
+    const kept = {};
+    base.concat(keptRest).forEach(id => { kept[id] = 1; });
+    const released = list.filter(id => !kept[id]);
+    released.forEach(id => {
+      if (save.faPool.some(f => f.id === id)) return;
+      const ovr = _aiCurOvr(save, id);
+      const age = _aiCurAge(save, id);
+      let birdYears = 1;
+      if (age >= 26 && ovr >= 74) birdYears = 3;
+      else if (age >= 24 && ovr >= 70) birdYears = 2;
+      save.faPool.push({
+        id, ovr, age,
+        birdYears, isRookieScale: false, originTeam: t.abbr
+      });
+      _aiSetPlayerTeam(save, id, "");
+      if (news && ovr >= 76) {
+        news.push({ type: "waive", text: teamName(t.abbr) + " 不续约 " + _aiPlayerName(save, id) +
+          "（" + age + "岁/" + ovr + "）" });
+      }
+    });
+    save.aiRosters[t.abbr] = base.concat(keptRest);
+  });
+}
+
 /* ===== AI 队自由市场签约模拟（球员驱动 + 球队吸引力） ===== */
 function simAIFreeAgency(save) {
   /* 初始化 AI 队 roster */
@@ -1245,72 +1317,27 @@ function simAIFreeAgency(save) {
         （想清老将的摆烂队由 simAITrades 先交易，而不是白放走球星）；
      ③ 其余边缘人按 OVR 择优补到 12 人（硬上限 14）；
      ④ 被放弃球员全部进入 FA 池（含低 OVR），可被任何队签下/次年随机回流，
-        不再从游戏中直接抹除 */
-  save.faPool = save.faPool || [];
-  const AI_KEEP_OVR = 74;        /* 当打即战力：现实中必被续约/先签后换，绝不直接放走 */
-  const AI_PROSPECT_AGE = 23;   /* 年轻潜力股年龄线 */
-  const AI_PROSPECT_POT = 70;   /* 潜力线：23 岁以下 70+ 潜力视为培养资产 */
-  TEAMS.forEach(t => {
-    if (t.abbr === myAbbr(save)) return;
-    const list = save.aiRosters[t.abbr] || [];
-    /* ① guaranteed：近 1 届新秀保障期，绝不裁（安全阀：极端堆积>14 时留最强 14 人）
-       ② core：OVR≥74 当打即战力，或 ≤23 岁且潜力≥70 的培养资产
-       ③ rest：其余边缘人/老将，按 OVR 择优把名单补到 12~14 人 */
-    const guaranteed = [], core = [], rest = [];
-    list.forEach(id => {
-      if (_isRecentDraftPick(save, id, AI_ROOKIE_GUARANTEE_YEARS)) { guaranteed.push(id); return; }
-      const ovr = _aiCurOvr(save, id);
-      const age = _aiCurAge(save, id);
-      const raw = (save.customPlayers || []).find(x => x.id === id) || PLAYERS_RATED.players.find(x => x.id === id);
-      const pot = raw ? (raw.potential || 0) : 0;
-      if (ovr >= AI_KEEP_OVR || (age <= AI_PROSPECT_AGE && pot >= AI_PROSPECT_POT)) core.push(id);
-      else rest.push(id);
-    });
-    const keptGuaranteed = guaranteed.sort((a, b) => _aiCurOvr(save, b) - _aiCurOvr(save, a)).slice(0, AI_ROSTER_FULL);
-    /* 保障+核心去重后的必留名单 */
-    const baseSet = {};
-    keptGuaranteed.concat(core).forEach(id => { baseSet[id] = 1; });
-    let base = [...new Set(keptGuaranteed.concat(core))];
-    /* 极端堆积（>14）：保障新秀不动，核心按 OVR 末位淘汰（流入 FA，而非删除） */
-    if (base.length > AI_ROSTER_FULL) {
-      const gSet = new Set(keptGuaranteed);
-      const overflow = base.filter(id => !gSet.has(id))
-        .sort((a, b) => _aiCurOvr(save, a) - _aiCurOvr(save, b));
-      const cutN = base.length - AI_ROSTER_FULL;
-      const cutSet = new Set(overflow.slice(0, cutN));
-      base = base.filter(id => !cutSet.has(id));
-    }
-    /* 择优填补：最低 12 人，最多 14 人 */
-    const fillN = Math.max(0, AI_ROSTER_PRE_FA - Math.min(base.length, AI_ROSTER_PRE_FA));
-    const keptRest = rest.sort((a, b) => _aiCurOvr(save, b) - _aiCurOvr(save, a))
-      .filter(id => !baseSet[id]).slice(0, fillN);
-    const kept = {};
-    base.concat(keptRest).forEach(id => { kept[id] = 1; });
-    const released = list.filter(id => !kept[id]);
-    released.forEach(id => {
-      if (save.faPool.some(f => f.id === id)) return;
-      const ovr = _aiCurOvr(save, id);
-      save.faPool.push({
-        id, ovr, age: _aiCurAge(save, id),
-        birdYears: 0, isRookieScale: false, originTeam: t.abbr
-      });
-      _aiSetPlayerTeam(save, id, "");  /* 成为自由球员 */
-      if (ovr >= 76) {
-        news.push({ type: "waive", text: teamName(t.abbr) + " 不续约 " + _aiPlayerName(save, id) +
-          "（" + _aiCurAge(save, id) + "岁/" + ovr + "）" });
-      }
-    });
-    save.aiRosters[t.abbr] = base.concat(keptRest);
-  });
+        不再从游戏中直接抹除。
+     注意：本函数在 decrementContracts 阶段就调用，让被释放球员（含带鸟权的老将）
+     在玩家查看自由市场页面时就已进入 FA 池，可被玩家竞价。 */
+  _aiPhase0Release(save, news);
 
-  /* Phase 1：AI 队续约本队 RFA（有空位才续，且去重） */
+  /* Phase 1：AI 队续约本队未被玩家竞价带走的 RFA
+     （含新秀标尺 RFA + 早鸟/完全鸟权老将）。
+     玩家在自由市场页面优先竞价：报价被母队匹配→留队，不匹配→归玩家。
+     若玩家未竞价，则母队优先续约（鸟权是母队特权），阵容满员才转为 UFA 流入市场 */
   TEAMS.forEach(t => {
     if (t.abbr === myAbbr(save)) return;
     const mine = (save.faPool || []).filter(f => f.originTeam === t.abbr && faCategory(f) === "RFA")
       .sort((a, b) => b.ovr - a.ovr);
     mine.forEach(f => {
       const roster = save.aiRosters[t.abbr];
-      if (roster.length >= AI_ROSTER_FULL || roster.includes(f.id)) return;
+      if (roster.length >= AI_ROSTER_FULL || roster.includes(f.id)) {
+        /* 母队无名额：解除限制转为 UFA，供其他队（含玩家）签约 */
+        f.isRookieScale = false;
+        f.birdYears = 0;
+        return;
+      }
       roster.push(f.id);
       save.faPool = save.faPool.filter(x => x.id !== f.id);
       _aiSetPlayerTeam(save, f.id, t.abbr);
@@ -1487,7 +1514,7 @@ RENDERERS.freeagent = function () {
       '  <span class="aw-rank">' + (i + 1) + "</span>" +
       '  <div class="ovr-badge ' + ovrClass(f.ovr) + '">' + f.ovr + "</div>" +
       '  <div class="aw-name">' + esc(p.nameCn) + willTag +
-      '    <span class="aw-team"><span class="fa-cat ' + cat.toLowerCase() + '">' + cat + "</span> " + esc(posLabel(p)) + " · " + f.age + "岁" + (f.originTeam && f.originTeam !== myAbr ? " · 母队 " + esc(f.originTeam) : "") + "</span></div>" +
+      '    <span class="aw-team"><span class="fa-cat ' + cat.toLowerCase() + '">' + cat + "</span> " + (isRFA ? birdTag(f) : "") + esc(posLabel(p)) + " · " + f.age + "岁" + (f.originTeam && f.originTeam !== myAbr ? " · 母队 " + esc(f.originTeam) : "") + "</span></div>" +
       '  <div class="fa-price">' + fmtM(price) + "/年</div>" +
       '  <button class="fa-sign" data-id="' + f.id + '">' + (isRFA ? "报价" : "签约") + "</button>" +
       "</div>";
