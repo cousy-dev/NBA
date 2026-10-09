@@ -103,7 +103,15 @@ function teamNeeds(save, abbr) {
   if (abbr === myAbbr(save)) {
     players = loadMyPlayers(save).map(x => x.p);
   } else {
-    players = playersByTeam(abbr);
+    /* AI 队以 aiRosters 为权威（含选秀新秀、FA 签约、交易入队）；
+       静态 p.team 只反映初始归属，旧逻辑会导致补强永远找错缺口 */
+    const ids = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
+    const customById = new Map((save.customPlayers || []).map(p => [p.id, p]));
+    const byId = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+    players = ids.map(id => {
+      const p0 = customById.get(id) || byId.get(id);
+      return p0 ? applyAdj(p0, save) : null;
+    }).filter(Boolean);
   }
   const cat = { G: 0, F: 0, C: 0 };
   players.forEach(p => { cat[catOf(p.pos)]++; });
@@ -582,6 +590,14 @@ function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPi
   const aiExisting = new Set(aiList);
   myOfferIds.forEach(id => { if (!aiExisting.has(id)) { aiExisting.add(id); aiList.push(id); } });
   save.aiRosters[aiTeamAbbr] = aiList;
+  /* 同步静态 team 字段：playersByTeam/teamStrength 等旧逻辑仍依赖该字段，
+     不更新会导致交易页/乐透评估里球员"还挂在原队" */
+  const _syncTeam = (id, abbr) => {
+    const p = (typeof findPlayerById === "function") ? findPlayerById(save, id) : PLAYERS_RATED.players.find(x => x.id === id);
+    if (p) p.team = abbr;
+  };
+  myOfferIds.forEach(id => _syncTeam(id, aiTeamAbbr));
+  aiOfferIds.forEach(id => _syncTeam(id, myAbbrCode));
   /* 硬上限：交易后 AI 名单不得超过 17 人（超出裁掉最弱边缘人） */
   if (typeof enforceAIRosterHardCap === "function") enforceAIRosterHardCap(save, aiTeamAbbr, 17);
   /* 选秀权交换 */
@@ -594,9 +610,19 @@ function executeTrade(save, myAbbrCode, myOfferIds, aiOfferIds, aiTeamAbbr, myPi
   writeSave(save);
 }
 
-/* ===== 获取 AI 队伍可交易球员（全部返回，按球队状态标记非卖品） ===== */
+/* ===== 获取 AI 队伍可交易球员（全部返回，按球队状态标记非卖品） =====
+   必须以 save.aiRosters 为准：该队选中的新秀、自由市场签入/交易得到的球员
+   都挂在 aiRosters，静态 p.team 不会随运作更新（旧逻辑导致交易页显示一堆
+   早已离队的"幽灵球员"，而新援和新秀全部看不到） */
 function getTradable(aiTeamAbbr, save) {
-  const all = playersByTeam(aiTeamAbbr);
+  const ids = (save && save.aiRosters && save.aiRosters[aiTeamAbbr])
+    || playersByTeam(aiTeamAbbr).map(p => p.id);
+  const customById = new Map(((save && save.customPlayers) || []).map(p => [p.id, p]));
+  const byId = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
+  const all = ids.map(id => {
+    const p0 = customById.get(id) || byId.get(id);
+    return p0 ? (save ? applyAdj(p0, save) : p0) : null;
+  }).filter(Boolean);
   const status = save ? teamStatus(save, aiTeamAbbr) : STATUS_STRENGTHENING;
   const untOvr = untouchableOvr(status);
   return all

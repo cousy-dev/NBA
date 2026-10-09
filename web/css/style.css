@@ -1708,6 +1708,13 @@ tr.sch-q-ot .sch-q-label { color: #d6424b; }
 .pom-h-month { font-weight: 800; color: var(--gold); min-width: 38px; }
 .pom-h-conf { font-size: 10px; font-weight: 800; color: var(--muted); }
 
+/* ===== 休赛期联盟运作动态 ===== */
+.ai-news-card { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+.ai-news-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.45;
+  background: var(--card); border-radius: 8px; padding: 7px 10px; }
+.ai-news-ico { flex: 0 0 auto; }
+.ai-news-more { font-size: 11px; color: var(--muted); text-align: center; padding: 4px 0; }
+
 /* ===== 财务账单 / 解雇 ===== */
 .finance-card.loss { border-color: rgba(224,76,76,.45); }
 .fin-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.05); }

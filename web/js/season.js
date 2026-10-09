@@ -354,12 +354,6 @@ function adjEstStats(p, save, teamAbbr, base) {
   const rookie = isRookiePlayer(p, sn);  /* 复用统一的新秀检测（含 draftYear） */
   /* teamAbbr 回退：没传就用 p.team 字段 */
   const abbr = teamAbbr || p.team;
-  /* DEBUG */
-  if (!adjEstStats._callCount) adjEstStats._callCount = 0;
-  adjEstStats._callCount++;
-  if (adjEstStats._callCount <= 3 || rookie || (p.pick && p.pick > 0) || p.draftYear) {
-    console.log("[adjEstStats#" + adjEstStats._callCount + "]", p.nameCn, "| rookie=", rookie, "| draftYear=", p.draftYear, "| sn=", sn, "| pick=", p.pick, "| team=", abbr, "| ovr=", p.ovr, "| basePPG=", base.ppg);
-  }
   if (!rookie) return base;
   /* 球队胜率：当前战绩≥10场用当前，否则回退上赛季 */
   let winPct = 0.5;
@@ -427,11 +421,6 @@ function buildPlayerTeamMap(save) {
       }
     });
   }
-  /* DEBUG：统计 */
-  const withPick = (PLAYERS_RATED.players || []).filter(p => p.pick && p.pick > 0).length;
-  const withDs = (PLAYERS_RATED.players || []).filter(p => p.draftSeason).length;
-  const customCnt = (save.customPlayers || []).length;
-  console.log("[buildPlayerTeamMap] roster=", (save.roster||[]).length, "aiRosters=", Object.keys(save.aiRosters||{}).length, "customPlayers=", customCnt, "PLAYERS_RATED总pick=", withPick, "PLAYERS_RATED总draftSeason=", withDs);
   /* 给 PLAYERS_RATED 里没找到队的球员补 p.team 字段（回退） */
   PLAYERS_RATED.players.forEach(p => {
     if (!m.has(p.id) && p.team) m.set(p.id, p.team);
@@ -660,7 +649,6 @@ function earnTrainPts(save) {
   earned = Math.min(TRAIN_MAX_PER_SEASON, earned);
   save.trainPts = { season: save.seasonNo, earned: earned, bought: 0, spent: 0 };
   save.trainAdj = save.trainAdj || {};
-  console.log("[trainPts] season", save.seasonNo, "earned", earned);
 }
 
 /* 当前可用训练点 */
@@ -724,7 +712,6 @@ function seasonAwards(save) {
   const teamMap = buildPlayerTeamMap(save);
   const prevOvr = save.prevSeasonOvr || null;
   adjEstStats._callCount = 0;  /* 重置计数器 */
-  console.log("[seasonAwards] called, seasonNo=", save.seasonNo, "total players=", PLAYERS_RATED.players.length);
   const candidates = PLAYERS_RATED.players.map(p0 => {
     const p = curSeasonPlayer(p0, save);
     let st = adjEstStats(p, save, teamMap.get(p.id), curEstStats(p0, p, est));
@@ -1285,11 +1272,11 @@ function doAging(save) {
     if (save.aiRosters && save.aiRosters[t.abbr]) return; /* 已处理 */
     playersByTeam(t.abbr).forEach(p => { _agePlayer(save, p.id, findPlayer); });
   });
-  /* 士气向中性回归 10% */
+  /* 士气向中性回归 20%（休赛期换环境/重置预期，避免低士气跨赛季长年积压） */
   if (save.morale) {
     Object.keys(save.morale).forEach(id => {
       const m = save.morale[id];
-      save.morale[id] = Math.round(m + (DEFAULT_MORALE - m) * 0.1);
+      save.morale[id] = Math.round(m + (DEFAULT_MORALE - m) * 0.2);
     });
   }
   /* 退役判定 */
@@ -1743,11 +1730,20 @@ function findPlayerById(save, id) {
   return customById.get(id) || byId.get(id);
 }
 
+/* estStats 的数据基准约为 25.5 分钟出场（经真实引擎多赛季标定），
+   个人表现预期必须按实际出场时间缩放，否则板凳/DNP 球员每场稳定触底 -1.5 */
+const EST_REF_MINUTES = 25.5;
+
 function computeMoraleDelta(p0, save, b, teamWon, streak, side) {
   const baseOvr = (p0.ovr || 70) + ((save.ovrAdj && save.ovrAdj[p0.id]) || 0);
   const actualMin = b.sec / 60;
   const actualShots = b.fga || 0;
   let d = 0;
+  /* 角色定位：扛战绩的是核心/先发（OVR≥78 或实际≥24分钟），
+     角色球员与边缘人不应为连败付出同等情绪代价 */
+  const isCore = baseOvr >= 78 || actualMin >= 24;
+  const played = actualMin >= 1;   /* 真正登场才评估表现/胜负，DNP 仅走 F 条款 */
+
   /* A. 上场时间惩罚 */
   const expMin = expectedMinutes(baseOvr);
   if (baseOvr >= 80 && actualMin < expMin * 0.6) {
@@ -1760,17 +1756,22 @@ function computeMoraleDelta(p0, save, b, teamWon, streak, side) {
     const expS = expectedShots(baseOvr);
     if (actualShots < expS * 0.5) d += -1.0 * (1 - actualShots / Math.max(1, expS * 0.5));
   }
-  /* C. 连胜/连败 */
-  if (streak >= 3) d += Math.min(2.5, 0.5 * streak);
-  else if (streak <= -3) d += Math.max(-2.0, 0.5 * streak);
-  /* D. 个人表现 */
-  const est = estStats(p0);
-  const perf = b.pts + b.reb * 0.7 + b.ast * 0.9 + (b.stl + b.blk) * 1.2 - b.tov * 0.8;
-  const expPerf = est.ppg + est.rpg * 0.7 + est.apg * 0.9;
-  d += Math.max(-1.5, Math.min(1.5, (perf - expPerf) * 0.15));
-  /* E. 胜负 */
-  d += teamWon ? 0.3 : -0.3;
-  /* F. 主力未登场 */
+  /* C. 连胜/连败：核心全额承担，登场角色球员 35%，未登场边缘人仅 15%（连球都没打，不该跟着崩盘） */
+  const streakWeight = !played ? 0.15 : (isCore ? 1 : 0.35);
+  if (streak >= 3) d += Math.min(2.5, 0.5 * streak) * streakWeight;
+  else if (streak <= -3) d += Math.max(-2.0, 0.5 * streak) * streakWeight;
+  /* D. 个人表现：预期按实际分钟缩放（estStats 基准 25.5 分钟）；DNP 不扣分。
+     旧逻辑拿满时间预期对比 8 分钟替补/0 分钟DNP 的数据，导致角色球员每场稳定 -1.5 */
+  if (played) {
+    const est = estStats(p0);
+    const perf = b.pts + b.reb * 0.7 + b.ast * 0.9 + (b.stl + b.blk) * 1.2 - b.tov * 0.8;
+    const expPerf = est.ppg + est.rpg * 0.7 + est.apg * 0.9;
+    const minRatio = Math.min(1.25, actualMin / EST_REF_MINUTES);
+    d += Math.max(-1.5, Math.min(1.5, (perf - expPerf * minRatio) * 0.15));
+  }
+  /* E. 胜负：核心 ±0.3，登场角色球员 ±0.12，DNP 无情绪 */
+  if (played) d += teamWon ? (isCore ? 0.3 : 0.12) : (isCore ? -0.3 : -0.12);
+  /* F. 主力未登场：被安排进轮换却 0 秒的强点才会不满（DNP 边缘人不扣） */
   if (b.sec === 0 && baseOvr >= 78 && side.rotation && side.rotation.includes(p0.id)) d += -0.8;
   return d;
 }

@@ -2206,9 +2206,24 @@ RENDERERS.hub = function () {
       ).join("") + "</div>"
     : "";
 
+  /* 休赛期联盟运作动态（AI 交易/签约/不续约），让玩家感知联盟在流动，
+     只展示最近一个休赛期（跨季时 news.season 为上一赛季编号） */
+  const aiNews = save.aiLeagueNews;
+  const aiNewsHtml = (aiNews && aiNews.items && aiNews.items.length &&
+    aiNews.season >= save.seasonNo - 1)
+    ? '<h3 class="section-h">联盟休赛期动态</h3><div class="ai-news-card">' +
+      aiNews.items.slice(0, 12).map(n => {
+        const ico = n.type === "trade" ? "🔄" : n.type === "sign" ? "✍️" : "👋";
+        return '<div class="ai-news-row"><span class="ai-news-ico">' + ico + '</span><span>' +
+          esc(n.text) + "</span></div>";
+      }).join("") +
+      (aiNews.items.length > 12 ? '<div class="ai-news-more">共 ' + aiNews.items.length + ' 条运作</div>' : "") +
+      "</div>"
+    : "";
+
   /* 主内容区：根据 hubTab 决定显示哪个面板 */
   const overviewHtml = pomBannerHtml + gameHtml + bracketHtml +
-    '<h3 class="section-h">队内数据王</h3>' + leadersHtml + pomHistoryHtml;
+    '<h3 class="section-h">队内数据王</h3>' + leadersHtml + pomHistoryHtml + aiNewsHtml;
   const rosterTabHtml = '<h3 class="section-h">球队阵容（' + mine.length + '人）</h3>' + rosterHtml;
   const historyTabHtml = '<h3 class="section-h">历史赛季</h3>' + histHtml;
   const tabContent = hubTab === "roster" ? rosterTabHtml
