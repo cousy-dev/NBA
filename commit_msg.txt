@@ -1,14 +1,10 @@
-fix: 修复云端存档失败——200KB限制分片写入+SDK返回值误判
+fix: 云端存档体积优化——云同步前剥离比赛详情数据
 
-根因：
-1. 虎扑活动数据存储单次写入上限200KB（字节），多赛季存档含525+球员
-   老化表/历届新秀/赛季数据，超限被静默跳过，玩家只看到"云端同步失败"
-2. 旧逻辑把SDK成功时resolve的undefined误判为失败(res && res.ok!==false)
+赛季中期存档超限根因：每场比赛的完整技术统计(box，双方30人x14字段)和
+每节比分(quarters)都存入save.schedule[i]，打40+场后存档远超200KB限制。
 
 修复：
-- 存档按UTF-8字节分片(180KB/片，ASCII边界不切断中文)，meta提交+顺序
-  数据片，启动时readSaveChunks重组，兼容旧单键格式，删除时双墓碑
-- isSetOk正确识别undefined/null/true/错误码等多种SDK返回形态
-- flushSyncSave返回{ok,reason}，toast区分"不支持云存储"与"写入失败"
-- 启动云恢复超时3.5s放宽到8s(分片需多次串行读取)
-- 新增云环境检测/存档大小/分片数诊断日志，便于实测定位
+- 新增_stripForCloud：云同步前深拷贝并剥离schedule[].box/quarters和
+  季后赛games[].box，只保留result/score（日历弹窗已有空值保护，不报错）
+- syncSave(自动)和flushSyncSave(手动)均使用剥离后的副本
+- 本地存档不受影响，日历弹窗详情正常显示

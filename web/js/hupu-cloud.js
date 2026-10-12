@@ -202,24 +202,46 @@ const HupuCloud = (() => {
     clearTimeout(_syncTimers[slot]);
     _syncTimers[slot] = setTimeout(() => {
       try {
-        const copy = Object.assign({}, save, { _cloudT: Date.now() });
-        const json = JSON.stringify(copy);
+        const json = JSON.stringify(_stripForCloud(save));
         writeSaveChunks(slot, json).then(r => {
-          if (!r.ok) console.warn("[HupuCloud] 自动云同步失败:", slot, r.reason);
+          if (!r.ok) console.warn("[HupuCloud] 自动云同步失败:", slot, r.reason, r.sizeKB + "KB");
         });
       } catch (e) { console.warn("[HupuCloud] 自动云同步异常:", e && e.message); }
     }, 1200);
   }
 
   /* 立即同步（用户点击「存档」按钮时调用，跳过去抖）。
-     返回 Promise<{ok, reason, sizeKB, chunks}>：
-       reason: "no-cloud" 云能力不可用 | "api-fail" 平台写入失败 */
+     云端同步前剥离比赛详情(box/quarters)以减小体积——这些仅用于本地日历弹窗，
+     不影响恢复后游戏功能。返回 Promise<{ok, reason, sizeKB, chunks}> */
+  function _stripForCloud(save) {
+    /* 深拷贝后剥离，避免修改原对象的嵌套引用（否则本地存档也会丢 box/quarters） */
+    const copy = JSON.parse(JSON.stringify(save));
+    copy._cloudT = Date.now();
+    /* 剥离比赛详情（最大体积来源）：保留result/score用于日历标记，删除box/quarters */
+    if (copy.schedule) {
+      copy.schedule = copy.schedule.map(g => {
+        const s = { opp: g.opp, home: g.home, result: g.result, score: g.score };
+        return s;
+      });
+    }
+    /* 剥离季后赛单场详情（同理，保留系列赛结果） */
+    if (copy.playoffs && copy.playoffs.rounds) {
+      copy.playoffs.rounds.forEach(r => {
+        (r.series || []).forEach(s => {
+          (s.games || []).forEach(gm => { delete gm.box; });
+        });
+      });
+      if (copy.playoffs.userSeries && copy.playoffs.userSeries.games) {
+        copy.playoffs.userSeries.games.forEach(gm => { delete gm.box; });
+      }
+    }
+    return copy;
+  }
   function flushSyncSave(slot, save) {
     if (!hasCloudStorage()) return Promise.resolve({ ok: false, reason: "no-cloud" });
     clearTimeout(_syncTimers[slot]);
     try {
-      const copy = Object.assign({}, save, { _cloudT: Date.now() });
-      const json = JSON.stringify(copy);
+      const json = JSON.stringify(_stripForCloud(save));
       return writeSaveChunks(slot, json);
     } catch (e) {
       console.warn("[HupuCloud] 立即云同步异常:", e && e.message);
