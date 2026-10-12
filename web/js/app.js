@@ -2363,9 +2363,10 @@ RENDERERS.hub = function () {
     try {
       writeSave(save);
       if (window.HupuCloud && HupuCloud.flushSyncSave) {
-        const ok = await HupuCloud.flushSyncSave(save.slot || state.saveSlot || 1, save);
-        if (ok) toast("☁️ 存档成功（已同步至云端）");
-        else toast("✓ 存档成功（本地）· 云端同步失败或不可用");
+        const r = await HupuCloud.flushSyncSave(save.slot || state.saveSlot || 1, save);
+        if (r && r.ok) toast("☁️ 存档成功（已同步至云端）");
+        else if (r && r.reason === "no-cloud") toast("✓ 存档成功（本地）· 当前环境不支持云存储");
+        else toast("✓ 存档成功（本地）· 云端写入失败，请稍后重试");
       } else {
         toast("✓ 存档成功");
       }
@@ -4683,9 +4684,10 @@ RENDERERS.seasonend = function () {
     try {
       writeSave(save);
       if (window.HupuCloud && HupuCloud.flushSyncSave) {
-        const ok = await HupuCloud.flushSyncSave(save.slot || state.saveSlot || 1, save);
-        if (ok) toast("☁️ 存档成功（已同步至云端）");
-        else toast("✓ 存档成功（本地）· 云端同步失败或不可用");
+        const r = await HupuCloud.flushSyncSave(save.slot || state.saveSlot || 1, save);
+        if (r && r.ok) toast("☁️ 存档成功（已同步至云端）");
+        else if (r && r.reason === "no-cloud") toast("✓ 存档成功（本地）· 当前环境不支持云存储");
+        else toast("✓ 存档成功（本地）· 云端写入失败，请稍后重试");
       } else toast("✓ 存档成功");
     } catch (e) { toast("存档失败：" + (e && e.message || "未知错误")); }
     seSave.disabled = false;
@@ -6752,14 +6754,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   /* 先初始化存储（localStorage 受限时异步载入 IndexedDB 存档），再渲染开始页 */
   try { await initStorage(); } catch (e) { _storeMode = "mem"; }
-  /* 虎扑云端存档恢复（活动数据存储）：本地无档或云端更新时回填，最多等待 3.5s */
+  /* 虎扑云端存档恢复（活动数据存储）：本地无档或云端更新时回填，最多等待 8s */
+  if (window.HupuCloud) {
+    console.log("[HupuCloud] 云环境检测: storage=" + !!HupuCloud.hasCloudStorage() + " request=" + !!HupuCloud.hasCloudRequest());
+  }
   if (window.HupuCloud && HupuCloud.env !== "none") {
     try {
       const localSlots = {};
       for (let s = 1; s <= SAVE_SLOT_COUNT; s++) { const sv = readSlot(s); if (sv) localSlots[s] = sv; }
       const cloudSaves = await Promise.race([
         HupuCloud.restoreSaves(localSlots),
-        new Promise(r => setTimeout(() => r({}), 3500))
+        /* 分片存档需多次串行读取（meta+分片），超时放宽到 8s */
+        new Promise(r => setTimeout(() => r({}), 8000))
       ]);
       Object.keys(cloudSaves).forEach(k => {
         const s = Number(k);

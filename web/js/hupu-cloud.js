@@ -27,7 +27,8 @@ const HupuCloud = (() => {
   const SAVE_PREFIX = "nba_gm_slot_";      /* 云端存档键：nba_gm_slot_1..3 */
   const BEST_KEY = "nba_gm_best";          /* 个人最佳战绩 */
   const BEST_LKEY = "nba_gm_best_local";   /* 本地镜像（无云时也有值） */
-  const MAX_CLOUD_SIZE = 200000;           /* 200KB 单次写入限制 */
+  const MAX_CLOUD_SIZE = 200000;           /* 200KB 单次写入限制（平台约束，按字节计） */
+  const CHUNK_BYTES = 180 * 1024;          /* 分片目标大小（留 20KB 余量给 key/封装） */
 
   let _syncTimers = {};          /* slot -> debounce timer */
   let _cloudWarned = false;       /* 防止重复 warn */
@@ -53,39 +54,146 @@ const HupuCloud = (() => {
   }
 
   /* ===== 云存储 ===== */
+  /* 判定 setValue 返回值是否成功。
+     注意：部分版本 SDK 成功时 resolve 无返回值（undefined）或只回 true，
+     旧逻辑 !!(res && res.ok !== false) 会把 undefined 误判成失败。
+     只有显式 ok:false / 明确错误码才算失败 */
+  function isSetOk(res) {
+    if (res === undefined || res === null || res === true) return true;
+    if (typeof res === "object") {
+      if (res.ok === false) return false;
+      if (res.success === false) return false;
+      if (res.code != null && res.code !== 0 && res.code !== 200 &&
+          res.code !== "0" && res.code !== "200") return false;
+      return true;
+    }
+    return !!res;
+  }
+
   function cloudSetValue(key, value) {
     if (!hasCloudStorage()) return Promise.resolve(false);
     const str = typeof value === "string" ? value : JSON.stringify(value);
-    if (str.length > MAX_CLOUD_SIZE) {
-      console.warn("[HupuCloud] 存档超 200KB 跳过云写:", Math.round(str.length / 1024) + "KB");
+    const byteLen = utf8Bytes(str).length;
+    if (byteLen > MAX_CLOUD_SIZE) {
+      console.warn("[HupuCloud] 单次写入超 200KB:", key, Math.round(byteLen / 1024) + "KB");
       return Promise.resolve(false);
     }
     try {
       return Promise.resolve(window.ColorboxAI.storage.setValue({ [key]: str }))
-        .then(res => !!(res && res.ok !== false))
-        .catch(() => false);
-    } catch (e) { return Promise.resolve(false); }
+        .then(res => {
+          const ok = isSetOk(res);
+          if (!ok) console.warn("[HupuCloud] setValue 失败:", key, res);
+          return ok;
+        })
+        .catch(err => { console.warn("[HupuCloud] setValue 异常:", key, err && err.message); return false; });
+    } catch (e) { console.warn("[HupuCloud] setValue 同步异常:", key, e && e.message); return Promise.resolve(false); }
   }
 
-  function cloudGetValue(key) {
+  /* 原始字符串读取（不做 JSON.parse，供分片重组用，避免分片片段被误解析） */
+  function cloudGetRaw(key) {
     if (!hasCloudStorage()) return Promise.resolve(null);
     try {
       return Promise.resolve(window.ColorboxAI.storage.getValue(key))
         .then(raw => {
           if (raw == null) return null;
-          if (typeof raw === "string") {
-            try { return JSON.parse(raw); } catch (e) { return raw; }
-          }
-          /* 对象可能包含嵌套 JSON 字符串 */
+          if (typeof raw === "string") return raw;
+          /* 部分 SDK 把所有键值对包成对象返回 */
           if (typeof raw === "object" && raw[key] !== undefined) {
             const v = raw[key];
-            if (typeof v === "string") { try { return JSON.parse(v); } catch (e) { return v; } }
-            return v;
+            return typeof v === "string" ? v : JSON.stringify(v);
           }
-          return raw;
+          return null;
         })
         .catch(() => null);
     } catch (e) { return Promise.resolve(null); }
+  }
+
+  function cloudGetValue(key) {
+    return cloudGetRaw(key).then(str => {
+      if (str == null) return null;
+      try { return JSON.parse(str); } catch (e) { return str; }
+    });
+  }
+
+  /* UTF-8 字节数与分片（200KB 是字节限制，中文字符占 3 字节，不能用 string.length） */
+  function utf8Bytes(str) {
+    try { return new TextEncoder().encode(str); }
+    catch (e) {
+      /* 极端老环境降级：ASCII 1 字节，其余按 3 字节估算 */
+      const out = new Uint8Array(str.length * 3);
+      return out;
+    }
+  }
+  /* 按 UTF-8 字节切分，边界回退到 ASCII 字节（<0x80），绝不切断多字节字符；
+     重组时直接字符串拼接即可 */
+  function splitChunks(str) {
+    const bytes = utf8Bytes(str);
+    if (bytes.length <= CHUNK_BYTES) return [str];
+    const decoder = new TextDecoder("utf-8");
+    const chunks = [];
+    let off = 0;
+    while (off < bytes.length) {
+      let end = Math.min(off + CHUNK_BYTES, bytes.length);
+      if (end < bytes.length) {
+        /* 多字节 UTF-8：续接字节 0x80-0xBF、首字节 ≥0xC0；回退到最近的 ASCII 字节切分 */
+        while (end > off && bytes[end] >= 0x80) end--;
+        if (end === off) end = Math.min(off + CHUNK_BYTES, bytes.length); /* 理论不可达的兜底 */
+      }
+      chunks.push(decoder.decode(bytes.subarray(off, end)));
+      off = end;
+    }
+    return chunks;
+  }
+
+  function partsMetaKey(slot) { return SAVE_PREFIX + slot + "_parts"; }
+  function partKey(slot, i) { return SAVE_PREFIX + slot + "_p" + i; }
+
+  /* 分片写入：先顺序写全部数据片，最后写 meta 提交（读到 meta 才认为分片完整）。
+     返回 {ok, reason, sizeKB, chunks} */
+  async function writeSaveChunks(slot, json) {
+    if (!hasCloudStorage()) return { ok: false, reason: "no-cloud" };
+    const sizeKB = Math.round(utf8Bytes(json).length / 1024);
+    const chunks = splitChunks(json);
+    try {
+      /* 先读旧 meta，用于写完后清理多余分片（存档变小时） */
+      const oldMeta = await cloudGetValue(partsMetaKey(slot));
+      const oldN = (oldMeta && typeof oldMeta === "object" && oldMeta.n) || 0;
+      for (let i = 0; i < chunks.length; i++) {
+        const ok = await cloudSetValue(partKey(slot, i), chunks[i]);
+        if (!ok) { console.warn("[HupuCloud] 分片写入失败:", slot, i + "/" + chunks.length); return { ok: false, reason: "api-fail", sizeKB, chunks: chunks.length }; }
+      }
+      /* meta 提交 */
+      const meta = JSON.stringify({ v: 1, n: chunks.length, t: Date.now() });
+      const metaOk = await cloudSetValue(partsMetaKey(slot), meta);
+      if (!metaOk) return { ok: false, reason: "api-fail", sizeKB, chunks: chunks.length };
+      /* 清理旧存档的多余分片 */
+      for (let i = chunks.length; i < oldN; i++) {
+        cloudSetValue(partKey(slot, i), "").catch(() => {});
+      }
+      console.log("[HupuCloud] 云端存档成功: 槽位" + slot + " " + sizeKB + "KB / " + chunks.length + "片");
+      return { ok: true, sizeKB, chunks: chunks.length };
+    } catch (e) {
+      console.warn("[HupuCloud] 分片写入异常:", e && e.message);
+      return { ok: false, reason: "api-fail", sizeKB, chunks: chunks.length };
+    }
+  }
+
+  /* 分片读取并重组；无分片 meta 时返回 null（交由调用方回退旧的单键格式） */
+  async function readSaveChunks(slot) {
+    try {
+      const meta = await cloudGetValue(partsMetaKey(slot));
+      if (!meta || typeof meta !== "object" || !meta.n || meta._deleted) return null;
+      let json = "";
+      for (let i = 0; i < meta.n; i++) {
+        const piece = await cloudGetRaw(partKey(slot, i));
+        if (piece == null) { console.warn("[HupuCloud] 分片缺失:", slot, i); return null; }
+        json += piece;
+      }
+      return JSON.parse(json);
+    } catch (e) {
+      console.warn("[HupuCloud] 分片重组失败:", slot, e && e.message);
+      return null;
+    }
   }
 
   /* ===== 存档云同步（由 app.js writeSave 触发，1.2s 去抖） ===== */
@@ -96,58 +204,59 @@ const HupuCloud = (() => {
       try {
         const copy = Object.assign({}, save, { _cloudT: Date.now() });
         const json = JSON.stringify(copy);
-        if (json.length > MAX_CLOUD_SIZE) {
-          console.warn("[HupuCloud] 存档超 200KB 跳过云同步:", Math.round(json.length / 1024) + "KB");
-          return;
-        }
-        cloudSetValue(SAVE_PREFIX + slot, json);
-      } catch (e) {}
+        writeSaveChunks(slot, json).then(r => {
+          if (!r.ok) console.warn("[HupuCloud] 自动云同步失败:", slot, r.reason);
+        });
+      } catch (e) { console.warn("[HupuCloud] 自动云同步异常:", e && e.message); }
     }, 1200);
   }
 
-  /* 立即同步（用户点击「存档」按钮时调用，跳过去抖） */
+  /* 立即同步（用户点击「存档」按钮时调用，跳过去抖）。
+     返回 Promise<{ok, reason, sizeKB, chunks}>：
+       reason: "no-cloud" 云能力不可用 | "api-fail" 平台写入失败 */
   function flushSyncSave(slot, save) {
-    if (!hasCloudStorage()) return false;
+    if (!hasCloudStorage()) return Promise.resolve({ ok: false, reason: "no-cloud" });
     clearTimeout(_syncTimers[slot]);
     try {
       const copy = Object.assign({}, save, { _cloudT: Date.now() });
       const json = JSON.stringify(copy);
-      if (json.length > MAX_CLOUD_SIZE) {
-        console.warn("[HupuCloud] 存档超 200KB 跳过云同步:", Math.round(json.length / 1024) + "KB");
-        return false;
-      }
-      return cloudSetValue(SAVE_PREFIX + slot, json);
-    } catch (e) { return false; }
+      return writeSaveChunks(slot, json);
+    } catch (e) {
+      console.warn("[HupuCloud] 立即云同步异常:", e && e.message);
+      return Promise.resolve({ ok: false, reason: "api-fail" });
+    }
   }
 
   function deleteSave(slot) {
     if (!hasCloudStorage()) return;
     clearTimeout(_syncTimers[slot]);
+    /* 旧单键格式墓碑 + 分片 meta 墓碑（分片内容由 meta 失效自然忽略） */
     cloudSetValue(SAVE_PREFIX + slot, JSON.stringify({ _deleted: true, t: Date.now() }));
+    cloudSetValue(partsMetaKey(slot), JSON.stringify({ v: 1, _deleted: true, t: Date.now() }));
   }
 
   /* 启动恢复：返回 {slot: save对象}，只包含需要写回本地的槽位。
+     读取顺序：分片存档（新版）→ 单键存档（旧版兼容）。
      规则：本地无档 → 云端有效档直接恢复；本地有档 → 云端 _cloudT 更新超 5s 才采用 */
-  function restoreSaves(localSlots) {
-    if (!hasCloudStorage()) return Promise.resolve({});
-    const jobs = [1, 2, 3].map(s => cloudGetValue(SAVE_PREFIX + s).then(v => ({ s, v })));
-    return Promise.all(jobs).then(list => {
-      const out = {};
-      list.forEach(({ s, v }) => {
-        try {
-          if (!v) return;
-          const save = typeof v === "string" ? JSON.parse(v) : v;
-          if (!save || save._deleted) return;
-          if (!save.team) return;
-          const local = localSlots[s];
-          if (!local) { out[s] = save; return; }
-          const lt = local._cloudT || 0;
-          const ct = save._cloudT || 0;
-          if (ct > lt + 5000) out[s] = save;
-        } catch (e) {}
-      });
-      return out;
-    }).catch(() => ({}));
+  async function restoreSaves(localSlots) {
+    if (!hasCloudStorage()) return {};
+    const out = {};
+    for (let s = 1; s <= 3; s++) {
+      try {
+        let save = await readSaveChunks(s);
+        if (!save) {
+          const v = await cloudGetValue(SAVE_PREFIX + s);
+          if (v) save = typeof v === "string" ? JSON.parse(v) : v;
+        }
+        if (!save || save._deleted || !save.team) continue;
+        const local = localSlots[s];
+        if (!local) { out[s] = save; continue; }
+        const lt = local._cloudT || 0;
+        const ct = save._cloudT || 0;
+        if (ct > lt + 5000) out[s] = save;
+      } catch (e) {}
+    }
+    return out;
   }
 
   /* ===== CloudBase 排行榜客户端 ===== */
