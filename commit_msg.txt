@@ -1,17 +1,13 @@
-fix: 云端存档剥离更多历史字段，确保赛季3+仍可保存
+替换球队LOGO为虎扑平台技能提供的官方LOGO
 
-分析存档体积增长模型：赛季5约400KB、赛季10约670KB。
-deflate压缩后(30%)赛季10约201KB临界，赛季15+必然超限。
+通过 colorbox-request-basketball-team-info 技能（basketballapi/teamStandingList）
+拉取 NBA 30 队的 logoLink + teamId 静态映射，写入 data/hupu_team_logos.js。
 
-本次在 _stripForCloud 中剥离更多纯展示/历史字段（本地存档仍完整）：
-- careerStats: 生涯数据，仅名人堂展示
-- hof: 名人堂名单，纯展示
-- finances.history: 财务历史，纯展示
-- retireLog: 退役日志，纯展示
-- prevSeasonOvr: 上赛季OVR快照，仅MIP用，赛季初重置
-- history: 只保留最后1条（训练点计算需要）
-
-剥离后体积模型：赛季10约555KB→压缩166KB(<200KB单键)，
-赛季15约780KB→压缩234KB(走分片兜底)。
-customPlayers保留完整(attrs不能删否则applyAdj报错)，
-playerStats/retired等游戏逻辑必需字段保留。
+- teamLogoHtml(abbr) 改为优先用虎扑 CDN 远程 LOGO（i11.hoopchina.com.cn），
+  失败回退本地 img/logos/{abbr}_logo.png，再失败回退文字缩写
+- hupu-cloud.js 新增 hasBasketballTeamInfo/fetchTeamLogo/refreshTeamLogo：
+  运行时调用 ColorboxAI.request.basketball.teamInfo 单队刷新 logoLink
+- index.html 声明 colorbox-request-basketball-team-info 技能，
+  加载 hupu_team_logos.js 数据文件
+- 新增 build_hupu_logos.py：拉取最新 logoLink 重新生成映射表（重跑即可）
+- app.js v143 / hupu-cloud.js v9 / hupu_team_logos.js v1

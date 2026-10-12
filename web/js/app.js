@@ -354,9 +354,28 @@ function teamStrength(abbr) {
 }
 function stars(strength) { return strength >= 88 ? 5 : strength >= 84 ? 4 : strength >= 79 ? 3 : 2; }
 function teamLogoHtml(abbr) {
-  return '<img src="img/logos/' + abbr + '_logo.png" alt="" loading="lazy" ' +
-    'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+  /* 优先使用虎扑平台提供的官方球队 LOGO（i11.hoopchina.com.cn CDN）；
+     logoLink 由 build_hupu_logos.py 从 basketballapi/teamStandingList 拉取，写入 data/hupu_team_logos.js；
+     运行时若 ColorboxAI 可用，hupu-cloud.js 的 refreshTeamLogos 会通过 colorbox-request-basketball-team-info
+     技能刷新最新 logoLink 到 HUPU_TEAM_LOGOS[abbr].logo；
+     无映射 / 远程图加载失败 → 回退本地 img/logos/{abbr}_logo.png；
+     本地也失败 → 回退文字缩写。 */
+  var remote = '';
+  if (window.HUPU_TEAM_LOGOS && HUPU_TEAM_LOGOS[abbr] && HUPU_TEAM_LOGOS[abbr].logo) {
+    remote = HUPU_TEAM_LOGOS[abbr].logo;
+  }
+  /* 链式 onerror：远程失败 → 本地 PNG → 文字缩写 */
+  var onerr;
+  if (remote) {
+    onerr = 'onerror="var i=this,t=this.nextElementSibling;' +
+      'if(i.src.indexOf(\'img/logos/\')===-1){i.src=\'img/logos/' + abbr + '_logo.png\';}' +
+      'else{i.style.display=\'none\';if(t)t.style.display=\'flex\';}"';
+  } else {
+    onerr = 'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"';
+  }
+  var html = '<img src="' + (remote || ('img/logos/' + abbr + '_logo.png')) + '" alt="" loading="lazy" ' + onerr + '>' +
     '<div class="logo-fb" style="display:none">' + esc(abbr) + '</div>';
+  return html;
 }
 function usedTotal() {
   let s = 0;

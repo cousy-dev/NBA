@@ -745,6 +745,46 @@ const HupuCloud = (() => {
     }
   }
 
+  /* ===== 平台技能 colorbox-request-basketball-team-info =====
+     虎扑官方篮球球队资料接口：window.ColorboxAI.request.basketball.teamInfo({teamId, leagueType})
+     返回 res.code===200 时 res.data.info.logoLink 为官方球队 LOGO URL（i11.hoopchina.com.cn CDN）。
+     本游戏启动时已用静态映射 data/hupu_team_logos.js 提供 30 队 logoLink（由 build_hupu_logos.py 离线拉取），
+     本方法用于运行时按需刷新单队 logoLink（应对 CDN URL 变化），失败静默 fallback 到静态映射。 */
+  function hasBasketballTeamInfo() {
+    return !!(window.ColorboxAI && window.ColorboxAI.request &&
+      window.ColorboxAI.request.basketball &&
+      typeof window.ColorboxAI.request.basketball.teamInfo === "function");
+  }
+
+  async function fetchTeamLogo(teamId, leagueType) {
+    if (!hasBasketballTeamInfo()) return null;
+    if (!teamId) return null;
+    var lt = (leagueType || "nba").toLowerCase();
+    try {
+      var res = await window.ColorboxAI.request.basketball.teamInfo({ teamId: String(teamId), leagueType: lt });
+      if (res && res.code === 200 && res.data && res.data.info && res.data.info.logoLink) {
+        return { logo: res.data.info.logoLink, info: res.data.info };
+      }
+      console.warn("[HupuCloud] teamInfo 调用失败:", teamId, res && res.code, res && res.message);
+      return null;
+    } catch (e) {
+      console.warn("[HupuCloud] teamInfo 异常:", teamId, e && e.message);
+      return null;
+    }
+  }
+
+  /* 按需刷新单队 LOGO：更新 window.HUPU_TEAM_LOGOS[abbr].logo，返回新 URL 或 null */
+  async function refreshTeamLogo(abbr) {
+    if (!window.HUPU_TEAM_LOGOS || !HUPU_TEAM_LOGOS[abbr] || !HUPU_TEAM_LOGOS[abbr].teamId) return null;
+    var teamId = HUPU_TEAM_LOGOS[abbr].teamId;
+    var r = await fetchTeamLogo(teamId, "nba");
+    if (r && r.logo) {
+      HUPU_TEAM_LOGOS[abbr].logo = r.logo;
+      return r.logo;
+    }
+    return null;
+  }
+
   /* 兼容旧版 init 调用（无操作，SDK 就绪即用） */
   function init() { return getEnv(); }
 
@@ -777,6 +817,10 @@ const HupuCloud = (() => {
     hasAd,
     getAdTaskState,
     completeRewardVideo,
+    /* 平台球队资料 / LOGO */
+    hasBasketballTeamInfo,
+    fetchTeamLogo,
+    refreshTeamLogo,
     /* 供调试 */
     _cloudSetValue: cloudSetValue,
     _cloudGetValue: cloudGetValue,
