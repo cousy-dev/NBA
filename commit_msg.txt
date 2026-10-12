@@ -1,10 +1,14 @@
-fix: 云端存档体积优化——云同步前剥离比赛详情数据
+fix: 云端存档压缩方案改为 deflate+短码，修复赛季2存档失败
 
-赛季中期存档超限根因：每场比赛的完整技术统计(box，双方30人x14字段)和
-每节比分(quarters)都存入save.schedule[i]，打40+场后存档远超200KB限制。
+根因：之前剥离 schedule[].box/quarters 后赛季2存档仍超限，说明还有
+其他大字段累积（customPlayers新秀、playerStats、careerStats等），
+且内嵌的LZ-string实现位序有bug导致解压失败。
 
 修复：
-- 新增_stripForCloud：云同步前深拷贝并剥离schedule[].box/quarters和
-  季后赛games[].box，只保留result/score（日历弹窗已有空值保护，不报错）
-- syncSave(自动)和flushSyncSave(手动)均使用剥离后的副本
-- 本地存档不受影响，日历弹窗详情正常显示
+- 移除有bug的LZ-string，改用浏览器原生 CompressionStream(deflate-raw)
+  → base64 压缩（Chrome80+/Android WebView支持）
+- 不支持 deflate 时回退「字段名短码替换」：把 nameCn/attrs/potential 等
+  高频字段名替换成 \x01-\x1f 单字符，压缩率约60%
+- writeSaveChunks 用 await compressJson 异步压缩，meta.v3 标记压缩方法
+- readSaveChunks 根据 meta.method 解压
+- 短码压缩/解压已用cscript验证还原一致

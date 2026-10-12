@@ -30,6 +30,74 @@ const HupuCloud = (() => {
   const MAX_CLOUD_SIZE = 200000;           /* 200KB 单次写入限制（平台约束，按字节计） */
   const CHUNK_BYTES = 180 * 1024;          /* 分片目标大小（留 20KB 余量给 key/封装） */
 
+  /* ===== 压缩工具：优先用浏览器原生 CompressionStream(deflate)，不支持时回退字段名短码 ===== */
+  function hasCompressionStream() {
+    return typeof CompressionStream === "function" && typeof DecompressionStream === "function";
+  }
+  /* 短码映射：把 JSON 中高频字段名替换成单字符，体积可减小 30-50%。
+     用 \x01-\x1F 控制字符作为短码（JSON 字符串中不出现这些字符） */
+  var SHORT_MAP = [
+    ["nameCn","\x01"],["nameEn","\x02"],["attrs","\x03"],["mgr","\x04"],
+    ["potential","\x05"],["collegeStats","\x06"],["heightCm","\x07"],["weightKg","\x08"],
+    ["expYears","\x09"],["draftYear","\x0a"],["ratingSource","\x0b"],["isRookie","\x0c"],
+    ["isLegend","\x0d"],["isCbaLegend","\x0e"],["displayName","\x0f"],["logoAbbr","\x10"],
+    ["playerStats","\x11"],["careerStats","\x12"],["prevSeasonOvr","\x13"],["lastPlayoffs","\x14"],
+    ["seasonDates","\x15"],["standings","\x16"],["schedule","\x17"],["aiRosters","\x18"],
+    ["customPlayers","\x19"],["draftPicks","\x1a"],["playoffs","\x1b"],["honors","\x1c"],
+    ["playerAccolades","\x1d"],["ovrAdj","\x1e"],["ageAdj","\x1f"]
+  ];
+  function _shortCompress(str) {
+    var out = str;
+    for (var i = 0; i < SHORT_MAP.length; i++) {
+      out = out.split('"' + SHORT_MAP[i][0] + '"').join('"' + SHORT_MAP[i][1] + '"');
+    }
+    return out;
+  }
+  function _shortDecompress(str) {
+    var out = str;
+    for (var i = SHORT_MAP.length - 1; i >= 0; i--) {
+      out = out.split('"' + SHORT_MAP[i][1] + '"').join('"' + SHORT_MAP[i][0] + '"');
+    }
+    return out;
+  }
+  /* 异步压缩：优先 deflate → base64，回退短码。返回 {data, method} */
+  async function compressJson(jsonStr) {
+    if (hasCompressionStream()) {
+      try {
+        var enc = new TextEncoder();
+        var cs = new CompressionStream("deflate-raw");
+        var writer = cs.writable.getWriter();
+        writer.write(enc.encode(jsonStr));
+        writer.close();
+        var buf = await new Response(cs.readable).arrayBuffer();
+        /* ArrayBuffer → base64 */
+        var bytes = new Uint8Array(buf);
+        var bin = "";
+        for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        var b64 = btoa(bin);
+        return { data: b64, method: "deflate" };
+      } catch (e) { console.warn("[HupuCloud] deflate 压缩失败，回退短码:", e && e.message); }
+    }
+    return { data: _shortCompress(jsonStr), method: "short" };
+  }
+  /* 异步解压：根据 method 选择 */
+  async function decompressData(data, method) {
+    if (method === "deflate" && hasCompressionStream()) {
+      try {
+        var bin = atob(data);
+        var bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        var ds = new DecompressionStream("deflate-raw");
+        var writer = ds.writable.getWriter();
+        writer.write(bytes);
+        writer.close();
+        var buf = await new Response(ds.readable).arrayBuffer();
+        return new TextDecoder().decode(buf);
+      } catch (e) { console.warn("[HupuCloud] deflate 解压失败:", e && e.message); return null; }
+    }
+    return _shortDecompress(data);
+  }
+
   let _syncTimers = {};          /* slot -> debounce timer */
   let _cloudWarned = false;       /* 防止重复 warn */
   let _authChecked = false;      /* 登录状态缓存 */
@@ -152,29 +220,45 @@ const HupuCloud = (() => {
      返回 {ok, reason, sizeKB, chunks} */
   async function writeSaveChunks(slot, json) {
     if (!hasCloudStorage()) return { ok: false, reason: "no-cloud" };
-    const sizeKB = Math.round(utf8Bytes(json).length / 1024);
-    const chunks = splitChunks(json);
+    const origKB = Math.round(utf8Bytes(json).length / 1024);
+    /* 压缩：优先 deflate→base64，回退字段名短码 */
+    const { data: compData, method } = await compressJson(json);
+    const compKB = Math.round(utf8Bytes(compData).length / 1024);
+    console.log("[HupuCloud] 存档压缩(" + method + "): " + origKB + "KB -> " + compKB + "KB");
+    /* 分片：base64 是 ASCII，按字节切分 */
+    const bytes = utf8Bytes(compData);
+    const CHUNK_BYTES = 170 * 1024;
+    const chunks = [];
+    if (bytes.length <= CHUNK_BYTES) {
+      chunks.push(compData);
+    } else {
+      /* 按字节边界切（base64 是 ASCII，不涉及多字节字符） */
+      const decoder = new TextDecoder("utf-8");
+      for (let off = 0; off < bytes.length; off += CHUNK_BYTES) {
+        chunks.push(decoder.decode(bytes.subarray(off, off + CHUNK_BYTES)));
+      }
+    }
     try {
-      /* 先读旧 meta，用于写完后清理多余分片（存档变小时） */
+      /* 先读旧 meta，用于写完后清理多余分片 */
       const oldMeta = await cloudGetValue(partsMetaKey(slot));
       const oldN = (oldMeta && typeof oldMeta === "object" && oldMeta.n) || 0;
       for (let i = 0; i < chunks.length; i++) {
         const ok = await cloudSetValue(partKey(slot, i), chunks[i]);
-        if (!ok) { console.warn("[HupuCloud] 分片写入失败:", slot, i + "/" + chunks.length); return { ok: false, reason: "api-fail", sizeKB, chunks: chunks.length }; }
+        if (!ok) { console.warn("[HupuCloud] 分片写入失败:", slot, i + 1 + "/" + chunks.length, "字节:", utf8Bytes(chunks[i]).length); return { ok: false, reason: "api-fail", sizeKB: origKB, compKB, chunks: chunks.length }; }
       }
       /* meta 提交 */
-      const meta = JSON.stringify({ v: 1, n: chunks.length, t: Date.now() });
+      const meta = JSON.stringify({ v: 3, n: chunks.length, t: Date.now(), method, origKB, compKB });
       const metaOk = await cloudSetValue(partsMetaKey(slot), meta);
-      if (!metaOk) return { ok: false, reason: "api-fail", sizeKB, chunks: chunks.length };
+      if (!metaOk) return { ok: false, reason: "api-fail", sizeKB: origKB, compKB, chunks: chunks.length };
       /* 清理旧存档的多余分片 */
       for (let i = chunks.length; i < oldN; i++) {
         cloudSetValue(partKey(slot, i), "").catch(() => {});
       }
-      console.log("[HupuCloud] 云端存档成功: 槽位" + slot + " " + sizeKB + "KB / " + chunks.length + "片");
-      return { ok: true, sizeKB, chunks: chunks.length };
+      console.log("[HupuCloud] 云端存档成功: 槽位" + slot + " " + origKB + "KB→" + compKB + "KB(" + method + ") / " + chunks.length + "片");
+      return { ok: true, sizeKB: origKB, compKB, chunks: chunks.length };
     } catch (e) {
       console.warn("[HupuCloud] 分片写入异常:", e && e.message);
-      return { ok: false, reason: "api-fail", sizeKB, chunks: chunks.length };
+      return { ok: false, reason: "api-fail", sizeKB: origKB, compKB, chunks: chunks.length };
     }
   }
 
@@ -183,12 +267,14 @@ const HupuCloud = (() => {
     try {
       const meta = await cloudGetValue(partsMetaKey(slot));
       if (!meta || typeof meta !== "object" || !meta.n || meta._deleted) return null;
-      let json = "";
+      let buf = "";
       for (let i = 0; i < meta.n; i++) {
         const piece = await cloudGetRaw(partKey(slot, i));
         if (piece == null) { console.warn("[HupuCloud] 分片缺失:", slot, i); return null; }
-        json += piece;
+        buf += piece;
       }
+      /* v3 meta 标记了压缩方法 */
+      const json = meta.method ? await decompressData(buf, meta.method) : buf;
       return JSON.parse(json);
     } catch (e) {
       console.warn("[HupuCloud] 分片重组失败:", slot, e && e.message);
