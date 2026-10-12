@@ -2383,9 +2383,9 @@ RENDERERS.hub = function () {
       writeSave(save);
       if (window.HupuCloud && HupuCloud.flushSyncSave) {
         const r = await HupuCloud.flushSyncSave(save.slot || state.saveSlot || 1, save);
-        if (r && r.ok) toast("☁️ 存档成功（已同步至云端）");
+        if (r && r.ok) toast("☁️ 存档成功（已同步至云端 " + (r.compKB || "?") + "KB/" + (r.chunks || 1) + "片）");
         else if (r && r.reason === "no-cloud") toast("✓ 存档成功（本地）· 当前环境不支持云存储");
-        else toast("✓ 存档成功（本地）· 云端写入失败，请稍后重试");
+        else toast("✓ 存档成功（本地）· 云端失败 " + (r && r.reason ? "[" + r.reason + (r.failedChunk ? "#" + r.failedChunk : "") + "]" : "") + " " + (r && r.compKB ? r.compKB + "KB" : "") + "，请重试或查看控制台");
       } else {
         toast("✓ 存档成功");
       }
@@ -4704,9 +4704,9 @@ RENDERERS.seasonend = function () {
       writeSave(save);
       if (window.HupuCloud && HupuCloud.flushSyncSave) {
         const r = await HupuCloud.flushSyncSave(save.slot || state.saveSlot || 1, save);
-        if (r && r.ok) toast("☁️ 存档成功（已同步至云端）");
+        if (r && r.ok) toast("☁️ 存档成功（已同步至云端 " + (r.compKB || "?") + "KB/" + (r.chunks || 1) + "片）");
         else if (r && r.reason === "no-cloud") toast("✓ 存档成功（本地）· 当前环境不支持云存储");
-        else toast("✓ 存档成功（本地）· 云端写入失败，请稍后重试");
+        else toast("✓ 存档成功（本地）· 云端失败 " + (r && r.reason ? "[" + r.reason + (r.failedChunk ? "#" + r.failedChunk : "") + "]" : "") + " " + (r && r.compKB ? r.compKB + "KB" : "") + "，请重试或查看控制台");
       } else toast("✓ 存档成功");
     } catch (e) { toast("存档失败：" + (e && e.message || "未知错误")); }
     seSave.disabled = false;

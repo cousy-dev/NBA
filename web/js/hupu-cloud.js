@@ -220,11 +220,13 @@ const HupuCloud = (() => {
      返回 {ok, reason, sizeKB, chunks} */
   async function writeSaveChunks(slot, json) {
     if (!hasCloudStorage()) return { ok: false, reason: "no-cloud" };
-    const origKB = Math.round(utf8Bytes(json).length / 1024);
+    const origBytes = utf8Bytes(json).length;
+    const origKB = Math.round(origBytes / 1024);
     /* 压缩：优先 deflate→base64，回退字段名短码 */
     const { data: compData, method } = await compressJson(json);
-    const compKB = Math.round(utf8Bytes(compData).length / 1024);
-    console.log("[HupuCloud] 存档压缩(" + method + "): " + origKB + "KB -> " + compKB + "KB");
+    const compBytes = utf8Bytes(compData).length;
+    const compKB = Math.round(compBytes / 1024);
+    console.log("[HupuCloud] 存档压缩(" + method + "): " + origKB + "KB -> " + compKB + "KB (" + compBytes + " bytes)");
     /* 分片：base64 是 ASCII，按字节切分 */
     const bytes = utf8Bytes(compData);
     const CHUNK_BYTES = 170 * 1024;
@@ -238,18 +240,22 @@ const HupuCloud = (() => {
         chunks.push(decoder.decode(bytes.subarray(off, off + CHUNK_BYTES)));
       }
     }
+    console.log("[HupuCloud] 分片计划: " + chunks.length + " 片 (单键限制 200KB, 每片上限 " + Math.round(CHUNK_BYTES / 1024) + "KB)");
     try {
       /* 先读旧 meta，用于写完后清理多余分片 */
       const oldMeta = await cloudGetValue(partsMetaKey(slot));
       const oldN = (oldMeta && typeof oldMeta === "object" && oldMeta.n) || 0;
       for (let i = 0; i < chunks.length; i++) {
+        const pieceBytes = utf8Bytes(chunks[i]).length;
         const ok = await cloudSetValue(partKey(slot, i), chunks[i]);
-        if (!ok) { console.warn("[HupuCloud] 分片写入失败:", slot, i + 1 + "/" + chunks.length, "字节:", utf8Bytes(chunks[i]).length); return { ok: false, reason: "api-fail", sizeKB: origKB, compKB, chunks: chunks.length }; }
+        console.log("[HupuCloud] 分片写入 " + (i + 1) + "/" + chunks.length + " " + (ok ? "OK" : "FAIL") + " (" + Math.round(pieceBytes / 1024) + "KB)");
+        if (!ok) { console.warn("[HupuCloud] 分片写入失败:", slot, i + 1 + "/" + chunks.length, "字节:", pieceBytes); return { ok: false, reason: "api-fail", sizeKB: origKB, compKB, chunks: chunks.length, failedChunk: i + 1 }; }
       }
       /* meta 提交 */
       const meta = JSON.stringify({ v: 3, n: chunks.length, t: Date.now(), method, origKB, compKB });
       const metaOk = await cloudSetValue(partsMetaKey(slot), meta);
-      if (!metaOk) return { ok: false, reason: "api-fail", sizeKB: origKB, compKB, chunks: chunks.length };
+      console.log("[HupuCloud] meta 写入 " + (metaOk ? "OK" : "FAIL"));
+      if (!metaOk) return { ok: false, reason: "api-fail", sizeKB: origKB, compKB, chunks: chunks.length, failedMeta: true };
       /* 清理旧存档的多余分片 */
       for (let i = chunks.length; i < oldN; i++) {
         cloudSetValue(partKey(slot, i), "").catch(() => {});
@@ -308,13 +314,26 @@ const HupuCloud = (() => {
     if (copy.schedule) {
       copy.schedule = copy.schedule.map(g => ({ opp: g.opp, home: g.home, result: g.result, score: g.score }));
     }
-    /* 2. 季后赛单场详情（保留系列赛结果） */
-    if (copy.playoffs && copy.playoffs.rounds) {
-      copy.playoffs.rounds.forEach(r => {
-        (r.series || []).forEach(s => { (s.games || []).forEach(gm => { delete gm.box; }); });
-      });
+    /* 2. 季后赛单场详情：保留系列赛 a/b/wa/wb/games[].a/sa/sb/winner，
+          删除 box/quarters（每场节比分表，季后赛期间会显著膨胀存档体积） */
+    if (copy.playoffs) {
+      const stripGame = gm => { delete gm.box; delete gm.quarters; };
+      if (copy.playoffs.rounds) {
+        copy.playoffs.rounds.forEach(r => {
+          (r.series || []).forEach(s => { (s.games || []).forEach(stripGame); });
+        });
+      }
       if (copy.playoffs.userSeries && copy.playoffs.userSeries.games) {
-        copy.playoffs.userSeries.games.forEach(gm => { delete gm.box; });
+        copy.playoffs.userSeries.games.forEach(stripGame);
+      }
+      /* 附加赛 pi 单场也清掉 box/quarters（如有） */
+      if (copy.playoffs.pi) {
+        const piGames = ['g1', 'g2', 'g3'];
+        ['E', 'W'].forEach(conf => {
+          const c = copy.playoffs.pi[conf];
+          if (!c) return;
+          piGames.forEach(k => { if (c[k] && typeof c[k] === 'object') stripGame(c[k]); });
+        });
       }
     }
     /* 3. 纯历史/展示字段剥离（不影响游戏继续运行）：
@@ -323,8 +342,7 @@ const HupuCloud = (() => {
        - finances.history: 财务历史，纯展示
        - retireLog: 退役日志，纯展示
        - prevSeasonOvr: 上赛季OVR快照，仅赛季结算MIP用，赛季初会重置
-       - history: 只保留最后1条（上赛季总结，用于训练点计算），删除更早的
-       - playerAccolades/honors: 荣誉数据，荣誉室展示用（本地保留，云端精简） */
+       - history: 只保留最后1条（上赛季总结，用于训练点计算），删除更早的 */
     delete copy.careerStats;
     delete copy.hof;
     if (copy.finances) delete copy.finances.history;

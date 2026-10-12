@@ -1,13 +1,13 @@
-替换球队LOGO为虎扑平台技能提供的官方LOGO
+修复季后赛期间云存档失败：剥离 quarters + 加详细日志
 
-通过 colorbox-request-basketball-team-info 技能（basketballapi/teamStandingList）
-拉取 NBA 30 队的 logoLink + teamId 静态映射，写入 data/hupu_team_logos.js。
+根因：_stripForCloud 之前只删除了 playoffs.*.games[].box，
+但每场比赛的 quarters 字段（Q1-Q4 节比分表）未剥离，
+季后赛期间存档体积膨胀，压缩后仍可能超 200KB 单键限制导致 SDK 拒绝。
 
-- teamLogoHtml(abbr) 改为优先用虎扑 CDN 远程 LOGO（i11.hoopchina.com.cn），
-  失败回退本地 img/logos/{abbr}_logo.png，再失败回退文字缩写
-- hupu-cloud.js 新增 hasBasketballTeamInfo/fetchTeamLogo/refreshTeamLogo：
-  运行时调用 ColorboxAI.request.basketball.teamInfo 单队刷新 logoLink
-- index.html 声明 colorbox-request-basketball-team-info 技能，
-  加载 hupu_team_logos.js 数据文件
-- 新增 build_hupu_logos.py：拉取最新 logoLink 重新生成映射表（重跑即可）
-- app.js v143 / hupu-cloud.js v9 / hupu_team_logos.js v1
+- _stripForCloud 新增删除 playoffs.rounds[].series[].games[].quarters
+- 同步剥离 playoffs.userSeries.games 和附加赛 pi.{E,W}.{g1,g2,g3} 的 box/quarters
+- writeSaveChunks 增加详细日志：压缩前后字节、分片数、每片写入结果、meta 结果
+  方便用户复现失败时在控制台看到具体瓶颈
+- flushSyncSave 返回值新增 failedChunk/failedMeta 字段
+- toast 文案带上 [reason] + 体积 KB，便于诊断
+- index.html: hupu-cloud v10 / app v144
