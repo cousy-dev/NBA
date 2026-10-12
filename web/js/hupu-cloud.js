@@ -105,6 +105,21 @@ const HupuCloud = (() => {
     }, 1200);
   }
 
+  /* 立即同步（用户点击「存档」按钮时调用，跳过去抖） */
+  function flushSyncSave(slot, save) {
+    if (!hasCloudStorage()) return false;
+    clearTimeout(_syncTimers[slot]);
+    try {
+      const copy = Object.assign({}, save, { _cloudT: Date.now() });
+      const json = JSON.stringify(copy);
+      if (json.length > MAX_CLOUD_SIZE) {
+        console.warn("[HupuCloud] 存档超 200KB 跳过云同步:", Math.round(json.length / 1024) + "KB");
+        return false;
+      }
+      return cloudSetValue(SAVE_PREFIX + slot, json);
+    } catch (e) { return false; }
+  }
+
   function deleteSave(slot) {
     if (!hasCloudStorage()) return;
     clearTimeout(_syncTimers[slot]);
@@ -511,6 +526,7 @@ const HupuCloud = (() => {
     hasCloudRequest,
     cloudAvailable,
     syncSave,
+    flushSyncSave,
     deleteSave,
     restoreSaves,
     reportResult,

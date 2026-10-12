@@ -1280,24 +1280,33 @@ function doAging(save) {
   const ratedMap = new Map(PLAYERS_RATED.players.map(p => [p.id, p]));
   const findPlayer = id => customMap.get(id) || ratedMap.get(id);
 
+  /* 用 Set 防止同一球员被多次老化（修复"年龄+2"BUG：
+     用户阵容(save.roster)和原始球队名单(playersByTeam)可能包含同一球员，
+     当用户队abbr不在save.aiRosters时，TEAMS循环会重复处理已老化的球员） */
+  const aged = new Set();
+  function safeAge(id) {
+    if (aged.has(id)) return;
+    aged.add(id);
+    _agePlayer(save, id, findPlayer);
+  }
   /* 处理用户阵容 */
-  save.roster.forEach(r => { _agePlayer(save, r.id, findPlayer); });
+  save.roster.forEach(r => { safeAge(r.id); });
   /* 处理 AI 队阵容 */
   if (save.aiRosters) {
     Object.keys(save.aiRosters).forEach(abbr => {
-      (save.aiRosters[abbr] || []).forEach(id => { _agePlayer(save, id, findPlayer); });
+      (save.aiRosters[abbr] || []).forEach(id => { safeAge(id); });
     });
   }
   /* 处理所有其他球员（没被交易的） */
   TEAMS.forEach(t => {
     if (save.aiRosters && save.aiRosters[t.abbr]) return; /* 已处理 */
-    playersByTeam(t.abbr).forEach(p => { _agePlayer(save, p.id, findPlayer); });
+    playersByTeam(t.abbr).forEach(p => { safeAge(p.id); });
   });
-  /* 士气向中性回归 20%（休赛期换环境/重置预期，避免低士气跨赛季长年积压） */
+  /* 士气向中性回归 40%（休赛期换环境/重置预期，避免低士气跨赛季长年积压导致死亡螺旋） */
   if (save.morale) {
     Object.keys(save.morale).forEach(id => {
       const m = save.morale[id];
-      save.morale[id] = Math.round(m + (DEFAULT_MORALE - m) * 0.2);
+      save.morale[id] = Math.round(m + (DEFAULT_MORALE - m) * 0.4);
     });
   }
   /* 退役判定 */
@@ -1640,7 +1649,7 @@ function moraleOvrDelta(morale) {
   if (morale >= 60) return 0;
   if (morale >= 40) return -1;
   if (morale >= 20) return -2;
-  return -4;
+  return -3;  /* 原-4过于极端，低士气→-4 OVR→战力暴跌→更多败场→士气更低=死亡螺旋 */
 }
 
 /* ===== 伤病系统 ===== */
@@ -1802,7 +1811,9 @@ function updateAIMorale(save, abbr, won) {
   const ids = (save.aiRosters && save.aiRosters[abbr]) || playersByTeam(abbr).map(p => p.id);
   const top = ids.map(id => {
     const p0 = findPlayerById(save, id);
-    return p0 ? { id, ovr: (p0.ovr || 70) + ((save.ovrAdj && save.ovrAdj[id]) || 0) } : null;
+    if (!p0) return null;
+    if (isInjured(save, id)) return null;  /* 伤兵不参与士气结算，防止缺阵球星士气白白下滑 */
+    return { id, ovr: (p0.ovr || 70) + ((save.ovrAdj && save.ovrAdj[id]) || 0) };
   }).filter(Boolean).sort((a, b) => b.ovr - a.ovr).slice(0, 8);
   const streak = (save.standings[abbr] || {}).streak || 0;
   /* 连胜/连败影响进一步收敛：单场胜负 ±0.15、连胜系数 0.10/场封顶 ±0.5。

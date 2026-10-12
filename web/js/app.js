@@ -2262,6 +2262,7 @@ RENDERERS.hub = function () {
     '<button class="mc-btn" id="btn-hof"><span class="hn-ico">🏛️</span><span>名人堂</span></button>' +
     '<button class="mc-btn" id="btn-trophyroom"><span class="hn-ico">🏆</span><span>荣誉室</span></button>' +
     '<button class="mc-btn" id="btn-leaderboard"><span class="hn-ico">📈</span><span>排行榜</span></button>' +
+    '<button class="mc-btn" id="btn-save-cloud"><span class="hn-ico">☁️</span><span>存档</span></button>' +
     '<button class="mc-btn" id="btn-feedback"><span class="hn-ico">💬</span><span>反馈</span></button>' +
     (window.HupuCloud && HupuCloud.hasAd && HupuCloud.hasAd()
       ? '<button class="mc-btn ad-btn" id="btn-ad-reward"><span class="hn-ico">📺</span><span>看广告领奖励</span></button>'
@@ -2352,6 +2353,28 @@ RENDERERS.hub = function () {
   if (btroom) btroom.onclick = () => go("trophyroom");
   const blb = $("#btn-leaderboard");
   if (blb) blb.onclick = () => go("leaderboard");
+  /* 手动存档：写入本地 + 立即同步到云端 */
+  const bsave = $("#btn-save-cloud");
+  if (bsave) bsave.onclick = async () => {
+    bsave.disabled = true;
+    const lbl = bsave.querySelector("span:last-child");
+    const origText = lbl ? lbl.textContent : "";
+    if (lbl) lbl.textContent = "存档中…";
+    try {
+      writeSave(save);
+      if (window.HupuCloud && HupuCloud.flushSyncSave) {
+        const ok = await HupuCloud.flushSyncSave(save.slot || state.saveSlot || 1, save);
+        if (ok) toast("☁️ 存档成功（已同步至云端）");
+        else toast("✓ 存档成功（本地）· 云端同步失败或不可用");
+      } else {
+        toast("✓ 存档成功");
+      }
+    } catch (e) {
+      toast("存档失败：" + (e && e.message || "未知错误"));
+    }
+    bsave.disabled = false;
+    if (lbl) lbl.textContent = origText;
+  };
   const bfb = $("#btn-feedback");
   if (bfb) bfb.onclick = () => {
     if (window.HupuCloud && HupuCloud.hasTrack) HupuCloud.track({ act: "click", blk: "BMC009", pos: "T1", label: "用户反馈" });
@@ -4620,6 +4643,7 @@ RENDERERS.seasonend = function () {
         '<div class="ng-meta">执教生涯到此结束 · 共执教 ' + save.seasonNo + ' 个赛季</div>' +
         '<button class="btn btn-primary" id="btn-fired-menu">返回主菜单</button></div>'
       : '<button class="btn btn-primary" id="btn-newseason">开启第 ' + (save.seasonNo + 1) + " 赛季</button>" +
+        '<button class="btn btn-outline" id="btn-se-save">☁️ 存档</button>' +
         '<button class="btn btn-outline" id="btn-se-trade">休赛期交易</button>' +
         '<button class="btn btn-outline" id="btn-se-search">🔍 交易搜索</button>' +
         '<button class="btn btn-outline" id="se-hub">返回经理室</button>');
@@ -4651,6 +4675,22 @@ RENDERERS.seasonend = function () {
   };
   const seHubBtn = $("#se-hub");
   if (seHubBtn) seHubBtn.onclick = () => { RENDERERS.hub(); state.stack = []; activate("hub"); };
+  const seSave = $("#btn-se-save");
+  if (seSave) seSave.onclick = async () => {
+    seSave.disabled = true;
+    const orig = seSave.textContent;
+    seSave.textContent = "存档中…";
+    try {
+      writeSave(save);
+      if (window.HupuCloud && HupuCloud.flushSyncSave) {
+        const ok = await HupuCloud.flushSyncSave(save.slot || state.saveSlot || 1, save);
+        if (ok) toast("☁️ 存档成功（已同步至云端）");
+        else toast("✓ 存档成功（本地）· 云端同步失败或不可用");
+      } else toast("✓ 存档成功");
+    } catch (e) { toast("存档失败：" + (e && e.message || "未知错误")); }
+    seSave.disabled = false;
+    seSave.textContent = orig;
+  };
   const seTrade = $("#btn-se-trade");
   if (seTrade) seTrade.onclick = () => go("trade");
   const seSearch = $("#btn-se-search");
