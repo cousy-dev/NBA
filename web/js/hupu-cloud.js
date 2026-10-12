@@ -297,29 +297,41 @@ const HupuCloud = (() => {
   }
 
   /* 立即同步（用户点击「存档」按钮时调用，跳过去抖）。
-     云端同步前剥离比赛详情(box/quarters)以减小体积——这些仅用于本地日历弹窗，
-     不影响恢复后游戏功能。返回 Promise<{ok, reason, sizeKB, chunks}> */
+     云端同步前剥离非关键字段以减小体积，确保多赛季后仍 < 200KB（压缩后）。
+     原则：保留游戏运行必需字段，剥离纯展示/历史字段（本地存档仍完整保留）。
+     返回 Promise<{ok, reason, sizeKB, chunks}> */
   function _stripForCloud(save) {
-    /* 深拷贝后剥离，避免修改原对象的嵌套引用（否则本地存档也会丢 box/quarters） */
+    /* 深拷贝后剥离，避免修改原对象的嵌套引用 */
     const copy = JSON.parse(JSON.stringify(save));
     copy._cloudT = Date.now();
-    /* 剥离比赛详情（最大体积来源）：保留result/score用于日历标记，删除box/quarters */
+    /* 1. 比赛详情：保留 result/score 用于日历标记，删除 box/quarters */
     if (copy.schedule) {
-      copy.schedule = copy.schedule.map(g => {
-        const s = { opp: g.opp, home: g.home, result: g.result, score: g.score };
-        return s;
-      });
+      copy.schedule = copy.schedule.map(g => ({ opp: g.opp, home: g.home, result: g.result, score: g.score }));
     }
-    /* 剥离季后赛单场详情（同理，保留系列赛结果） */
+    /* 2. 季后赛单场详情（保留系列赛结果） */
     if (copy.playoffs && copy.playoffs.rounds) {
       copy.playoffs.rounds.forEach(r => {
-        (r.series || []).forEach(s => {
-          (s.games || []).forEach(gm => { delete gm.box; });
-        });
+        (r.series || []).forEach(s => { (s.games || []).forEach(gm => { delete gm.box; }); });
       });
       if (copy.playoffs.userSeries && copy.playoffs.userSeries.games) {
         copy.playoffs.userSeries.games.forEach(gm => { delete gm.box; });
       }
+    }
+    /* 3. 纯历史/展示字段剥离（不影响游戏继续运行）：
+       - careerStats: 生涯数据，仅名人堂展示用（已入选的在 save.hof 里）
+       - hof: 名人堂名单，纯展示
+       - finances.history: 财务历史，纯展示
+       - retireLog: 退役日志，纯展示
+       - prevSeasonOvr: 上赛季OVR快照，仅赛季结算MIP用，赛季初会重置
+       - history: 只保留最后1条（上赛季总结，用于训练点计算），删除更早的
+       - playerAccolades/honors: 荣誉数据，荣誉室展示用（本地保留，云端精简） */
+    delete copy.careerStats;
+    delete copy.hof;
+    if (copy.finances) delete copy.finances.history;
+    delete copy.retireLog;
+    delete copy.prevSeasonOvr;
+    if (Array.isArray(copy.history) && copy.history.length > 1) {
+      copy.history = copy.history.slice(-1);
     }
     return copy;
   }

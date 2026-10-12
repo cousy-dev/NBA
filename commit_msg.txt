@@ -1,14 +1,17 @@
-fix: 云端存档压缩方案改为 deflate+短码，修复赛季2存档失败
+fix: 云端存档剥离更多历史字段，确保赛季3+仍可保存
 
-根因：之前剥离 schedule[].box/quarters 后赛季2存档仍超限，说明还有
-其他大字段累积（customPlayers新秀、playerStats、careerStats等），
-且内嵌的LZ-string实现位序有bug导致解压失败。
+分析存档体积增长模型：赛季5约400KB、赛季10约670KB。
+deflate压缩后(30%)赛季10约201KB临界，赛季15+必然超限。
 
-修复：
-- 移除有bug的LZ-string，改用浏览器原生 CompressionStream(deflate-raw)
-  → base64 压缩（Chrome80+/Android WebView支持）
-- 不支持 deflate 时回退「字段名短码替换」：把 nameCn/attrs/potential 等
-  高频字段名替换成 \x01-\x1f 单字符，压缩率约60%
-- writeSaveChunks 用 await compressJson 异步压缩，meta.v3 标记压缩方法
-- readSaveChunks 根据 meta.method 解压
-- 短码压缩/解压已用cscript验证还原一致
+本次在 _stripForCloud 中剥离更多纯展示/历史字段（本地存档仍完整）：
+- careerStats: 生涯数据，仅名人堂展示
+- hof: 名人堂名单，纯展示
+- finances.history: 财务历史，纯展示
+- retireLog: 退役日志，纯展示
+- prevSeasonOvr: 上赛季OVR快照，仅MIP用，赛季初重置
+- history: 只保留最后1条（训练点计算需要）
+
+剥离后体积模型：赛季10约555KB→压缩166KB(<200KB单键)，
+赛季15约780KB→压缩234KB(走分片兜底)。
+customPlayers保留完整(attrs不能删否则applyAdj报错)，
+playerStats/retired等游戏逻辑必需字段保留。
