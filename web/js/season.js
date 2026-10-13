@@ -626,6 +626,11 @@ function currentPayroll(save) {
    返回 { rec, fired }：fired=true 表示连续亏损耗尽老板现金，触发电雇。 */
 function settleSeasonFinance(save) {
   save.finances = save.finances || { cash: 60, history: [], deficitStreak: 0 };
+  /* 旧版本存档可能只有 finances.cash 而无 history 数组，直接 .some() 会 TypeError
+     导致赛季总结渲染中断（表现为"查看赛季总结点不进去"） */
+  if (!Array.isArray(save.finances.history)) save.finances.history = [];
+  if (typeof save.finances.cash !== "number" || isNaN(save.finances.cash)) save.finances.cash = 60;
+  if (typeof save.finances.deficitStreak !== "number") save.finances.deficitStreak = 0;
   const fin = save.finances;
   if (fin.history.some(h => h.season === save.seasonNo)) {
     return { rec: fin.history.find(h => h.season === save.seasonNo), fired: !!save.fired };

@@ -1,13 +1,19 @@
-修复季后赛期间云存档失败：剥离 quarters + 加详细日志
+修复赛季总结点不进去 + 批量模拟/云同步卡顿
 
-根因：_stripForCloud 之前只删除了 playoffs.*.games[].box，
-但每场比赛的 quarters 字段（Q1-Q4 节比分表）未剥离，
-季后赛期间存档体积膨胀，压缩后仍可能超 200KB 单键限制导致 SDK 拒绝。
+【点不进去】
+- settleSeasonFinance 旧存档守卫：finances.history 缺失时补空数组
+  （旧版本存档只有 finances.cash，.some() 直接 TypeError，
+  赛季总结渲染中断，表现为点击"查看赛季总结"无反应）
+- go()/back() 渲染兜底 try-catch：渲染器抛错时 toast 提示 +
+  console.error 带堆栈，仍进入目标界面，不再静默卡死
+- activate() 空元素守卫
 
-- _stripForCloud 新增删除 playoffs.rounds[].series[].games[].quarters
-- 同步剥离 playoffs.userSeries.games 和附加赛 pi.{E,W}.{g1,g2,g3} 的 box/quarters
-- writeSaveChunks 增加详细日志：压缩前后字节、分片数、每片写入结果、meta 结果
-  方便用户复现失败时在控制台看到具体瓶颈
-- flushSyncSave 返回值新增 failedChunk/failedMeta 字段
-- toast 文案带上 [reason] + 体积 KB，便于诊断
-- index.html: hupu-cloud v10 / app v144
+【卡顿】
+- skipRest（⏩立即完成剩余）批量模拟期间推迟写盘：state._deferSave 标记，
+  writeSave 只置脏标记，循环结束统一补写一次 —— 消除连跳几十场时
+  逐场全量 localStorage 写 500KB+ JSON 的主线程阻塞
+- _stripForCloud 改浅拷贝 + 仅重建被修改路径（schedule/playoffs/history/
+  finances），不再整棵树 JSON 深拷贝 —— customPlayers/playerStats 等大对象
+  深拷贝在低端机每次自动云同步阻塞主线程数百毫秒
+
+index.html: app v145 / season v63 / hupu-cloud v11

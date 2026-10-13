@@ -305,53 +305,80 @@ const HupuCloud = (() => {
   /* 立即同步（用户点击「存档」按钮时调用，跳过去抖）。
      云端同步前剥离非关键字段以减小体积，确保多赛季后仍 < 200KB（压缩后）。
      原则：保留游戏运行必需字段，剥离纯展示/历史字段（本地存档仍完整保留）。
+     性能：浅拷贝 + 仅重建被修改的路径（schedule/playoffs/history/finances），
+     不再整棵树 JSON 深拷贝 —— customPlayers/playerStats 等大对象深拷贝会在
+     低端机上每次自动同步阻塞主线程数百毫秒（卡顿来源）。
      返回 Promise<{ok, reason, sizeKB, chunks}> */
   function _stripForCloud(save) {
-    /* 深拷贝后剥离，避免修改原对象的嵌套引用 */
-    const copy = JSON.parse(JSON.stringify(save));
+    const copy = Object.assign({}, save);
     copy._cloudT = Date.now();
     /* 1. 比赛详情：保留 result/score 用于日历标记，删除 box/quarters */
-    if (copy.schedule) {
-      copy.schedule = copy.schedule.map(g => ({ opp: g.opp, home: g.home, result: g.result, score: g.score }));
+    if (Array.isArray(save.schedule)) {
+      copy.schedule = save.schedule.map(g => ({ opp: g.opp, home: g.home, result: g.result, score: g.score }));
     }
-    /* 2. 季后赛单场详情：保留系列赛 a/b/wa/wb/games[].a/sa/sb/winner，
-          删除 box/quarters（每场节比分表，季后赛期间会显著膨胀存档体积） */
-    if (copy.playoffs) {
-      const stripGame = gm => { delete gm.box; delete gm.quarters; };
-      if (copy.playoffs.rounds) {
-        copy.playoffs.rounds.forEach(r => {
-          (r.series || []).forEach(s => { (s.games || []).forEach(stripGame); });
-        });
-      }
-      if (copy.playoffs.userSeries && copy.playoffs.userSeries.games) {
-        copy.playoffs.userSeries.games.forEach(stripGame);
-      }
-      /* 附加赛 pi 单场也清掉 box/quarters（如有） */
-      if (copy.playoffs.pi) {
-        const piGames = ['g1', 'g2', 'g3'];
-        ['E', 'W'].forEach(conf => {
-          const c = copy.playoffs.pi[conf];
-          if (!c) return;
-          piGames.forEach(k => { if (c[k] && typeof c[k] === 'object') stripGame(c[k]); });
-        });
-      }
-    }
-    /* 3. 纯历史/展示字段剥离（不影响游戏继续运行）：
-       - careerStats: 生涯数据，仅名人堂展示用（已入选的在 save.hof 里）
+    /* 2. 季后赛：保留系列赛 a/b/wa/wb/winner，剥离单场 box/quarters（节比分+球员数据，
+          季后赛期间 200+ 场会显著膨胀存档体积） */
+    if (save.playoffs) copy.playoffs = _stripPlayoffsForCloud(save.playoffs);
+    /* 3. 纯历史/展示字段剥离（浅拷贝上 delete 不影响原对象）：
+       - careerStats: 生涯数据，仅名人堂展示用
        - hof: 名人堂名单，纯展示
-       - finances.history: 财务历史，纯展示
+       - finances.history: 财务历史，纯展示（重建轻量 finances，避免改原对象）
        - retireLog: 退役日志，纯展示
        - prevSeasonOvr: 上赛季OVR快照，仅赛季结算MIP用，赛季初会重置
        - history: 只保留最后1条（上赛季总结，用于训练点计算），删除更早的 */
     delete copy.careerStats;
     delete copy.hof;
-    if (copy.finances) delete copy.finances.history;
+    if (copy.finances && typeof copy.finances === "object") {
+      const fin = Object.assign({}, copy.finances);
+      delete fin.history;
+      copy.finances = fin;
+    }
     delete copy.retireLog;
     delete copy.prevSeasonOvr;
     if (Array.isArray(copy.history) && copy.history.length > 1) {
       copy.history = copy.history.slice(-1);
     }
     return copy;
+  }
+  /* 季后赛云同步剥离：沿被修改路径浅拷贝（rounds→series→games / userSeries / pi），
+     原始 save.playoffs 不被改动 */
+  function _stripPlayoffsForCloud(ps) {
+    const stripGame = gm => {
+      if (!gm || typeof gm !== "object") return gm;
+      const c = Object.assign({}, gm);
+      delete c.box;
+      delete c.quarters;
+      return c;
+    };
+    const stripSeries = s => {
+      if (!s || typeof s !== "object") return s;
+      const c = Object.assign({}, s);
+      if (Array.isArray(c.games)) c.games = c.games.map(stripGame);
+      return c;
+    };
+    const c = Object.assign({}, ps);
+    if (Array.isArray(c.rounds)) {
+      c.rounds = c.rounds.map(r => {
+        if (!r || typeof r !== "object") return r;
+        const rc = Object.assign({}, r);
+        if (Array.isArray(rc.series)) rc.series = rc.series.map(stripSeries);
+        return rc;
+      });
+    }
+    if (c.userSeries) c.userSeries = stripSeries(c.userSeries);
+    /* 附加赛 pi 单场同样剥离 box/quarters */
+    if (c.pi && typeof c.pi === "object") {
+      const pi = Object.assign({}, c.pi);
+      ["E", "W"].forEach(conf => {
+        const src = pi[conf];
+        if (!src || typeof src !== "object") return;
+        const cc = Object.assign({}, src);
+        ["g1", "g2", "g3"].forEach(k => { if (cc[k] && typeof cc[k] === "object") cc[k] = stripGame(cc[k]); });
+        pi[conf] = cc;
+      });
+      c.pi = pi;
+    }
+    return c;
   }
   function flushSyncSave(slot, save) {
     if (!hasCloudStorage()) return Promise.resolve({ ok: false, reason: "no-cloud" });

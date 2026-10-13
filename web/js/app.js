@@ -399,14 +399,32 @@ const RENDERERS = {};
 function activate(name, keepScroll) {
   state.screen = name;
   $$(".screen").forEach(el => el.classList.add("hidden"));
-  $("#screen-" + name).classList.remove("hidden");
+  const scrEl = $("#screen-" + name);
+  if (scrEl) scrEl.classList.remove("hidden");
   if (!keepScroll) window.scrollTo(0, 0);
   updateTopbar();
 }
-function go(name) { state.stack.push(state.screen); RENDERERS[name](); activate(name); }
+function go(name) {
+  state.stack.push(state.screen);
+  /* 渲染兜底：渲染函数抛错时仍进入目标界面并提示，避免点击后静默卡死在原界面 */
+  try {
+    if (typeof RENDERERS[name] !== "function") throw new Error("缺少渲染器 " + name);
+    RENDERERS[name]();
+  } catch (e) {
+    console.error("[go] 渲染 " + name + " 失败:", e);
+    toast("页面渲染出错：" + (e && e.message || "未知错误") + "，请截图控制台报错反馈");
+  }
+  activate(name);
+}
 function back() {
   const prev = state.stack.pop() || "start";
-  RENDERERS[prev]();
+  try {
+    if (typeof RENDERERS[prev] !== "function") throw new Error("缺少渲染器 " + prev);
+    RENDERERS[prev]();
+  } catch (e) {
+    console.error("[back] 渲染 " + prev + " 失败:", e);
+    toast("页面渲染出错：" + (e && e.message || "未知错误") + "，请截图控制台报错反馈");
+  }
   activate(prev);
 }
 function currentStep() {
@@ -1697,6 +1715,9 @@ function migrateSave(save) {
 function writeSave(save) {
   const s = save.slot || state.saveSlot || 1;
   save.slot = s;
+  /* 批量模拟（⏩立即完成剩余）期间推迟写盘：循环内每场全量 localStorage 写入
+     500KB+ 的 JSON 会阻塞主线程造成卡顿，循环结束后统一补写一次 */
+  if (state._deferSave) { state._saveDirty = true; return; }
   writeSlot(s, save);
   /* 虎扑云同步（活动数据存储）：去抖异步上报，失败静默不影响游戏 */
   if (window.HupuCloud) HupuCloud.syncSave(s, save);
@@ -2752,17 +2773,26 @@ function runSimAnimation(save, totalGames, opts) {
      - 系列赛模式：该轮系列赛分出胜负即止 */
   function skipRest() {
     instantSkip = true;
-    while (idx < totalGames) {
-      const r = simulateOne(save);
-      if (!r) break;
-      if (opts.mode === "regular" && r.playoff) break;
-      idx++;
-      if (r.win) wins++; else losses++;
-      recent.push(r);
-      if (recent.length > 8) recent.shift();
-      if (opts.mode === "round" && opts.stopCheck && opts.stopCheck()) break;
-      /* 全明星周末触发：暂停批量模拟 */
-      if (state._allStarPending) break;
+    /* 批量模拟期间推迟每场的 localStorage 写盘（writeSave 只置脏标记），
+       循环结束后统一补写一次 —— 消除连跳几十场时逐场全量写盘的卡顿 */
+    state._deferSave = true;
+    state._saveDirty = false;
+    try {
+      while (idx < totalGames) {
+        const r = simulateOne(save);
+        if (!r) break;
+        if (opts.mode === "regular" && r.playoff) break;
+        idx++;
+        if (r.win) wins++; else losses++;
+        recent.push(r);
+        if (recent.length > 8) recent.shift();
+        if (opts.mode === "round" && opts.stopCheck && opts.stopCheck()) break;
+        /* 全明星周末触发：暂停批量模拟 */
+        if (state._allStarPending) break;
+      }
+    } finally {
+      state._deferSave = false;
+      if (state._saveDirty) { state._saveDirty = false; writeSave(save); }
     }
     finishAll();
   }
